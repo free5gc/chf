@@ -2,6 +2,7 @@ package producer
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,7 +96,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	ueId := chargingData.SubscriberIdentifier
 	consumerId := chargingData.NfConsumerIdentification.NFName
 	if !chargingData.OneTimeEvent {
-		chargingSessionId = ueId + consumerId + string(self.LocalRecordSequenceNumber)
+		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
 	}
 	cdr, err := OpenCDR(chargingData, ueId, chargingSessionId, false)
 	if err != nil {
@@ -131,7 +132,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	self.NewCHFUe(ueId)
 
 	// build response
-	locationURI := self.GetIPv4Uri() + "/nchf-convergedcharging/v3/chargingdata/" + string(chargingSessionId)
+	locationURI := self.GetIPv4Uri() + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
 	timeStamp := time.Now()
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
@@ -221,7 +222,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	// RecordOpeningTime: Time stamp when the PDU session is activated in the SMF or record opening time on subsequent partial records.
 	// TODO identify charging event is SMF PDU session
 	t := time.Now()
-	chfCdr.RecordOpeningTime = TimeStampToCdr(&t)
+	chfCdr.RecordOpeningTime = cdrConvert.TimeStampToCdr(&t)
 
 	// Initial CDR duration
 	chfCdr.Duration = cdrType.CallDuration{
@@ -372,13 +373,12 @@ func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataReques
 
 	if len(chargingData.MultipleUnitUsage) != 0 {
 		// NOTE: quota info needn't be encoded to cdr, refer 32.291 Ch7.1
-		cdrMultiUnitUsage := MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
-
+		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
 		chfCdr.ListOfMultipleUnitUsage = append(chfCdr.ListOfMultipleUnitUsage, cdrMultiUnitUsage...)
 	}
 
 	if len(chargingData.Triggers) != 0 {
-		triggers := TriggersToCdr(chargingData.Triggers)
+		triggers := cdrConvert.TriggersToCdr(chargingData.Triggers)
 		chfCdr.Triggers = append(chfCdr.Triggers, triggers...)
 	}
 
@@ -425,8 +425,9 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	var cdrfile cdrFile.CDRFile
 	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
 	cdrfile.Hdr.LengthOfPrivateExtension = 0
-	cdrfile.Hdr.HeaderLength = uint32(50 + cdrfile.Hdr.LengthOfCdrRouteingFilter + cdrfile.Hdr.LengthOfPrivateExtension)
+	cdrfile.Hdr.HeaderLength = uint32(54 + cdrfile.Hdr.LengthOfCdrRouteingFilter + cdrfile.Hdr.LengthOfPrivateExtension)
 	cdrfile.Hdr.NumberOfCdrsInFile = uint32(len(records))
+	cdrfile.Hdr.FileLength = cdrfile.Hdr.HeaderLength
 
 	for _, record := range records {
 		cdrBytes, err := asn.BerMarshalWithParams(&record, "explicit,choice")
@@ -442,6 +443,8 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 			cdrBytes,
 		}
 		cdrfile.CdrList = append(cdrfile.CdrList, tmpCdr)
+
+		cdrfile.Hdr.FileLength += uint32(cdrHdr.CdrLength) + 5
 	}
 
 	cdrfile.Encoding("/tmp/"+ueid+".cdr")
