@@ -1,7 +1,6 @@
 package producer
 
 import (
-	"encoding/hex"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/free5gc/CDRUtil/asn"
 	"github.com/free5gc/CDRUtil/cdrConvert"
 	"github.com/free5gc/CDRUtil/cdrType"
+	"github.com/free5gc/CDRUtil/cdrFile"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
@@ -154,6 +154,17 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		return nil, problemDetails
 	}
 
+	// NOTE: for demo
+	ueId := chargingData.SubscriberIdentifier
+	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
+	if err != nil {
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusBadRequest,
+		}
+		return nil, problemDetails
+	}
+
+
 	timeStamp := time.Now()
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
@@ -174,6 +185,15 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 	}
 
 	err = CloseCDR(cdr, false)
+	if err != nil {
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusBadRequest,
+		}
+		return problemDetails
+	}
+
+	ueId := chargingData.SubscriberIdentifier
+	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -396,12 +416,35 @@ func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 		chfCdr.CauseForRecClosing = cdrType.CauseForRecClosing{0}
 	}
 
-	// generate CDR file
-	cdrBytes, err := asn.BerMarshalWithParams(&record, "explicit,choice")
-	if err != nil {
-		logger.ChargingdataPostLog.Errorln(err)
+	return nil
+}
+
+func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
+	logger.ChargingdataPostLog.Infof("Dump CDR File")
+
+	var cdrfile cdrFile.CDRFile
+	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
+	cdrfile.Hdr.LengthOfPrivateExtension = 0
+	cdrfile.Hdr.HeaderLength = uint32(50 + cdrfile.Hdr.LengthOfCdrRouteingFilter + cdrfile.Hdr.LengthOfPrivateExtension)
+	cdrfile.Hdr.NumberOfCdrsInFile = uint32(len(records))
+
+	for _, record := range records {
+		cdrBytes, err := asn.BerMarshalWithParams(&record, "explicit,choice")
+		if err != nil {
+			logger.ChargingdataPostLog.Errorln(err)
+		}
+
+		var cdrHdr cdrFile.CdrHeader
+		cdrHdr.CdrLength = uint16(len(cdrBytes))
+		cdrHdr.DataRecordFormat = cdrFile.BasicEncodingRules
+		tmpCdr := cdrFile.CDR {
+			cdrHdr,
+			cdrBytes,
+		}
+		cdrfile.CdrList = append(cdrfile.CdrList, tmpCdr)
 	}
-	logger.ChargingdataPostLog.Infof("CDR Bytes:\n%s", hex.Dump(cdrBytes))
+
+	cdrfile.Encoding("/tmp/"+ueid+".cdr")
 
 	return nil
 }

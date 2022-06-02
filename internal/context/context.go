@@ -18,6 +18,7 @@ func init() {
 	chfCtx.Name = "chf"
 	chfCtx.UriScheme = models.UriScheme_HTTPS
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
+	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
 }
 
 type CHFContext struct {
