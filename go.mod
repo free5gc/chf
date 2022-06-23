@@ -14,8 +14,10 @@ require (
 	github.com/sirupsen/logrus v1.8.1
 	github.com/urfave/cli v1.22.5
 	gopkg.in/yaml.v2 v2.4.0
+	github.com/free5gc/TarrifUtil v1.2.3
+
 )
 
-replace github.com/free5gc/openapi => /home/free5gcninja/dev/nems/openapi
-
-replace github.com/free5gc/CDRUtil => /home/free5gcninja/dev/nems/CDRUtil
+replace github.com/free5gc/openapi => /home/free5gc/openapi
+replace github.com/free5gc/TarrifUtil => /home/free5gc/TarrifUtil
+replace github.com/free5gc/CDRUtil => /home/free5gc/CDRUtil

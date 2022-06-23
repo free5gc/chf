@@ -8,12 +8,13 @@ import (
 
 	"github.com/free5gc/CDRUtil/asn"
 	"github.com/free5gc/CDRUtil/cdrConvert"
-	"github.com/free5gc/CDRUtil/cdrType"
 	"github.com/free5gc/CDRUtil/cdrFile"
+	"github.com/free5gc/CDRUtil/cdrType"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
+	"github.com/free5gc/TarrifUtil"
 )
 
 func HandleChargingdataInitial(request *httpwrapper.Request) *httpwrapper.Response {
@@ -129,8 +130,8 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	// CDR management
 	// TODO
 	logger.ChargingdataPostLog.Infof("Open CDR for UE %s", ueId)
-	self.NewCHFUe(ueId)
 
+	self.NewCHFUe(ueId)
 	// build response
 	locationURI := self.GetIPv4Uri() + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
 	timeStamp := time.Now()
@@ -165,11 +166,64 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		return nil, problemDetails
 	}
 
+	// Rating Function
+
+	supiType := strings.Split(supi, "-")[0]
+	switch supiType {
+	case "imsi":
+		logger.ChargingdataPostLog.Debugf("SUPI: %s", supi)
+		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
+			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERIMSI},
+			SubscriptionIDData: asn.UTF8String(supi[5:]),
+		}
+	case "nai":
+		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
+			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
+			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		}
+	case "gci":
+		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
+			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
+			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		}
+	case "gli":
+		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
+			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
+			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		}
+	}
+
+	ServiceUsageRequest := TarrifUtil.TarrifUtil.ServiceUsageRequest{
+		SubscriptionId: &chf_context.SubscriptionId{
+			SubscriptionIdData:,
+			
+		},
+	}
+
+	multipleUnitInformation := []models.MultipleUnitInformation{}
+
+	for _, unitUsage := range chargingData.MultipleUnitUsage {
+
+		grantedunit := chf_context.CHF_Self().GrantedUnit
+		unitInformation := models.MultipleUnitInformation{
+			RatingGroup: unitUsage.RatingGroup,
+			GrantedUnit: &models.GrantedUnit{
+				TotalVolume:    grantedunit.TotalVolume,
+				DownlinkVolume: grantedunit.DownlinkVolume,
+				UplinkVolume:   grantedunit.UplinkVolume,
+			},
+		}
+
+		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+	}
+
+	responseBody.Triggers = chargingData.Triggers
 
 	timeStamp := time.Now()
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
+	responseBody.MultipleUnitInformation = multipleUnitInformation
 	return &responseBody, nil
 }
 
@@ -420,7 +474,7 @@ func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 }
 
 func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
-	logger.ChargingdataPostLog.Infof("Dump CDR File")
+	logger.ChargingdataPostLog.Infof("Dump CDR File ")
 
 	var cdrfile cdrFile.CDRFile
 	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
@@ -438,7 +492,7 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 		var cdrHdr cdrFile.CdrHeader
 		cdrHdr.CdrLength = uint16(len(cdrBytes))
 		cdrHdr.DataRecordFormat = cdrFile.BasicEncodingRules
-		tmpCdr := cdrFile.CDR {
+		tmpCdr := cdrFile.CDR{
 			cdrHdr,
 			cdrBytes,
 		}
@@ -447,7 +501,7 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 		cdrfile.Hdr.FileLength += uint32(cdrHdr.CdrLength) + 5
 	}
 
-	cdrfile.Encoding("/tmp/"+ueid+".cdr")
+	cdrfile.Encoding("/tmp/" + ueid + ".cdr")
 
 	return nil
 }

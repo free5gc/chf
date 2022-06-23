@@ -61,10 +61,11 @@ func (i *Info) validate() (bool, error) {
 }
 
 type Configuration struct {
-	ChfName     string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
-	Sbi         *Sbi      `yaml:"sbi,omitempty" valid:"required"`
-	NrfUri      string    `yaml:"nrfUri,omitempty" valid:"required, url"`
-	ServiceList []Service `yaml:"serviceList,omitempty" valid:"required"`
+	ChfName     string          `yaml:"chfName,omitempty" valid:"required, type(string)"`
+	Sbi         *Sbi            `yaml:"sbi,omitempty" valid:"required"`
+	NrfUri      string          `yaml:"nrfUri,omitempty" valid:"required, url"`
+	ServiceList []Service       `yaml:"serviceList,omitempty" valid:"required"`
+	GrantedUnit GrantedUnitItem `yaml:"grantedUnit,omitempty" valid:"required"`
 }
 
 func (c *Configuration) validate() (bool, error) {
@@ -140,6 +141,14 @@ func (s *Sbi) validate() (bool, error) {
 	}
 
 	return true, nil
+}
+
+type GrantedUnitItem struct {
+	Time                 int32 `yaml:"time" valid:"optional"`
+	TotalVolume          int32 `yaml:"totalVolume" valid:"required"`
+	UplinkVolume         int32 `yaml:"uplinkVolume" valid:"required"`
+	DownlinkVolume       int32 `yaml:"downlinkVolume" valid:"required"`
+	ServiceSpecificUnits int32 `yaml:"serviceSpecificUnits" valid:"optional"`
 }
 
 type Tls struct {

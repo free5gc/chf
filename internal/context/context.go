@@ -19,6 +19,7 @@ func init() {
 	chfCtx.UriScheme = models.UriScheme_HTTPS
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
+	chfCtx.ChargingIDRatingGroupMap = make(map[int][]int)
 }
 
 type CHFContext struct {
@@ -29,10 +30,14 @@ type CHFContext struct {
 	RegisterIPv4              string
 	SBIPort                   int
 	NfService                 map[models.ServiceName]models.NfService
-	NrfUri                    string
 	LocalRecordSequenceNumber uint64
+	NrfUri                    string
 	UePool                    sync.Map
 	ChargingSession           map[string]*cdrType.CHFRecord
+	GrantedUnit               *models.GrantedUnit
+
+	// AMBF
+	ChargingIDRatingGroupMap map[int][]int
 }
 
 // Create new CHF context
