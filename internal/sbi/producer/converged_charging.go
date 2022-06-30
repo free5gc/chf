@@ -10,11 +10,12 @@ import (
 	"github.com/free5gc/CDRUtil/cdrConvert"
 	"github.com/free5gc/CDRUtil/cdrFile"
 	"github.com/free5gc/CDRUtil/cdrType"
+	tarrif_asn "github.com/free5gc/TarrifUtil/asn"
+	"github.com/free5gc/TarrifUtil/tarrifType"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
-	"github.com/free5gc/TarrifUtil"
 )
 
 func HandleChargingdataInitial(request *httpwrapper.Request) *httpwrapper.Response {
@@ -85,7 +86,6 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 
 	if onlineCharging {
 		// TODO Online charging: Centralized Unit determination
-
 		// TODO Online charging: Rate, Account, Reservation
 	}
 
@@ -166,57 +166,96 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		return nil, problemDetails
 	}
 
-	// Rating Function
-
+	supi := chargingData.SubscriberIdentifier
 	supiType := strings.Split(supi, "-")[0]
+	var subscriberIdentifier tarrifType.SubscriptionID
+
 	switch supiType {
 	case "imsi":
 		logger.ChargingdataPostLog.Debugf("SUPI: %s", supi)
-		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
-			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERIMSI},
-			SubscriptionIDData: asn.UTF8String(supi[5:]),
+		subscriberIdentifier = tarrifType.SubscriptionID{
+			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_IMSI},
+			SubscriptionIDData: tarrif_asn.UTF8String(supi[5:]),
 		}
 	case "nai":
-		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
-			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		subscriberIdentifier = tarrifType.SubscriptionID{
+			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
+			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
 		}
 	case "gci":
-		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
-			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		subscriberIdentifier = tarrifType.SubscriptionID{
+			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
+			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
 		}
 	case "gli":
-		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
-			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		subscriberIdentifier = tarrifType.SubscriptionID{
+			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
+			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
 		}
 	}
-
-	ServiceUsageRequest := TarrifUtil.TarrifUtil.ServiceUsageRequest{
-		SubscriptionId: &chf_context.SubscriptionId{
-			SubscriptionIdData:,
-			
-		},
-	}
-
 	multipleUnitInformation := []models.MultipleUnitInformation{}
 
+	for _, trigger := range chargingData.Triggers {
+		if trigger.TriggerType == models.TriggerType_START_OF_SERVICE_DATA_FLOW {
+			for _, unitUsage := range chargingData.MultipleUnitUsage {
+				ratingGroup := unitUsage.RatingGroup
+				if _, quota := self.RatingGroupQuotaMap[ratingGroup]; !quota {
+					self.RatingGroupQuotaMap[ratingGroup] = self.Tarrif.RateElement.UnitQuotaThreshold
+				}
+			}
+		}
+	}
+	// Rating for each rating group
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
+		var totalUsaedUnit uint32
+		var consumedUnitsAfterTariffSwitch uint32
 
-		grantedunit := chf_context.CHF_Self().GrantedUnit
-		unitInformation := models.MultipleUnitInformation{
-			RatingGroup: unitUsage.RatingGroup,
-			GrantedUnit: &models.GrantedUnit{
-				TotalVolume:    grantedunit.TotalVolume,
-				DownlinkVolume: grantedunit.DownlinkVolume,
-				UplinkVolume:   grantedunit.UplinkVolume,
-			},
+		ratingGroup := unitUsage.RatingGroup
+		tarrifSwitchTime := self.RatingGroupTarrifSwitchTimeMap[ratingGroup]
+
+		for _, useduint := range unitUsage.UsedUnitContainer {
+			totalUsaedUnit += uint32(useduint.TotalVolume)
+
+			if useduint.TriggerTimestamp.Sub(tarrifSwitchTime) > 0 {
+				consumedUnitsAfterTariffSwitch += uint32(useduint.TotalVolume)
+			}
 		}
 
-		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
-	}
+		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
+			ServiceUsageRequest := tarrifType.ServiceUsageRequest{
+				SessionID:      int(sessionid),
+				SubscriptionID: &subscriberIdentifier,
+				ActualTime:     time.Now(),
+				ServiceRating: &tarrifType.ServiceRating{
+					RequestedUnits:                 uint32(unitUsage.RequestedUnit.TotalVolume),
+					ConsumedUnits:                  totalUsaedUnit,
+					ConsumedUnitsAfterTariffSwitch: consumedUnitsAfterTariffSwitch,
+					MonetaryQuota:                  uint32(self.RatingGroupQuotaMap[ratingGroup]),
+				},
+			}
 
+			rsp, _ := Rating(ServiceUsageRequest)
+
+			// self.RatingGroupCurrentTariffMap[ratingGroup] = *rsp.ServiceRating.CurrentTariff
+			// if rsp.ServiceRating.NextTariff != nil {
+			// 	self.RatingGroupTNextTariffMap[ratingGroup] = *rsp.ServiceRating.NextTariff
+			// }
+
+			self.RatingGroupQuotaMap[ratingGroup] -= rsp.ServiceRating.AllowedUnits
+			unitInformation := models.MultipleUnitInformation{
+				RatingGroup: ratingGroup,
+				GrantedUnit: &models.GrantedUnit{
+					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
+					DownlinkVolume: 0,
+					UplinkVolume:   0,
+				},
+			}
+
+			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+
+		}
+
+	}
 	responseBody.Triggers = chargingData.Triggers
 
 	timeStamp := time.Now()
@@ -295,7 +334,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	// TODO determine local record sequnece number
 	self.LocalRecordSequenceNumber++
 	chfCdr.LocalRecordSequenceNumber = &cdrType.LocalSequenceNumber{
-		int64(self.LocalRecordSequenceNumber),
+		Value: int64(self.LocalRecordSequenceNumber),
 	}
 	// Skip Record Extensions: operator/manufacturer specific extensions
 
@@ -304,22 +343,22 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	case "imsi":
 		logger.ChargingdataPostLog.Debugf("SUPI: %s", supi)
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
-			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERIMSI},
+			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERIMSI},
 			SubscriptionIDData: asn.UTF8String(supi[5:]),
 		}
 	case "nai":
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
-			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
+			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERNAI},
 			SubscriptionIDData: asn.UTF8String(supi[4:]),
 		}
 	case "gci":
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
-			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
+			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERNAI},
 			SubscriptionIDData: asn.UTF8String(supi[4:]),
 		}
 	case "gli":
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
-			SubscriptionIDType: cdrType.SubscriptionIDType{cdrType.SubscriptionIDTypePresentENDUSERNAI},
+			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERNAI},
 			SubscriptionIDData: asn.UTF8String(supi[4:]),
 		}
 	}
@@ -337,7 +376,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	var consumerInfo cdrType.NetworkFunctionInformation
 	if consumerName := chargingData.NfConsumerIdentification.NFName; consumerName != "" {
 		consumerInfo.NetworkFunctionName = &cdrType.NetworkFunctionName{
-			asn.IA5String(chargingData.NfConsumerIdentification.NFName),
+			Value: asn.IA5String(chargingData.NfConsumerIdentification.NFName),
 		}
 	}
 	if consumerV4Addr := chargingData.NfConsumerIdentification.NFIPv4Address; consumerV4Addr != "" {
@@ -361,7 +400,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	if consumerPlmnId := chargingData.NfConsumerIdentification.NFPLMNID; consumerPlmnId != nil {
 		plmnIdByte := cdrConvert.PlmnIdToCdr(*consumerPlmnId)
 		consumerInfo.NetworkFunctionPLMNIdentifier = &cdrType.PLMNId{
-			plmnIdByte.Value,
+			Value: plmnIdByte.Value,
 		}
 
 	}
@@ -398,24 +437,24 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	if registerInfo := chargingData.RegistrationChargingInformation; registerInfo != nil {
 		logger.ChargingdataPostLog.Debugln("Registration Charging Event")
 		chfCdr.RegistrationChargingInformation = &cdrType.RegistrationChargingInformation{
-			RegistrationMessagetype: cdrType.RegistrationMessageType{cdrType.RegistrationMessageTypePresentInitial},
+			RegistrationMessagetype: cdrType.RegistrationMessageType{Value: cdrType.RegistrationMessageTypePresentInitial},
 		}
 	}
 	if pduSessionInfo := chargingData.PDUSessionChargingInformation; pduSessionInfo != nil {
 		logger.ChargingdataPostLog.Debugln("PDU Session Charging Event")
 		chfCdr.PDUSessionChargingInformation = &cdrType.PDUSessionChargingInformation{
 			PDUSessionChargingID: cdrType.ChargingID{
-				int64(pduSessionInfo.ChargingId),
+				Value: int64(pduSessionInfo.ChargingId),
 			},
 			PDUSessionId: cdrType.PDUSessionId{
-				int64(pduSessionInfo.PduSessionInformation.PduSessionID),
+				Value: int64(pduSessionInfo.PduSessionInformation.PduSessionID),
 			},
 		}
 	}
 
 	cdr := cdrType.CHFRecord{
-		1,
-		&chfCdr,
+		Present:                1,
+		ChargingFunctionRecord: &chfCdr,
 	}
 
 	return &cdr, nil
@@ -465,9 +504,9 @@ func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 	// unknownOrUnreachableLCSClient	 (58),
 	// listofDownstreamNodeChange	 (59)
 	if partial {
-		chfCdr.CauseForRecClosing = cdrType.CauseForRecClosing{1}
+		chfCdr.CauseForRecClosing = cdrType.CauseForRecClosing{Value: 1}
 	} else {
-		chfCdr.CauseForRecClosing = cdrType.CauseForRecClosing{0}
+		chfCdr.CauseForRecClosing = cdrType.CauseForRecClosing{Value: 0}
 	}
 
 	return nil
@@ -493,8 +532,8 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 		cdrHdr.CdrLength = uint16(len(cdrBytes))
 		cdrHdr.DataRecordFormat = cdrFile.BasicEncodingRules
 		tmpCdr := cdrFile.CDR{
-			cdrHdr,
-			cdrBytes,
+			Hdr:     cdrHdr,
+			CdrByte: cdrBytes,
 		}
 		cdrfile.CdrList = append(cdrfile.CdrList, tmpCdr)
 
@@ -504,4 +543,36 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	cdrfile.Encoding("/tmp/" + ueid + ".cdr")
 
 	return nil
+}
+
+func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails) {
+	self := chf_context.CHF_Self()
+
+	unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(10^self.Tarrif.RateElement.UnitCost.Exponent)
+	monetaryCost := int64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
+	monetaryRequest := int64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
+
+	rsp := tarrifType.ServiceUsageResponse{
+		SessionID: serviceUsage.SessionID,
+		ServiceRating: &tarrifType.ServiceRating{
+			TariffSwitchTime: uint32(serviceUsage.ActualTime.Second()),
+		},
+	}
+
+	if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
+		monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost - monetaryRequest
+		if monetaryRemain > 0 {
+			rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
+			rsp.ServiceRating.Price = uint32(monetaryCost)
+		} else {
+			rsp.ServiceRating.AllowedUnits = uint32(int64(serviceUsage.ServiceRating.MonetaryQuota) / unitCost)
+			rsp.ServiceRating.Price = uint32(monetaryCost)
+		}
+	} else {
+		//Termination
+		logger.ChargingdataPostLog.Warnf("Out of Quota")
+
+	}
+
+	return rsp, nil
 }

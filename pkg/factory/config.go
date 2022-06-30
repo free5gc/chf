@@ -9,6 +9,7 @@ import (
 
 	"github.com/asaskevich/govalidator"
 
+	tarrif_asn "github.com/free5gc/TarrifUtil/asn"
 	logger_util "github.com/free5gc/util/logger"
 )
 
@@ -61,11 +62,11 @@ func (i *Info) validate() (bool, error) {
 }
 
 type Configuration struct {
-	ChfName     string          `yaml:"chfName,omitempty" valid:"required, type(string)"`
-	Sbi         *Sbi            `yaml:"sbi,omitempty" valid:"required"`
-	NrfUri      string          `yaml:"nrfUri,omitempty" valid:"required, url"`
-	ServiceList []Service       `yaml:"serviceList,omitempty" valid:"required"`
-	GrantedUnit GrantedUnitItem `yaml:"grantedUnit,omitempty" valid:"required"`
+	ChfName     string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
+	Sbi         *Sbi      `yaml:"sbi,omitempty" valid:"required"`
+	NrfUri      string    `yaml:"nrfUri,omitempty" valid:"required, url"`
+	ServiceList []Service `yaml:"serviceList,omitempty" valid:"required"`
+	Tarrif      *Tarrif   `yaml:"tarrif,omitempty" valid:"required"`
 }
 
 func (c *Configuration) validate() (bool, error) {
@@ -143,12 +144,30 @@ func (s *Sbi) validate() (bool, error) {
 	return true, nil
 }
 
-type GrantedUnitItem struct {
-	Time                 int32 `yaml:"time" valid:"optional"`
-	TotalVolume          int32 `yaml:"totalVolume" valid:"required"`
-	UplinkVolume         int32 `yaml:"uplinkVolume" valid:"required"`
-	DownlinkVolume       int32 `yaml:"downlinkVolume" valid:"required"`
-	ServiceSpecificUnits int32 `yaml:"serviceSpecificUnits" valid:"optional"`
+type Tarrif struct {
+	CCUnitType         CCUnitType       `yaml:"ccUnitType" valid:"required"`
+	ChargeReasonCode   ChargeReasonCode `yaml:"chargeReasonCode,omitempty" valid:"-"`
+	UnitValue          UnitValue        `yaml:"unitValue,omitempty" valid:"-"`
+	UnitCost           UnitCost         `yaml:"unitCost" valid:"required"`
+	UnitQuotaThreshold uint32           `yaml:"unitQuotaThreshold" valid:"required"`
+}
+
+type CCUnitType struct {
+	Value tarrif_asn.Enumerated `yaml:"value" valid:"required"`
+}
+
+type UnitCost struct {
+	ValueDigits int64 `yaml:"valueDigits" valid:"required"`
+	Exponent    int32 `yaml:"exponent" valid:"required"`
+}
+
+type UnitValue struct {
+	ValueDigits int64 `yaml:"valueDigits" valid:"required"`
+	Exponent    int32 `yaml:"exponent" valid:"required"`
+}
+
+type ChargeReasonCode struct {
+	Value tarrif_asn.Enumerated `yaml:"value" valid:"required"`
 }
 
 type Tls struct {

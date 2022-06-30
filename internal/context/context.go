@@ -2,13 +2,17 @@ package context
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/free5gc/CDRUtil/cdrType"
+	"github.com/free5gc/TarrifUtil/tarrifType"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/util/idgenerator"
 )
 
 var chfCtx *CHFContext
@@ -19,7 +23,12 @@ func init() {
 	chfCtx.UriScheme = models.UriScheme_HTTPS
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
-	chfCtx.ChargingIDRatingGroupMap = make(map[int][]int)
+	chfCtx.RatingGroupChargingIDMap = make(map[int32][]int)
+	chfCtx.RatingGroupQuotaMap = make(map[int32]uint32)
+	chfCtx.RatingGroupTarrifSwitchTimeMap = make(map[int32]time.Time)
+	chfCtx.RatingGroupCurrentTariffMap = make(map[int32]tarrifType.CurrentTariff)
+	chfCtx.RatingGroupTNextTariffMap = make(map[int32]tarrifType.NextTariff)
+	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
 }
 
 type CHFContext struct {
@@ -34,10 +43,18 @@ type CHFContext struct {
 	NrfUri                    string
 	UePool                    sync.Map
 	ChargingSession           map[string]*cdrType.CHFRecord
-	GrantedUnit               *models.GrantedUnit
 
+	// Rating
+	Tarrif tarrifType.CurrentTariff
 	// AMBF
-	ChargingIDRatingGroupMap map[int][]int
+	RatingSessionGenerator         *idgenerator.IDGenerator
+	RatingGroupChargingIDMap       map[int32][]int
+	RatingGroupQuotaMap            map[int32]uint32
+	RatingGroupTarrifSwitchTimeMap map[int32]time.Time
+	RatingGroupCurrentTariffMap    map[int32]tarrifType.CurrentTariff
+	RatingGroupTNextTariffMap      map[int32]tarrifType.NextTariff
+
+	ChargingIDQuotaMap map[int32]uint32
 }
 
 // Create new CHF context
@@ -47,6 +64,24 @@ func CHF_Self() *CHFContext {
 
 func (c *CHFContext) GetIPv4Uri() string {
 	return fmt.Sprintf("%s://%s:%d", c.UriScheme, c.RegisterIPv4, c.SBIPort)
+}
+
+func (c *CHFContext) InitTarrif(tarrif *factory.Tarrif) {
+	c.Tarrif = tarrifType.CurrentTariff{
+		RateElement: &tarrifType.RateElement{
+			ChargeReasonCode: &tarrifType.ChargeReasonCode{
+				Value: tarrif.ChargeReasonCode.Value,
+			},
+			UnitCost: &tarrifType.UnitCost{
+				ValueDigits: tarrif.UnitCost.ValueDigits,
+				Exponent:    tarrif.UnitCost.Exponent,
+			},
+			CCUnitType: &tarrifType.CCUnitType{
+				Value: tarrif.CCUnitType.Value,
+			},
+			UnitQuotaThreshold: tarrif.UnitQuotaThreshold,
+		},
+	}
 }
 
 // Init NfService with supported service list ,and version of services

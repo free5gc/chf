@@ -53,12 +53,9 @@ func InitchfContext(context *context.CHFContext) {
 			}
 		}
 	}
-	grantedUnit := factory.ChfConfig.Configuration.GrantedUnit
-	context.GrantedUnit = &models.GrantedUnit{
-		TotalVolume:    grantedUnit.TotalVolume,
-		DownlinkVolume: grantedUnit.DownlinkVolume,
-		UplinkVolume:   grantedUnit.UplinkVolume,
-	}
 	serviceList := configuration.ServiceList
 	context.InitNFService(serviceList, config.Info.Version)
+
+	tarrif := configuration.Tarrif
+	context.InitTarrif(tarrif)
 }
