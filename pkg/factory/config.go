@@ -149,7 +149,7 @@ type Tarrif struct {
 	ChargeReasonCode   ChargeReasonCode `yaml:"chargeReasonCode,omitempty" valid:"-"`
 	UnitValue          UnitValue        `yaml:"unitValue,omitempty" valid:"-"`
 	UnitCost           UnitCost         `yaml:"unitCost" valid:"required"`
-	UnitQuotaThreshold uint32           `yaml:"unitQuotaThreshold" valid:"required"`
+	UnitQuotaThreshold uint32           `yaml:"unitQuotaThreshold" valid:"-"`
 }
 
 type CCUnitType struct {

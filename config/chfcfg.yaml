@@ -21,7 +21,6 @@ configuration:
     unitCost: 
       valueDigits: 1
       exponent: 1
-    unitQuotaThreshold: 5000
 
     
 # the kind of log output

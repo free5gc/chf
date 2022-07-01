@@ -199,8 +199,8 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		if trigger.TriggerType == models.TriggerType_START_OF_SERVICE_DATA_FLOW {
 			for _, unitUsage := range chargingData.MultipleUnitUsage {
 				ratingGroup := unitUsage.RatingGroup
-				if _, quota := self.RatingGroupQuotaMap[ratingGroup]; !quota {
-					self.RatingGroupQuotaMap[ratingGroup] = self.Tarrif.RateElement.UnitQuotaThreshold
+				if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
+					self.RatingGroupMonetaryQuotaMap[ratingGroup] = 50000
 				}
 			}
 		}
@@ -230,20 +230,21 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 					RequestedUnits:                 uint32(unitUsage.RequestedUnit.TotalVolume),
 					ConsumedUnits:                  totalUsaedUnit,
 					ConsumedUnitsAfterTariffSwitch: consumedUnitsAfterTariffSwitch,
-					MonetaryQuota:                  uint32(self.RatingGroupQuotaMap[ratingGroup]),
+					MonetaryQuota:                  uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]),
 				},
 			}
 
 			rsp, _ := Rating(ServiceUsageRequest)
 
-			// self.RatingGroupCurrentTariffMap[ratingGroup] = *rsp.ServiceRating.CurrentTariff
-			// if rsp.ServiceRating.NextTariff != nil {
-			// 	self.RatingGroupTNextTariffMap[ratingGroup] = *rsp.ServiceRating.NextTariff
-			// }
+			self.RatingGroupCurrentTariffMap[ratingGroup] = *rsp.ServiceRating.CurrentTariff
+			if rsp.ServiceRating.NextTariff != nil {
+				self.RatingGroupTNextTariffMap[ratingGroup] = *rsp.ServiceRating.NextTariff
+			}
 
-			self.RatingGroupQuotaMap[ratingGroup] -= rsp.ServiceRating.AllowedUnits
 			unitInformation := models.MultipleUnitInformation{
-				RatingGroup: ratingGroup,
+				RatingGroup:          ratingGroup,
+				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8),
+				FinalUnitIndication:  &models.FinalUnitIndication{},
 				GrantedUnit: &models.GrantedUnit{
 					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
 					DownlinkVolume: 0,
@@ -251,11 +252,24 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 				},
 			}
 
+			unitCost := rsp.ServiceRating.CurrentTariff.RateElement.UnitCost.ValueDigits * int64(10^rsp.ServiceRating.CurrentTariff.RateElement.UnitCost.Exponent)
+
+			if rsp.ServiceRating.AllowedUnits == uint32(int64(self.RatingGroupMonetaryQuotaMap[ratingGroup])/unitCost) {
+				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
+					FinalUnitAction: models.FinalUnitAction_TERMINATE,
+				}
+				logger.ChargingdataPostLog.Info("Last granted Quota")
+
+			}
+
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+			logger.ChargingdataPostLog.Info("used Monetary: ", rsp.ServiceRating.Price)
 
+			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
+			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
 		}
-
 	}
+
 	responseBody.Triggers = chargingData.Triggers
 
 	timeStamp := time.Now()
@@ -556,22 +570,24 @@ func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsag
 		SessionID: serviceUsage.SessionID,
 		ServiceRating: &tarrifType.ServiceRating{
 			TariffSwitchTime: uint32(serviceUsage.ActualTime.Second()),
+			CurrentTariff:    &self.Tarrif,
 		},
 	}
+
+	rsp.ServiceRating.Price = uint32(monetaryCost)
 
 	if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
 		monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost - monetaryRequest
 		if monetaryRemain > 0 {
 			rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
-			rsp.ServiceRating.Price = uint32(monetaryCost)
 		} else {
 			rsp.ServiceRating.AllowedUnits = uint32(int64(serviceUsage.ServiceRating.MonetaryQuota) / unitCost)
-			rsp.ServiceRating.Price = uint32(monetaryCost)
+			logger.ChargingdataPostLog.Info("used Monetary: ", rsp.ServiceRating.Price)
 		}
 	} else {
 		//Termination
 		logger.ChargingdataPostLog.Warnf("Out of Quota")
-
+		rsp.ServiceRating.AllowedUnits = 0
 	}
 
 	return rsp, nil

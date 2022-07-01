@@ -24,7 +24,7 @@ func init() {
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
 	chfCtx.RatingGroupChargingIDMap = make(map[int32][]int)
-	chfCtx.RatingGroupQuotaMap = make(map[int32]uint32)
+	chfCtx.RatingGroupMonetaryQuotaMap = make(map[int32]uint32)
 	chfCtx.RatingGroupTarrifSwitchTimeMap = make(map[int32]time.Time)
 	chfCtx.RatingGroupCurrentTariffMap = make(map[int32]tarrifType.CurrentTariff)
 	chfCtx.RatingGroupTNextTariffMap = make(map[int32]tarrifType.NextTariff)
@@ -49,7 +49,7 @@ type CHFContext struct {
 	// AMBF
 	RatingSessionGenerator         *idgenerator.IDGenerator
 	RatingGroupChargingIDMap       map[int32][]int
-	RatingGroupQuotaMap            map[int32]uint32
+	RatingGroupMonetaryQuotaMap    map[int32]uint32
 	RatingGroupTarrifSwitchTimeMap map[int32]time.Time
 	RatingGroupCurrentTariffMap    map[int32]tarrifType.CurrentTariff
 	RatingGroupTNextTariffMap      map[int32]tarrifType.NextTariff
