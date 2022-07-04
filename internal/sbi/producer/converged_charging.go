@@ -200,7 +200,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 			for _, unitUsage := range chargingData.MultipleUnitUsage {
 				ratingGroup := unitUsage.RatingGroup
 				if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
-					self.RatingGroupMonetaryQuotaMap[ratingGroup] = 50000
+					self.RatingGroupMonetaryQuotaMap[ratingGroup] = 1000000000
 				}
 			}
 		}
@@ -253,19 +253,28 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 			}
 
 			unitCost := rsp.ServiceRating.CurrentTariff.RateElement.UnitCost.ValueDigits * int64(10^rsp.ServiceRating.CurrentTariff.RateElement.UnitCost.Exponent)
+			logger.ChargingdataPostLog.Info("Quota before Deduct: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
+			logger.ChargingdataPostLog.Info("unitCost: ", unitCost)
 
-			if rsp.ServiceRating.AllowedUnits == uint32(int64(self.RatingGroupMonetaryQuotaMap[ratingGroup])/unitCost) {
+			if rsp.ServiceRating.AllowedUnits == 0 {
+				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
+
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
-				logger.ChargingdataPostLog.Info("Last granted Quota")
+				logger.ChargingdataPostLog.Warn("Termination action")
 
+			} else {
+				if rsp.ServiceRating.AllowedUnits == uint32(int64(self.RatingGroupMonetaryQuotaMap[ratingGroup])/unitCost) {
+					logger.ChargingdataPostLog.Warn("Last granted Quota")
+				}
+				self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
+
+				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
 			}
 
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
 			logger.ChargingdataPostLog.Info("used Monetary: ", rsp.ServiceRating.Price)
-
-			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
 			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
 		}
 	}
@@ -581,7 +590,7 @@ func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsag
 		if monetaryRemain > 0 {
 			rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
 		} else {
-			rsp.ServiceRating.AllowedUnits = uint32(int64(serviceUsage.ServiceRating.MonetaryQuota) / unitCost)
+			rsp.ServiceRating.AllowedUnits = uint32((int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost) / unitCost)
 			logger.ChargingdataPostLog.Info("used Monetary: ", rsp.ServiceRating.Price)
 		}
 	} else {
