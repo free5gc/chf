@@ -21,8 +21,9 @@ configuration:
     unitCost: 
       valueDigits: 1
       exponent: 1
-
-    
+    unitQuotaThreshold: 25000
+  monetaryQuota: 1000000000
+  onlineCharging: true
 # the kind of log output
   # debugLevel: how detailed to output, value: trace, debug, info, warn, error, fatal, panic
   # ReportCaller: enable the caller report or not, value: true or false
@@ -36,4 +37,3 @@ logger:
   OpenApi:
     debugLevel: info
     ReportCaller: false
-

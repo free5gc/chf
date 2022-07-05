@@ -20,6 +20,8 @@ func InitchfContext(context *context.CHFContext) {
 	if configuration.ChfName != "" {
 		context.Name = configuration.ChfName
 	}
+	context.OnlineCharging = configuration.OnlineCharging
+	context.InitMonetaryQuota = configuration.MonetaryQuota
 
 	sbi := configuration.Sbi
 	context.NrfUri = configuration.NrfUri

@@ -29,6 +29,7 @@ func init() {
 	chfCtx.RatingGroupCurrentTariffMap = make(map[int32]tarrifType.CurrentTariff)
 	chfCtx.RatingGroupTNextTariffMap = make(map[int32]tarrifType.NextTariff)
 	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
+
 }
 
 type CHFContext struct {
@@ -44,6 +45,7 @@ type CHFContext struct {
 	UePool                    sync.Map
 	ChargingSession           map[string]*cdrType.CHFRecord
 
+	OnlineCharging bool
 	// Rating
 	Tarrif tarrifType.CurrentTariff
 	// AMBF
@@ -53,8 +55,8 @@ type CHFContext struct {
 	RatingGroupTarrifSwitchTimeMap map[int32]time.Time
 	RatingGroupCurrentTariffMap    map[int32]tarrifType.CurrentTariff
 	RatingGroupTNextTariffMap      map[int32]tarrifType.NextTariff
-
-	ChargingIDQuotaMap map[int32]uint32
+	ChargingIDQuotaMap             map[int32]uint32
+	InitMonetaryQuota              uint32
 }
 
 // Create new CHF context

@@ -62,11 +62,13 @@ func (i *Info) validate() (bool, error) {
 }
 
 type Configuration struct {
-	ChfName     string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
-	Sbi         *Sbi      `yaml:"sbi,omitempty" valid:"required"`
-	NrfUri      string    `yaml:"nrfUri,omitempty" valid:"required, url"`
-	ServiceList []Service `yaml:"serviceList,omitempty" valid:"required"`
-	Tarrif      *Tarrif   `yaml:"tarrif,omitempty" valid:"required"`
+	ChfName        string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
+	Sbi            *Sbi      `yaml:"sbi,omitempty" valid:"required"`
+	NrfUri         string    `yaml:"nrfUri,omitempty" valid:"required, url"`
+	ServiceList    []Service `yaml:"serviceList,omitempty" valid:"required"`
+	Tarrif         *Tarrif   `yaml:"tarrif,omitempty" valid:"required"`
+	MonetaryQuota  uint32    `yaml:"monetaryQuota,omitempty" valid:"required"`
+	OnlineCharging bool      `yaml:"onlineCharging,omitempty" valid:"required"`
 }
 
 func (c *Configuration) validate() (bool, error) {
