@@ -535,7 +535,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				},
 			}
 
-			rsp, _ := Rating(ServiceUsageRequest)
+			rsp, _, lastgrantedquota := Rating(ServiceUsageRequest)
 
 			self.RatingGroupCurrentTariffMap[ratingGroup] = *rsp.ServiceRating.CurrentTariff
 			if rsp.ServiceRating.NextTariff != nil {
@@ -553,26 +553,18 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				},
 			}
 
-			unitCost := rsp.ServiceRating.CurrentTariff.RateElement.UnitCost.ValueDigits * int64(10^rsp.ServiceRating.CurrentTariff.RateElement.UnitCost.Exponent)
-
-			if rsp.ServiceRating.AllowedUnits == 0 {
-				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
-
+			if lastgrantedquota {
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
 				logger.ChargingdataPostLog.Warn("Termination action")
-
+				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
 			} else {
-				if rsp.ServiceRating.AllowedUnits == uint32(int64(self.RatingGroupMonetaryQuotaMap[ratingGroup])/unitCost) {
-					logger.ChargingdataPostLog.Warn("Last granted Quota")
-				}
 				self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
-
-				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
 			}
 
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+			logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
 			logger.ChargingdataPostLog.Info("used Monetary: ", rsp.ServiceRating.Price)
 			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
 		}
@@ -583,10 +575,12 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	return responseBody
 }
 
-func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails) {
+func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails, bool) {
 	self := chf_context.CHF_Self()
+	lastgrantedquota := false
 
-	unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(10^self.Tarrif.RateElement.UnitCost.Exponent)
+	// unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(10^self.Tarrif.RateElement.UnitCost.Exponent)
+	unitCost := int64(10)
 	monetaryCost := int64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
 	monetaryRequest := int64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
 
@@ -606,13 +600,15 @@ func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsag
 			rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
 		} else {
 			rsp.ServiceRating.AllowedUnits = uint32((int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost) / unitCost)
-			logger.ChargingdataPostLog.Info("used Monetary: ", rsp.ServiceRating.Price)
+			logger.ChargingdataPostLog.Warn("Last granted Quota")
+			lastgrantedquota = true
 		}
 	} else {
 		//Termination
-		logger.ChargingdataPostLog.Warnf("Out of Quota")
+		logger.ChargingdataPostLog.Warnf("Out of Quota, this should not happen")
 		rsp.ServiceRating.AllowedUnits = 0
+		lastgrantedquota = true
 	}
 
-	return rsp, nil
+	return rsp, nil, lastgrantedquota
 }
