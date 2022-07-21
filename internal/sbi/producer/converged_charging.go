@@ -1,6 +1,7 @@
 package producer
 
 import (
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -579,8 +580,7 @@ func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsag
 	self := chf_context.CHF_Self()
 	lastgrantedquota := false
 
-	// unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(10^self.Tarrif.RateElement.UnitCost.Exponent)
-	unitCost := int64(10)
+	unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(math.Pow10(self.Tarrif.RateElement.UnitCost.Exponent))
 	monetaryCost := int64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
 	monetaryRequest := int64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
 

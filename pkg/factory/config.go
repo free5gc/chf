@@ -160,7 +160,7 @@ type CCUnitType struct {
 
 type UnitCost struct {
 	ValueDigits int64 `yaml:"valueDigits" valid:"required"`
-	Exponent    int32 `yaml:"exponent" valid:"required"`
+	Exponent    int   `yaml:"exponent" valid:"required"`
 }
 
 type UnitValue struct {
