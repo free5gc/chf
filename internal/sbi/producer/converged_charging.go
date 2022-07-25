@@ -427,7 +427,7 @@ func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 }
 
 func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
-	logger.ChargingdataPostLog.Infof("Dump CDR File ")
+	logger.ChargingdataPostLog.Tracef("Dump CDR File ")
 
 	var cdrfile cdrFile.CDRFile
 	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
@@ -558,15 +558,13 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
-				logger.ChargingdataPostLog.Warn("Termination action")
+				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
 				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
 			} else {
 				self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
 			}
 
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
-			logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
-			logger.ChargingdataPostLog.Info("used Monetary: ", rsp.ServiceRating.Price)
 			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
 		}
 	}
