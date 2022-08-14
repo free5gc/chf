@@ -500,10 +500,12 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 
 				// if there is no quota for this rating group
 				// allocate MonetaryQuota
+				self.RatingGroupMonetaryQuotaMapMutex.Lock()
 				if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
 					self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
 
 				}
+				self.RatingGroupMonetaryQuotaMapMutex.Unlock()
 			}
 		}
 	}
@@ -524,6 +526,8 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 		}
 
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
+			self.RatingGroupMonetaryQuotaMapMutex.RLock()
+
 			ServiceUsageRequest := tarrifType.ServiceUsageRequest{
 				SessionID:      int(sessionid),
 				SubscriptionID: &subscriberIdentifier,
@@ -535,6 +539,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 					MonetaryQuota:                  uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]),
 				},
 			}
+			self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
 
 			rsp, _, lastgrantedquota := Rating(ServiceUsageRequest)
 
@@ -553,7 +558,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 					UplinkVolume:   0,
 				},
 			}
-
+			self.RatingGroupMonetaryQuotaMapMutex.Lock()
 			if lastgrantedquota {
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
@@ -563,9 +568,12 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			} else {
 				self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
 			}
+			self.RatingGroupMonetaryQuotaMapMutex.Unlock()
 
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+			self.RatingGroupMonetaryQuotaMapMutex.RLock()
 			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
+			self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
 		}
 	}
 	responseBody := &models.ChargingDataResponse{}
