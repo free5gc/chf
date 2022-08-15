@@ -84,12 +84,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	var chargingSessionId string
 
 	self := chf_context.CHF_Self()
-
-	if onlineCharging {
-		// TODO Online charging: Centralized Unit determination
-		// TODO Online charging: Rate, Account, Reservation
-	}
-
+	onlineCharging = true
 	// Open CDR
 
 	// ChargingDataRef(charging session id):
@@ -136,6 +131,13 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	// build response
 	locationURI := self.GetIPv4Uri() + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
 	timeStamp := time.Now()
+
+	if onlineCharging {
+		// TODO Online charging: Centralized Unit determination
+		// TODO Online charging: Rate, Account, Reservation
+		responseBody = BuildOnlineChargingDataCreateResopone(chargingData, chargingSessionId)
+	}
+
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
@@ -169,7 +171,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 
 	// Online charging: Rate, Account, Reservation
 	if self.OnlineCharging {
-		responseBody = *BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
+		responseBody = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
 	}
 
 	timeStamp := time.Now()
@@ -459,50 +461,76 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	return nil
 }
 
-func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) *models.ChargingDataResponse {
+func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) models.ChargingDataResponse {
+	self := chf_context.CHF_Self()
+
+	multipleUnitInformation := []models.MultipleUnitInformation{}
+
+	for _, unitUsage := range chargingData.MultipleUnitUsage {
+		ratingGroup := unitUsage.RatingGroup
+		// allocate MonetaryQuota at the beging
+		if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
+			self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
+		}
+	}
+
+	for _, unitUsage := range chargingData.MultipleUnitUsage {
+
+		ratingGroup := unitUsage.RatingGroup
+
+		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
+
+			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
+			rsp, _, lastgrantedquota := Rating(ServiceUsageRequest)
+
+			self.RatingGroupCurrentTariffMap[ratingGroup] = *rsp.ServiceRating.CurrentTariff
+			if rsp.ServiceRating.NextTariff != nil {
+				self.RatingGroupTNextTariffMap[ratingGroup] = *rsp.ServiceRating.NextTariff
+			}
+
+			unitInformation := models.MultipleUnitInformation{
+				RatingGroup:          ratingGroup,
+				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8),
+				FinalUnitIndication:  &models.FinalUnitIndication{},
+				GrantedUnit: &models.GrantedUnit{
+					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
+					DownlinkVolume: 0,
+					UplinkVolume:   0,
+				},
+			}
+
+			if lastgrantedquota {
+				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
+					FinalUnitAction: models.FinalUnitAction_TERMINATE,
+				}
+				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
+				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
+			}
+
+			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
+		}
+	}
+	responseBody := models.ChargingDataResponse{}
+	responseBody.MultipleUnitInformation = multipleUnitInformation
+
+	return responseBody
+}
+func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
 
 	self := chf_context.CHF_Self()
 
-	supi := chargingData.SubscriberIdentifier
-	supiType := strings.Split(supi, "-")[0]
-	var subscriberIdentifier tarrifType.SubscriptionID
-
-	switch supiType {
-	case "imsi":
-		logger.ChargingdataPostLog.Debugf("SUPI: %s", supi)
-		subscriberIdentifier = tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_IMSI},
-			SubscriptionIDData: tarrif_asn.UTF8String(supi[5:]),
-		}
-	case "nai":
-		subscriberIdentifier = tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
-			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
-		}
-	case "gci":
-		subscriberIdentifier = tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
-			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
-		}
-	case "gli":
-		subscriberIdentifier = tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
-			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
-		}
-	}
 	multipleUnitInformation := []models.MultipleUnitInformation{}
 
 	for _, trigger := range chargingData.Triggers {
 		if trigger.TriggerType == models.TriggerType_START_OF_SERVICE_DATA_FLOW {
 			for _, unitUsage := range chargingData.MultipleUnitUsage {
 				ratingGroup := unitUsage.RatingGroup
-
 				// if there is no quota for this rating group
 				// allocate MonetaryQuota
 				if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
 					self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
-
 				}
 			}
 		}
@@ -524,18 +552,8 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 		}
 
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-			ServiceUsageRequest := tarrifType.ServiceUsageRequest{
-				SessionID:      int(sessionid),
-				SubscriptionID: &subscriberIdentifier,
-				ActualTime:     time.Now(),
-				ServiceRating: &tarrifType.ServiceRating{
-					RequestedUnits:                 uint32(unitUsage.RequestedUnit.TotalVolume),
-					ConsumedUnits:                  totalUsaedUnit,
-					ConsumedUnitsAfterTariffSwitch: consumedUnitsAfterTariffSwitch,
-					MonetaryQuota:                  uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]),
-				},
-			}
 
+			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
 			rsp, _, lastgrantedquota := Rating(ServiceUsageRequest)
 
 			self.RatingGroupCurrentTariffMap[ratingGroup] = *rsp.ServiceRating.CurrentTariff
@@ -568,12 +586,72 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
 		}
 	}
-	responseBody := &models.ChargingDataResponse{}
+	responseBody := models.ChargingDataResponse{}
 	responseBody.MultipleUnitInformation = multipleUnitInformation
 
 	return responseBody
 }
 
+func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage, sessionid int64) tarrifType.ServiceUsageRequest {
+	self := chf_context.CHF_Self()
+
+	supi := chargingData.SubscriberIdentifier
+	supiType := strings.Split(supi, "-")[0]
+	var subscriberIdentifier tarrifType.SubscriptionID
+
+	switch supiType {
+	case "imsi":
+		logger.ChargingdataPostLog.Debugf("SUPI: %s", supi)
+		subscriberIdentifier = tarrifType.SubscriptionID{
+			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_IMSI},
+			SubscriptionIDData: tarrif_asn.UTF8String(supi[5:]),
+		}
+	case "nai":
+		subscriberIdentifier = tarrifType.SubscriptionID{
+			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
+			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
+		}
+	case "gci":
+		subscriberIdentifier = tarrifType.SubscriptionID{
+			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
+			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
+		}
+	case "gli":
+		subscriberIdentifier = tarrifType.SubscriptionID{
+			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
+			SubscriptionIDData: tarrif_asn.UTF8String(supi[4:]),
+		}
+	}
+
+	// Rating for each rating group
+	var totalUsaedUnit uint32
+	var consumedUnitsAfterTariffSwitch uint32
+
+	ratingGroup := unitUsage.RatingGroup
+	tarrifSwitchTime := self.RatingGroupTarrifSwitchTimeMap[ratingGroup]
+
+	for _, useduint := range unitUsage.UsedUnitContainer {
+		totalUsaedUnit += uint32(useduint.TotalVolume)
+
+		if useduint.TriggerTimestamp.Sub(tarrifSwitchTime) > 0 {
+			consumedUnitsAfterTariffSwitch += uint32(useduint.TotalVolume)
+		}
+	}
+
+	ServiceUsageRequest := tarrifType.ServiceUsageRequest{
+		SessionID:      int(sessionid),
+		SubscriptionID: &subscriberIdentifier,
+		ActualTime:     time.Now(),
+		ServiceRating: &tarrifType.ServiceRating{
+			RequestedUnits:                 uint32(unitUsage.RequestedUnit.TotalVolume),
+			ConsumedUnits:                  totalUsaedUnit,
+			ConsumedUnitsAfterTariffSwitch: consumedUnitsAfterTariffSwitch,
+			MonetaryQuota:                  uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]),
+		},
+	}
+
+	return ServiceUsageRequest
+}
 func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails, bool) {
 	self := chf_context.CHF_Self()
 	lastgrantedquota := false
