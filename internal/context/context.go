@@ -57,6 +57,8 @@ type CHFContext struct {
 	RatingGroupTNextTariffMap      map[int32]tarrifType.NextTariff
 	ChargingIDQuotaMap             map[int32]uint32
 	InitMonetaryQuota              uint32
+
+	RatingGroupMonetaryQuotaMapMutex sync.RWMutex
 }
 
 // Create new CHF context
