@@ -657,6 +657,12 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	}
 	self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
 
+	ServiceUsageRequest.ServiceRating.RequestSubType.Value = tarrifType.REQ_SUBTYPE_RESERVE
+	for _, trigger := range chargingData.Triggers {
+		if trigger.TriggerType == models.TriggerType_FINAL {
+			ServiceUsageRequest.ServiceRating.RequestSubType.Value = tarrifType.REQ_SUBTYPE_DEBIT
+		}
+	}
 	return ServiceUsageRequest
 }
 func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails, bool) {
@@ -677,20 +683,25 @@ func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsag
 
 	rsp.ServiceRating.Price = uint32(monetaryCost)
 
-	if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
-		monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost - monetaryRequest
-		if monetaryRemain > 0 {
-			rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
+	if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_DEBIT {
+		return rsp, nil, false
+	} else if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE {
+		if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
+			monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost - monetaryRequest
+			if monetaryRemain > 0 {
+				rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
+			} else {
+				rsp.ServiceRating.AllowedUnits = uint32((int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost) / unitCost)
+				logger.ChargingdataPostLog.Warn("Last granted Quota")
+				lastgrantedquota = true
+			}
 		} else {
-			rsp.ServiceRating.AllowedUnits = uint32((int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost) / unitCost)
-			logger.ChargingdataPostLog.Warn("Last granted Quota")
+			//Termination
+			rsp.ServiceRating.AllowedUnits = 0
 			lastgrantedquota = true
 		}
 	} else {
-		//Termination
-		logger.ChargingdataPostLog.Warnf("Out of Quota, this should not happen")
-		rsp.ServiceRating.AllowedUnits = 0
-		lastgrantedquota = true
+		logger.ChargingdataPostLog.Warnf("Unsupport RequestSubType")
 	}
 
 	return rsp, nil, lastgrantedquota
