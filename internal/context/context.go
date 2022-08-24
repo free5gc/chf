@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/free5gc/CDRUtil/cdrType"
 	"github.com/free5gc/TarrifUtil/tarrifType"
@@ -24,10 +23,7 @@ func init() {
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
 	chfCtx.RatingGroupChargingIDMap = make(map[int32][]int)
-	chfCtx.RatingGroupMonetaryQuotaMap = make(map[int32]uint32)
-	chfCtx.RatingGroupTarrifSwitchTimeMap = make(map[int32]time.Time)
-	chfCtx.RatingGroupCurrentTariffMap = make(map[int32]tarrifType.CurrentTariff)
-	chfCtx.RatingGroupTNextTariffMap = make(map[int32]tarrifType.NextTariff)
+	chfCtx.RatingGroupMonetaryQuotaMap = make(map[int32]int32)
 	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
 
 }
@@ -49,14 +45,11 @@ type CHFContext struct {
 	// Rating
 	Tarrif tarrifType.CurrentTariff
 	// AMBF
-	RatingSessionGenerator         *idgenerator.IDGenerator
-	RatingGroupChargingIDMap       map[int32][]int
-	RatingGroupMonetaryQuotaMap    map[int32]uint32
-	RatingGroupTarrifSwitchTimeMap map[int32]time.Time
-	RatingGroupCurrentTariffMap    map[int32]tarrifType.CurrentTariff
-	RatingGroupTNextTariffMap      map[int32]tarrifType.NextTariff
-	ChargingIDQuotaMap             map[int32]uint32
-	InitMonetaryQuota              uint32
+	RatingSessionGenerator      *idgenerator.IDGenerator
+	RatingGroupChargingIDMap    map[int32][]int
+	RatingGroupMonetaryQuotaMap map[int32]int32
+	ChargingIDQuotaMap          map[int32]uint32
+	InitMonetaryQuota           int32
 
 	RatingGroupMonetaryQuotaMapMutex sync.RWMutex
 }

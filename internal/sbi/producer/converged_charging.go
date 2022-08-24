@@ -1,6 +1,7 @@
 package producer
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"strconv"
@@ -15,9 +16,37 @@ import (
 	"github.com/free5gc/TarrifUtil/tarrifType"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/util"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
 )
+
+func SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
+	client := util.GetNchfChargingNotificationCallbackClient()
+	logger.NotifyEventLog.Warn("Send Charging Notification to SMF: uri: ", notifyUri)
+	httpResponse, err := client.DefaultCallbackApi.ChargingNotification(context.Background(), notifyUri, notifyRequest)
+	if err != nil {
+		if httpResponse != nil {
+			logger.NotifyEventLog.Warnf("Charging Notification Error[%s]", httpResponse.Status)
+		} else {
+			logger.NotifyEventLog.Warnf("Charging Notification Failed[%s]", err.Error())
+		}
+		return
+	} else if httpResponse == nil {
+		logger.NotifyEventLog.Warnln("Charging Notification[HTTP Response is nil]")
+		return
+	}
+	defer func() {
+		if resCloseErr := httpResponse.Body.Close(); resCloseErr != nil {
+			logger.NotifyEventLog.Errorf("NFInstancesStoreApi response body cannot close: %+v", resCloseErr)
+		}
+	}()
+	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusNoContent {
+		logger.NotifyEventLog.Warnf("Charging Notification Failed")
+	} else {
+		logger.NotifyEventLog.Tracef("Charging Notification Success")
+	}
+}
 
 func HandleChargingdataInitial(request *httpwrapper.Request) *httpwrapper.Response {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
@@ -483,19 +512,14 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
 			rsp, _, lastgrantedquota := Rating(ServiceUsageRequest)
 
-			self.RatingGroupCurrentTariffMap[ratingGroup] = *rsp.ServiceRating.CurrentTariff
-			if rsp.ServiceRating.NextTariff != nil {
-				self.RatingGroupTNextTariffMap[ratingGroup] = *rsp.ServiceRating.NextTariff
-			}
-
 			unitInformation := models.MultipleUnitInformation{
 				RatingGroup:          ratingGroup,
-				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8),
+				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.2),
 				FinalUnitIndication:  &models.FinalUnitIndication{},
 				GrantedUnit: &models.GrantedUnit{
 					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
-					DownlinkVolume: 0,
-					UplinkVolume:   0,
+					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
+					UplinkVolume:   int32(rsp.ServiceRating.AllowedUnits),
 				},
 			}
 
@@ -538,41 +562,35 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 		}
 	}
 	// Rating for each rating group
+
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		var totalUsaedUnit uint32
-		var consumedUnitsAfterTariffSwitch uint32
 
 		ratingGroup := unitUsage.RatingGroup
-		tarrifSwitchTime := self.RatingGroupTarrifSwitchTimeMap[ratingGroup]
 
 		for _, useduint := range unitUsage.UsedUnitContainer {
 			totalUsaedUnit += uint32(useduint.TotalVolume)
 
-			if useduint.TriggerTimestamp.Sub(tarrifSwitchTime) > 0 {
-				consumedUnitsAfterTariffSwitch += uint32(useduint.TotalVolume)
-			}
 		}
 
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-
 			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
 			rsp, _, lastgrantedquota := Rating(ServiceUsageRequest)
 
-			self.RatingGroupCurrentTariffMap[ratingGroup] = *rsp.ServiceRating.CurrentTariff
-			if rsp.ServiceRating.NextTariff != nil {
-				self.RatingGroupTNextTariffMap[ratingGroup] = *rsp.ServiceRating.NextTariff
+			unitInformation := models.MultipleUnitInformation{
+				RatingGroup:         ratingGroup,
+				FinalUnitIndication: &models.FinalUnitIndication{},
 			}
 
-			unitInformation := models.MultipleUnitInformation{
-				RatingGroup:          ratingGroup,
-				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8),
-				FinalUnitIndication:  &models.FinalUnitIndication{},
-				GrantedUnit: &models.GrantedUnit{
+			if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
+				unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * 0.2)
+				unitInformation.GrantedUnit = &models.GrantedUnit{
 					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
-					DownlinkVolume: 0,
-					UplinkVolume:   0,
-				},
+					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
+					UplinkVolume:   int32(rsp.ServiceRating.AllowedUnits),
+				}
 			}
+
 			self.RatingGroupMonetaryQuotaMapMutex.Lock()
 			if lastgrantedquota {
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
@@ -581,7 +599,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
 				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
 			} else {
-				self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
+				self.RatingGroupMonetaryQuotaMap[ratingGroup] -= int32(rsp.ServiceRating.Price)
 			}
 			self.RatingGroupMonetaryQuotaMapMutex.Unlock()
 
@@ -590,7 +608,9 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
 			self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
 		}
+
 	}
+
 	responseBody := models.ChargingDataResponse{}
 	responseBody.MultipleUnitInformation = multipleUnitInformation
 
@@ -633,14 +653,9 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	var consumedUnitsAfterTariffSwitch uint32
 
 	ratingGroup := unitUsage.RatingGroup
-	tarrifSwitchTime := self.RatingGroupTarrifSwitchTimeMap[ratingGroup]
 
 	for _, useduint := range unitUsage.UsedUnitContainer {
 		totalUsaedUnit += uint32(useduint.TotalVolume)
-
-		if useduint.TriggerTimestamp.Sub(tarrifSwitchTime) > 0 {
-			consumedUnitsAfterTariffSwitch += uint32(useduint.TotalVolume)
-		}
 	}
 	self.RatingGroupMonetaryQuotaMapMutex.RLock()
 
@@ -652,12 +667,19 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 			RequestedUnits:                 uint32(unitUsage.RequestedUnit.TotalVolume),
 			ConsumedUnits:                  totalUsaedUnit,
 			ConsumedUnitsAfterTariffSwitch: consumedUnitsAfterTariffSwitch,
-			MonetaryQuota:                  uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]),
+			RequestSubType: &tarrifType.RequestSubType{
+				Value: tarrifType.REQ_SUBTYPE_RESERVE,
+			},
 		},
 	}
-	self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
 
-	ServiceUsageRequest.ServiceRating.RequestSubType.Value = tarrifType.REQ_SUBTYPE_RESERVE
+	if self.RatingGroupMonetaryQuotaMap[ratingGroup] < 0 {
+		ServiceUsageRequest.ServiceRating.MonetaryQuota = 0
+	} else {
+		ServiceUsageRequest.ServiceRating.MonetaryQuota = uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup])
+	}
+
+	self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
 	for _, trigger := range chargingData.Triggers {
 		if trigger.TriggerType == models.TriggerType_FINAL {
 			ServiceUsageRequest.ServiceRating.RequestSubType.Value = tarrifType.REQ_SUBTYPE_DEBIT
@@ -684,9 +706,14 @@ func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsag
 	rsp.ServiceRating.Price = uint32(monetaryCost)
 
 	if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_DEBIT {
-		return rsp, nil, false
+		logger.ChargingdataPostLog.Warnf("Debit mode")
+		return rsp, nil, lastgrantedquota
 	} else if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE {
-		if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
+		if serviceUsage.ServiceRating.MonetaryQuota == 0 {
+			logger.ChargingdataPostLog.Warn("Out of Monetary Quota")
+			rsp.ServiceRating.AllowedUnits = 0
+			return rsp, nil, lastgrantedquota
+		} else if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
 			monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost - monetaryRequest
 			if monetaryRemain > 0 {
 				rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
@@ -695,10 +722,6 @@ func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsag
 				logger.ChargingdataPostLog.Warn("Last granted Quota")
 				lastgrantedquota = true
 			}
-		} else {
-			//Termination
-			rsp.ServiceRating.AllowedUnits = 0
-			lastgrantedquota = true
 		}
 	} else {
 		logger.ChargingdataPostLog.Warnf("Unsupport RequestSubType")
