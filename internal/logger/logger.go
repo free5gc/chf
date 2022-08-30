@@ -21,6 +21,7 @@ var (
 	GinLog              *logrus.Entry
 	ChargingdataPostLog *logrus.Entry
 	NotifyEventLog      *logrus.Entry
+	RechargingLog       *logrus.Entry
 )
 
 func init() {
@@ -45,6 +46,7 @@ func init() {
 	GinLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "GIN"})
 	ChargingdataPostLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "ChargingdataPost"})
 	NotifyEventLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "NotifyEventLog"})
+	RechargingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "RechargingLog"})
 }
 
 func LogFileHook(logNfPath string, log5gcPath string) error {

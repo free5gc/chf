@@ -12,6 +12,7 @@ import (
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/idgenerator"
+	"github.com/fsnotify/fsnotify"
 )
 
 var chfCtx *CHFContext
@@ -24,7 +25,6 @@ func init() {
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
 	chfCtx.RatingGroupMonetaryQuotaMap = make(map[int32]int32)
 	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
-
 }
 
 type CHFContext struct {
@@ -41,12 +41,14 @@ type CHFContext struct {
 	ChargingSession           map[string]*cdrType.CHFRecord
 
 	OnlineCharging bool
+	NotifyUri      string
 	// Rating
 	Tarrif tarrifType.CurrentTariff
 	// AMBF
 	RatingSessionGenerator      *idgenerator.IDGenerator
 	RatingGroupMonetaryQuotaMap map[int32]int32
 	InitMonetaryQuota           int32
+	QuotaWatcher                **fsnotify.Watcher
 
 	RatingGroupMonetaryQuotaMapMutex sync.RWMutex
 }

@@ -2,6 +2,8 @@ package producer
 
 import (
 	"context"
+	"encoding/binary"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +22,20 @@ import (
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
 )
+
+func NotifyRecharge(quota uint32, ratingGroup int32) {
+	self := chf_context.CHF_Self()
+	self.RatingGroupMonetaryQuotaMap[ratingGroup] = int32(quota)
+
+	reauthorizationDetails := models.ReauthorizationDetails{
+		RatingGroup: ratingGroup,
+	}
+	notifyRequest := models.ChargingNotifyRequest{
+		ReauthorizationDetails: []models.ReauthorizationDetails{reauthorizationDetails},
+	}
+
+	SendChargingNotification(self.NotifyUri, notifyRequest)
+}
 
 func SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
 	client := util.GetNchfChargingNotificationCallbackClient()
@@ -494,6 +510,7 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataCreateResopone ")
 	self := chf_context.CHF_Self()
 
+	self.NotifyUri = chargingData.NotifyUri
 	multipleUnitInformation := []models.MultipleUnitInformation{}
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
@@ -501,6 +518,22 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 		// allocate MonetaryQuota at the beging
 		if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
 			self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
+
+			fileDir := "/tmp/quota"
+			fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
+
+			q := make([]byte, 4)
+			binary.BigEndian.PutUint32(q, uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]))
+
+			err := ioutil.WriteFile(fileName, q, 0666)
+			if err != nil {
+				panic(err)
+			}
+
+			err = (*self.QuotaWatcher).Add(fileName)
+			if err != nil {
+				logger.ChargingdataPostLog.Errorln(err)
+			}
 		}
 	}
 
@@ -562,7 +595,6 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
-
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
 			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)

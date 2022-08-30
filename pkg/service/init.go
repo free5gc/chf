@@ -16,6 +16,7 @@ import (
 
 	"github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/recharge"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/convergedcharging"
 	"github.com/free5gc/chf/internal/util"
@@ -25,7 +26,8 @@ import (
 )
 
 type CHF struct {
-	KeyLogPath string
+	KeyLogPath    string
+	RechargServer *recharge.Server
 }
 
 type (
@@ -261,6 +263,7 @@ func (chf *CHF) Exec(c *cli.Context) error {
 		wg.Done()
 	}()
 
+	chf.RechargServer = recharge.OpenServer(&wg)
 	wg.Wait()
 
 	return err
