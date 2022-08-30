@@ -60,8 +60,8 @@ func (s *Server) Serve(wg *sync.WaitGroup) {
 
 					qouta := binary.BigEndian.Uint32(data[0:3])
 
-					// fileName = /tmp/:ratinggroup.quota
-					rg := strings.Split(event.Name, "/")[1]
+					// fileName = /tmp/quota/:ratinggroup.quota
+					rg := strings.Split(event.Name, "/")[2]
 					rg = strings.Split(rg, ".")[0]
 					ratinggroup, _ := strconv.Atoi(rg)
 					producer.NotifyRecharge(qouta, int32(ratinggroup))
