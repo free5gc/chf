@@ -2,7 +2,6 @@ package producer
 
 import (
 	"context"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/free5gc/TarrifUtil/tarrifType"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
@@ -491,6 +491,7 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 }
 
 func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) models.ChargingDataResponse {
+	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataCreateResopone ")
 	self := chf_context.CHF_Self()
 
 	multipleUnitInformation := []models.MultipleUnitInformation{}
@@ -504,17 +505,15 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	}
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
-
 		ratingGroup := unitUsage.RatingGroup
 
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-
 			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
-			rsp, _, lastgrantedquota := Rating(ServiceUsageRequest)
+			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
 			unitInformation := models.MultipleUnitInformation{
 				RatingGroup:          ratingGroup,
-				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.2),
+				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8),
 				FinalUnitIndication:  &models.FinalUnitIndication{},
 				GrantedUnit: &models.GrantedUnit{
 					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
@@ -528,11 +527,10 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
 				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
-				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
 			}
 
+			logger.ChargingdataPostLog.Info("Rating Group's [%v] MonetaryQuota: [%v]", ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup])
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
-			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
 		}
 	}
 	responseBody := models.ChargingDataResponse{}
@@ -542,7 +540,6 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 }
 func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
-
 	self := chf_context.CHF_Self()
 
 	multipleUnitInformation := []models.MultipleUnitInformation{}
@@ -564,18 +561,11 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	// Rating for each rating group
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
-		var totalUsaedUnit uint32
-
 		ratingGroup := unitUsage.RatingGroup
-
-		for _, useduint := range unitUsage.UsedUnitContainer {
-			totalUsaedUnit += uint32(useduint.TotalVolume)
-
-		}
 
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
 			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
-			rsp, _, lastgrantedquota := Rating(ServiceUsageRequest)
+			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
 			unitInformation := models.MultipleUnitInformation{
 				RatingGroup:         ratingGroup,
@@ -591,22 +581,22 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				}
 			}
 
-			self.RatingGroupMonetaryQuotaMapMutex.Lock()
 			if lastgrantedquota {
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
 				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
-				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
-			} else {
-				self.RatingGroupMonetaryQuotaMap[ratingGroup] -= int32(rsp.ServiceRating.Price)
 			}
+			self.RatingGroupMonetaryQuotaMapMutex.Lock()
+
+			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= int32(rsp.ServiceRating.Price)
+			// renewQuota(int(ratingGroup), rsp.ServiceRating.MonetaryQuota)
+
+			logger.ChargingdataPostLog.Info("Rating Group's [%d] MonetaryQuota: [%d]", ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup])
+
 			self.RatingGroupMonetaryQuotaMapMutex.Unlock()
 
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
-			self.RatingGroupMonetaryQuotaMapMutex.RLock()
-			logger.ChargingdataPostLog.Info("MonetaryQuota: ", self.RatingGroupMonetaryQuotaMap[ratingGroup])
-			self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
 		}
 
 	}
@@ -650,7 +640,6 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 
 	// Rating for each rating group
 	var totalUsaedUnit uint32
-	var consumedUnitsAfterTariffSwitch uint32
 
 	ratingGroup := unitUsage.RatingGroup
 
@@ -664,19 +653,13 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		SubscriptionID: &subscriberIdentifier,
 		ActualTime:     time.Now(),
 		ServiceRating: &tarrifType.ServiceRating{
-			RequestedUnits:                 uint32(unitUsage.RequestedUnit.TotalVolume),
-			ConsumedUnits:                  totalUsaedUnit,
-			ConsumedUnitsAfterTariffSwitch: consumedUnitsAfterTariffSwitch,
+			RequestedUnits: uint32(unitUsage.RequestedUnit.TotalVolume),
+			ConsumedUnits:  totalUsaedUnit,
 			RequestSubType: &tarrifType.RequestSubType{
 				Value: tarrifType.REQ_SUBTYPE_RESERVE,
 			},
+			MonetaryQuota: uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]),
 		},
-	}
-
-	if self.RatingGroupMonetaryQuotaMap[ratingGroup] < 0 {
-		ServiceUsageRequest.ServiceRating.MonetaryQuota = 0
-	} else {
-		ServiceUsageRequest.ServiceRating.MonetaryQuota = uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup])
 	}
 
 	self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
@@ -686,46 +669,4 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		}
 	}
 	return ServiceUsageRequest
-}
-func Rating(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails, bool) {
-	self := chf_context.CHF_Self()
-	lastgrantedquota := false
-
-	unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(math.Pow10(self.Tarrif.RateElement.UnitCost.Exponent))
-	monetaryCost := int64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
-	monetaryRequest := int64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
-
-	rsp := tarrifType.ServiceUsageResponse{
-		SessionID: serviceUsage.SessionID,
-		ServiceRating: &tarrifType.ServiceRating{
-			TariffSwitchTime: uint32(serviceUsage.ActualTime.Second()),
-			CurrentTariff:    &self.Tarrif,
-		},
-	}
-
-	rsp.ServiceRating.Price = uint32(monetaryCost)
-
-	if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_DEBIT {
-		logger.ChargingdataPostLog.Warnf("Debit mode")
-		return rsp, nil, lastgrantedquota
-	} else if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE {
-		if serviceUsage.ServiceRating.MonetaryQuota == 0 {
-			logger.ChargingdataPostLog.Warn("Out of Monetary Quota")
-			rsp.ServiceRating.AllowedUnits = 0
-			return rsp, nil, lastgrantedquota
-		} else if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
-			monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost - monetaryRequest
-			if monetaryRemain > 0 {
-				rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
-			} else {
-				rsp.ServiceRating.AllowedUnits = uint32((int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost) / unitCost)
-				logger.ChargingdataPostLog.Warn("Last granted Quota")
-				lastgrantedquota = true
-			}
-		}
-	} else {
-		logger.ChargingdataPostLog.Warnf("Unsupport RequestSubType")
-	}
-
-	return rsp, nil, lastgrantedquota
 }
