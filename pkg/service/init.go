@@ -165,6 +165,8 @@ func (chf *CHF) Start() {
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
+	chf.RechargServer = recharge.OpenServer()
+
 	go func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -263,7 +265,6 @@ func (chf *CHF) Exec(c *cli.Context) error {
 		wg.Done()
 	}()
 
-	chf.RechargServer = recharge.OpenServer(&wg)
 	wg.Wait()
 
 	return err
