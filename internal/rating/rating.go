@@ -26,8 +26,8 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 	}
 
 	if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_DEBIT {
-		logger.ChargingdataPostLog.Warnf("Debit mode")
-
+		logger.ChargingdataPostLog.Warnf("Out of Monetary Quota, Debit mode")
+		rsp.ServiceRating.AllowedUnits = 0
 		return rsp, nil, lastgrantedquota
 	} else if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE {
 		if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {

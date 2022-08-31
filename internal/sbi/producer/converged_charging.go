@@ -693,6 +693,9 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 			MonetaryQuota: uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]),
 		},
 	}
+	if self.RatingGroupMonetaryQuotaMap[ratingGroup] <= 0 {
+		ServiceUsageRequest.ServiceRating.RequestSubType.Value = tarrifType.REQ_SUBTYPE_DEBIT
+	}
 
 	self.RatingGroupMonetaryQuotaMapMutex.RUnlock()
 	for _, trigger := range chargingData.Triggers {
