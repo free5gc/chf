@@ -5,7 +5,6 @@ import (
 	"io/ioutil"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	chf_context "github.com/free5gc/chf/internal/context"
@@ -21,19 +20,17 @@ type Server struct {
 	QuotaWatcher *fsnotify.Watcher
 }
 
-func OpenServer(wg *sync.WaitGroup) *Server {
+func OpenServer() *Server {
 	s := new(Server)
-	wg.Add(1)
-	go s.Serve(wg)
+	go s.Serve()
 	logger.RechargingLog.Infof("Recharging server started")
 
 	return s
 }
 
-func (s *Server) Serve(wg *sync.WaitGroup) {
+func (s *Server) Serve() {
 	defer func() {
 		logger.RechargingLog.Infof("Recharging server stopped")
-		wg.Done()
 	}()
 
 	watcher, err := fsnotify.NewWatcher()
