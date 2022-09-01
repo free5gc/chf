@@ -519,7 +519,7 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 		if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
 			self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
 
-			fileDir := "/tmp/quota"
+			fileDir := "/tmp/quota/"
 			fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
 
 			q := make([]byte, 4)

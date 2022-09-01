@@ -29,10 +29,6 @@ func OpenServer() *Server {
 }
 
 func (s *Server) Serve() {
-	defer func() {
-		logger.RechargingLog.Infof("Recharging server stopped")
-	}()
-
 	watcher, err := fsnotify.NewWatcher()
 	ctx := chf_context.CHF_Self()
 	ctx.QuotaWatcher = &watcher
@@ -43,6 +39,9 @@ func (s *Server) Serve() {
 
 	go func() {
 		for {
+			defer func() {
+				logger.RechargingLog.Infof("Recharging server stopped")
+			}()
 			select {
 			case event, ok := <-watcher.Events:
 				if !ok {
@@ -50,15 +49,15 @@ func (s *Server) Serve() {
 				}
 				if event.Op == fsnotify.Write {
 					data, err := ioutil.ReadFile(event.Name)
-
+					logger.RechargingLog.Warnf("Notify quota file change")
 					if err != nil {
 						logger.RechargingLog.Warnf("Read Events err: %+v", err)
 					}
 
-					qouta := binary.BigEndian.Uint32(data[0:3])
+					qouta := binary.BigEndian.Uint32(data[0:4])
 
 					// fileName = /tmp/quota/:ratinggroup.quota
-					rg := strings.Split(event.Name, "/")[2]
+					rg := strings.Split(event.Name, "/")[3]
 					rg = strings.Split(rg, ".")[0]
 					ratinggroup, _ := strconv.Atoi(rg)
 					producer.NotifyRecharge(qouta, int32(ratinggroup))
