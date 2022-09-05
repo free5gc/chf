@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"os"
 
 	"github.com/free5gc/CDRUtil/asn"
 	"github.com/free5gc/CDRUtil/cdrConvert"
@@ -474,7 +475,7 @@ func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 }
 
 func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
-	logger.ChargingdataPostLog.Tracef("Dump CDR File ")
+	logger.ChargingdataPostLog.Tracef("Dump CDR File")
 
 	var cdrfile cdrFile.CDRFile
 	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
@@ -506,6 +507,29 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	return nil
 }
 
+func UpdateQuotaFile(ratingGroup int32, quota int32, forNotify bool) {
+	if forNotify {
+		fileDir := "/tmp/quota/"
+		fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
+		q := make([]byte, 4)
+		binary.BigEndian.PutUint32(q, uint32(quota))
+
+		err := ioutil.WriteFile(fileName, q, 0666)
+		if err != nil {
+			panic(err)
+		}
+	}
+	fileDir := "/tmp/quota_webconsole/"
+	fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
+	q := make([]byte, 4)
+	binary.BigEndian.PutUint32(q, uint32(quota))
+
+	err := ioutil.WriteFile(fileName, q, 0666)
+	if err != nil {
+		panic(err)
+	}
+}
+
 func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataCreateResopone ")
 	self := chf_context.CHF_Self()
@@ -513,28 +537,38 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	self.NotifyUri = chargingData.NotifyUri
 	multipleUnitInformation := []models.MultipleUnitInformation{}
 
+	if _, err := os.Stat("/tmp/quota"); os.IsNotExist(err) {
+		err := os.Mkdir("/tmp/quota", 0777)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	if _, err := os.Stat("/tmp/quota_webconsole"); os.IsNotExist(err) {
+		err := os.Mkdir("/tmp/quota_webconsole", 0777)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
 		// allocate MonetaryQuota at the beging
+		self.RatingGroupMonetaryQuotaMapMutex.Lock()
 		if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
 			self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
 
 			fileDir := "/tmp/quota/"
 			fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
 
-			q := make([]byte, 4)
-			binary.BigEndian.PutUint32(q, uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]))
+			UpdateQuotaFile(ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup], true)
 
-			err := ioutil.WriteFile(fileName, q, 0666)
-			if err != nil {
-				panic(err)
-			}
-
-			err = (*self.QuotaWatcher).Add(fileName)
+			err := (*self.QuotaWatcher).Add(fileName)
 			if err != nil {
 				logger.ChargingdataPostLog.Errorln(err)
 			}
 		}
+		self.RatingGroupMonetaryQuotaMapMutex.Unlock()
 	}
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
@@ -586,6 +620,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				self.RatingGroupMonetaryQuotaMapMutex.Lock()
 				if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
 					self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
+					UpdateQuotaFile(ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup], false)
 				}
 				self.RatingGroupMonetaryQuotaMapMutex.Unlock()
 			}
@@ -623,6 +658,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 
 			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= int32(rsp.ServiceRating.Price)
 			// renewQuota(int(ratingGroup), rsp.ServiceRating.MonetaryQuota)
+			UpdateQuotaFile(ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup], false)
 
 			logger.ChargingdataPostLog.Info("Rating Group's [%d] MonetaryQuota: [%d]", ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup])
 
