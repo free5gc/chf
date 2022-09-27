@@ -5,10 +5,10 @@ import (
 	"encoding/binary"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
-	"os"
 
 	"github.com/free5gc/CDRUtil/asn"
 	"github.com/free5gc/CDRUtil/cdrConvert"
@@ -181,7 +181,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	if onlineCharging {
 		// TODO Online charging: Centralized Unit determination
 		// TODO Online charging: Rate, Account, Reservation
-		responseBody = BuildOnlineChargingDataCreateResopone(chargingData, chargingSessionId)
+		responseBody = BuildOnlineChargingDataCreateResopone(chargingData)
 	}
 
 	responseBody.InvocationTimeStamp = &timeStamp
@@ -530,7 +530,7 @@ func UpdateQuotaFile(ratingGroup int32, quota int32, forNotify bool) {
 	}
 }
 
-func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) models.ChargingDataResponse {
+func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataCreateResopone ")
 	self := chf_context.CHF_Self()
 
@@ -593,7 +593,7 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
-				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
+				logger.ChargingdataPostLog.Info("Last granted unit: ", rsp.ServiceRating.AllowedUnits)
 			}
 
 			logger.ChargingdataPostLog.Info("Rating Group's [%v] MonetaryQuota: [%v]", ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup])
@@ -657,6 +657,10 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			self.RatingGroupMonetaryQuotaMapMutex.Lock()
 
 			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= int32(rsp.ServiceRating.Price)
+
+			if self.RatingGroupMonetaryQuotaMap[ratingGroup] < 0 {
+				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
+			}
 			// renewQuota(int(ratingGroup), rsp.ServiceRating.MonetaryQuota)
 			UpdateQuotaFile(ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup], false)
 

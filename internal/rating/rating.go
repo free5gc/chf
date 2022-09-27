@@ -31,11 +31,11 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 		return rsp, nil, lastgrantedquota
 	} else if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE {
 		if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
-			monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost - monetaryRequest
-			if monetaryRemain > 0 {
+			monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost
+			if (monetaryRemain - monetaryRequest) > 0 {
 				rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
 			} else {
-				rsp.ServiceRating.AllowedUnits = uint32((int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost) / unitCost)
+				rsp.ServiceRating.AllowedUnits = uint32(monetaryRemain / unitCost)
 				logger.ChargingdataPostLog.Warn("Last granted Quota")
 				lastgrantedquota = true
 			}
