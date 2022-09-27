@@ -26,7 +26,7 @@ import (
 
 func NotifyRecharge(quota uint32, ratingGroup int32) {
 	self := chf_context.CHF_Self()
-	self.RatingGroupMonetaryQuotaMap[ratingGroup] = int32(quota)
+	self.RatingGroupMonetaryQuotaMap[ratingGroup] = quota
 
 	reauthorizationDetails := models.ReauthorizationDetails{
 		RatingGroup: ratingGroup,
@@ -507,7 +507,7 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	return nil
 }
 
-func UpdateQuotaFile(ratingGroup int32, quota int32, forNotify bool) {
+func UpdateQuotaFile(ratingGroup int32, quota uint32, forNotify bool) {
 	if forNotify {
 		fileDir := "/tmp/quota/"
 		fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
@@ -656,7 +656,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			}
 			self.RatingGroupMonetaryQuotaMapMutex.Lock()
 
-			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= int32(rsp.ServiceRating.Price)
+			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
 
 			if self.RatingGroupMonetaryQuotaMap[ratingGroup] < 0 {
 				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0

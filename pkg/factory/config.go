@@ -67,7 +67,7 @@ type Configuration struct {
 	NrfUri         string    `yaml:"nrfUri,omitempty" valid:"required, url"`
 	ServiceList    []Service `yaml:"serviceList,omitempty" valid:"required"`
 	Tarrif         *Tarrif   `yaml:"tarrif,omitempty" valid:"required"`
-	MonetaryQuota  int32     `yaml:"monetaryQuota,omitempty" valid:"required"`
+	MonetaryQuota  uint32    `yaml:"monetaryQuota,omitempty" valid:"required"`
 	OnlineCharging bool      `yaml:"onlineCharging,omitempty" valid:"required"`
 }
 

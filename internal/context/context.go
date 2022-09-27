@@ -23,7 +23,7 @@ func init() {
 	chfCtx.UriScheme = models.UriScheme_HTTPS
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
-	chfCtx.RatingGroupMonetaryQuotaMap = make(map[int32]int32)
+	chfCtx.RatingGroupMonetaryQuotaMap = make(map[int32]uint32)
 	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
 }
 
@@ -46,8 +46,8 @@ type CHFContext struct {
 	Tarrif tarrifType.CurrentTariff
 	// AMBF
 	RatingSessionGenerator      *idgenerator.IDGenerator
-	RatingGroupMonetaryQuotaMap map[int32]int32
-	InitMonetaryQuota           int32
+	RatingGroupMonetaryQuotaMap map[int32]uint32
+	InitMonetaryQuota           uint32
 	QuotaWatcher                **fsnotify.Watcher
 
 	RatingGroupMonetaryQuotaMapMutex sync.RWMutex
