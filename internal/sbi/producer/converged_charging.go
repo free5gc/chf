@@ -26,7 +26,15 @@ import (
 
 func NotifyRecharge(quota uint32, ratingGroup int32) {
 	self := chf_context.CHF_Self()
-	self.RatingGroupMonetaryQuotaMap[ratingGroup] = quota
+
+	newQuota := self.RatingGroupMonetaryDebit[ratingGroup] + int32(quota)
+	if newQuota > 0 {
+		self.RatingGroupMonetaryDebit[ratingGroup] = 0
+		self.RatingGroupMonetaryQuotaMap[ratingGroup] = uint32(newQuota)
+	} else {
+		logger.NotifyEventLog.Warn("Need more Monetary Quota to pay the debit")
+		return
+	}
 
 	reauthorizationDetails := models.ReauthorizationDetails{
 		RatingGroup: ratingGroup,
@@ -658,8 +666,13 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 
 			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
 
-			if self.RatingGroupMonetaryQuotaMap[ratingGroup] < 0 {
+			remainQuota := int32(self.RatingGroupMonetaryQuotaMap[ratingGroup] - rsp.ServiceRating.Price)
+
+			if remainQuota < 0 {
+				self.RatingGroupMonetaryDebit[ratingGroup] = remainQuota
 				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
+			} else {
+				self.RatingGroupMonetaryQuotaMap[ratingGroup] = uint32(remainQuota)
 			}
 			// renewQuota(int(ratingGroup), rsp.ServiceRating.MonetaryQuota)
 			UpdateQuotaFile(ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup], false)
