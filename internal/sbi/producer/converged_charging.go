@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,23 +23,21 @@ import (
 	"github.com/free5gc/util/httpwrapper"
 )
 
-func NotifyRecharge(quota uint32, ratingGroup int32) {
+func NotifyRecharge(quota uint32, supi string) {
 	self := chf_context.CHF_Self()
 
-	newQuota := self.RatingGroupMonetaryDebit[ratingGroup] + int32(quota)
+	newQuota := self.UeDebitMap[supi] + int32(quota)
 	if newQuota > 0 {
-		self.RatingGroupMonetaryDebit[ratingGroup] = 0
-		self.RatingGroupMonetaryQuotaMap[ratingGroup] = uint32(newQuota)
+		self.UeDebitMap[supi] = 0
+		self.UeQuotaMap[supi] = uint32(newQuota)
 	} else {
 		logger.NotifyEventLog.Warn("Need more Monetary Quota to pay the debit")
 		return
 	}
 
-	reauthorizationDetails := models.ReauthorizationDetails{
-		RatingGroup: ratingGroup,
-	}
+	//TODO: send notify to all UE's rating group
 	notifyRequest := models.ChargingNotifyRequest{
-		ReauthorizationDetails: []models.ReauthorizationDetails{reauthorizationDetails},
+		ReauthorizationDetails: []models.ReauthorizationDetails{},
 	}
 
 	SendChargingNotification(self.NotifyUri, notifyRequest)
@@ -515,10 +512,10 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	return nil
 }
 
-func UpdateQuotaFile(ratingGroup int32, quota uint32, forNotify bool) {
+func UpdateQuotaFile(supi string, quota uint32, forNotify bool) {
 	if forNotify {
 		fileDir := "/tmp/quota/"
-		fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
+		fileName := fileDir + supi + ".quota"
 		q := make([]byte, 4)
 		binary.BigEndian.PutUint32(q, uint32(quota))
 
@@ -528,7 +525,7 @@ func UpdateQuotaFile(ratingGroup int32, quota uint32, forNotify bool) {
 		}
 	}
 	fileDir := "/tmp/quota_webconsole/"
-	fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
+	fileName := fileDir + supi + ".quota"
 	q := make([]byte, 4)
 	binary.BigEndian.PutUint32(q, uint32(quota))
 
@@ -538,45 +535,34 @@ func UpdateQuotaFile(ratingGroup int32, quota uint32, forNotify bool) {
 	}
 }
 
+func allocateQuota(supi string) error {
+	self := chf_context.CHF_Self()
+
+	self.UeQuotaMap[supi] = self.InitMonetaryQuota
+
+	fileDir := "/tmp/quota/"
+	fileName := fileDir + supi + ".quota"
+
+	UpdateQuotaFile(supi, self.UeQuotaMap[supi], true)
+	err := (*self.QuotaWatcher).Add(fileName)
+
+	return err
+}
+
 func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataCreateResopone ")
 	self := chf_context.CHF_Self()
 
 	self.NotifyUri = chargingData.NotifyUri
 	multipleUnitInformation := []models.MultipleUnitInformation{}
+	supi := chargingData.SubscriberIdentifier
 
-	if _, err := os.Stat("/tmp/quota"); os.IsNotExist(err) {
-		err := os.Mkdir("/tmp/quota", 0777)
+	// allocate MonetaryQuota for new UE
+	if self.UeQuotaMap[supi] == 0 {
+		err := allocateQuota(supi)
 		if err != nil {
-			panic(err)
+			logger.ChargingdataPostLog.Errorln(err)
 		}
-	}
-
-	if _, err := os.Stat("/tmp/quota_webconsole"); os.IsNotExist(err) {
-		err := os.Mkdir("/tmp/quota_webconsole", 0777)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	for _, unitUsage := range chargingData.MultipleUnitUsage {
-		ratingGroup := unitUsage.RatingGroup
-		// allocate MonetaryQuota at the beging
-		self.RatingGroupMonetaryQuotaMapMutex.Lock()
-		if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
-			self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
-
-			fileDir := "/tmp/quota/"
-			fileName := fileDir + strconv.Itoa(int(ratingGroup)) + ".quota"
-
-			UpdateQuotaFile(ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup], true)
-
-			err := (*self.QuotaWatcher).Add(fileName)
-			if err != nil {
-				logger.ChargingdataPostLog.Errorln(err)
-			}
-		}
-		self.RatingGroupMonetaryQuotaMapMutex.Unlock()
 	}
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
@@ -601,10 +587,10 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
-				logger.ChargingdataPostLog.Info("Last granted unit: ", rsp.ServiceRating.AllowedUnits)
+				logger.ChargingdataPostLog.Infof("Last granted unit for UE [%s]: [%u]", rsp.ServiceRating.AllowedUnits)
 			}
 
-			logger.ChargingdataPostLog.Info("Rating Group's [%v] MonetaryQuota: [%v]", ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup])
+			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%u]", supi, self.UeQuotaMap[supi])
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
 		}
 	}
@@ -616,26 +602,19 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
 	self := chf_context.CHF_Self()
-
+	supi := chargingData.SubscriberIdentifier
 	multipleUnitInformation := []models.MultipleUnitInformation{}
 
 	for _, trigger := range chargingData.Triggers {
-		if trigger.TriggerType == models.TriggerType_START_OF_SERVICE_DATA_FLOW {
-			for _, unitUsage := range chargingData.MultipleUnitUsage {
-				ratingGroup := unitUsage.RatingGroup
-				// if there is no quota for this rating group
-				// allocate MonetaryQuota
-				self.RatingGroupMonetaryQuotaMapMutex.Lock()
-				if _, quota := self.RatingGroupMonetaryQuotaMap[ratingGroup]; !quota {
-					self.RatingGroupMonetaryQuotaMap[ratingGroup] = self.InitMonetaryQuota
-					UpdateQuotaFile(ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup], false)
-				}
-				self.RatingGroupMonetaryQuotaMapMutex.Unlock()
+		if trigger.TriggerType == models.TriggerType_START_OF_SERVICE_DATA_FLOW && self.UeQuotaMap[supi] == 0 {
+			err := allocateQuota(supi)
+			if err != nil {
+				logger.ChargingdataPostLog.Errorln(err)
 			}
 		}
 	}
-	// Rating for each rating group
 
+	// Rating for each report
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
@@ -660,24 +639,23 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
-				logger.ChargingdataPostLog.Info("allowed unit: ", rsp.ServiceRating.AllowedUnits)
+				logger.ChargingdataPostLog.Infof("UE's [%s] last granted quota: %u", supi, rsp.ServiceRating.AllowedUnits)
 			}
 			self.RatingGroupMonetaryQuotaMapMutex.Lock()
 
-			self.RatingGroupMonetaryQuotaMap[ratingGroup] -= rsp.ServiceRating.Price
-
-			remainQuota := int32(self.RatingGroupMonetaryQuotaMap[ratingGroup] - rsp.ServiceRating.Price)
+			remainQuota := int32(self.UeQuotaMap[supi] - rsp.ServiceRating.Price)
+			logger.ChargingdataPostLog.Warnf("remainQuota %d", remainQuota)
 
 			if remainQuota < 0 {
-				self.RatingGroupMonetaryDebit[ratingGroup] = remainQuota
-				self.RatingGroupMonetaryQuotaMap[ratingGroup] = 0
+				self.UeDebitMap[supi] = remainQuota
+				self.UeQuotaMap[supi] = 0
 			} else {
-				self.RatingGroupMonetaryQuotaMap[ratingGroup] = uint32(remainQuota)
+				self.UeQuotaMap[supi] = uint32(remainQuota)
 			}
 			// renewQuota(int(ratingGroup), rsp.ServiceRating.MonetaryQuota)
-			UpdateQuotaFile(ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup], false)
+			UpdateQuotaFile(supi, self.UeQuotaMap[supi], false)
 
-			logger.ChargingdataPostLog.Info("Rating Group's [%d] MonetaryQuota: [%d]", ratingGroup, self.RatingGroupMonetaryQuotaMap[ratingGroup])
+			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%d]", supi, self.UeQuotaMap[supi])
 
 			self.RatingGroupMonetaryQuotaMapMutex.Unlock()
 
@@ -726,8 +704,6 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	// Rating for each rating group
 	var totalUsaedUnit uint32
 
-	ratingGroup := unitUsage.RatingGroup
-
 	for _, useduint := range unitUsage.UsedUnitContainer {
 		totalUsaedUnit += uint32(useduint.TotalVolume)
 	}
@@ -743,10 +719,10 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 			RequestSubType: &tarrifType.RequestSubType{
 				Value: tarrifType.REQ_SUBTYPE_RESERVE,
 			},
-			MonetaryQuota: uint32(self.RatingGroupMonetaryQuotaMap[ratingGroup]),
+			MonetaryQuota: self.UeQuotaMap[supi],
 		},
 	}
-	if self.RatingGroupMonetaryQuotaMap[ratingGroup] <= 0 {
+	if self.UeQuotaMap[supi] == 0 {
 		ServiceUsageRequest.ServiceRating.RequestSubType.Value = tarrifType.REQ_SUBTYPE_DEBIT
 	}
 

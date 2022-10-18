@@ -3,7 +3,7 @@ package recharge
 import (
 	"encoding/binary"
 	"io/ioutil"
-	"strconv"
+	"os"
 	"strings"
 	"time"
 
@@ -37,6 +37,20 @@ func (s *Server) Serve() {
 		logger.RechargingLog.Warnf("create NewWatcher err: %+v", err)
 	}
 
+	if _, err := os.Stat("/tmp/quota"); os.IsNotExist(err) {
+		err := os.Mkdir("/tmp/quota", 0777)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	if _, err := os.Stat("/tmp/quota_webconsole"); os.IsNotExist(err) {
+		err := os.Mkdir("/tmp/quota_webconsole", 0777)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	go func() {
 		for {
 			defer func() {
@@ -57,10 +71,10 @@ func (s *Server) Serve() {
 					qouta := binary.BigEndian.Uint32(data[0:4])
 
 					// fileName = /tmp/quota/:ratinggroup.quota
-					rg := strings.Split(event.Name, "/")[3]
-					rg = strings.Split(rg, ".")[0]
-					ratinggroup, _ := strconv.Atoi(rg)
-					producer.NotifyRecharge(qouta, int32(ratinggroup))
+					supi := strings.Split(event.Name, "/")[3]
+					supi = strings.Split(supi, ".")[0]
+
+					producer.NotifyRecharge(qouta, supi)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {

@@ -1,8 +1,6 @@
 package rating
 
 import (
-	"math"
-
 	"github.com/free5gc/TarrifUtil/tarrifType"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
@@ -13,7 +11,8 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 	self := chf_context.CHF_Self()
 	lastgrantedquota := false
 
-	unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(math.Pow10(self.Tarrif.RateElement.UnitCost.Exponent))
+	// unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(math.Pow10(self.Tarrif.RateElement.UnitCost.Exponent))
+	unitCost := int64(10)
 	monetaryCost := int64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
 	monetaryRequest := int64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
 
@@ -39,9 +38,6 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 				logger.ChargingdataPostLog.Warn("Last granted Quota")
 				lastgrantedquota = true
 			}
-
-			// MonetaryCost = (used quota + reserve quota) * unitCost
-			rsp.ServiceRating.Price += uint32(int64(rsp.ServiceRating.AllowedUnits) * unitCost)
 		} else {
 			logger.ChargingdataPostLog.Warn("Out of Monetary Quota")
 			rsp.ServiceRating.AllowedUnits = 0
