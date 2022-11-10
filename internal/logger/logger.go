@@ -5,9 +5,10 @@ import (
 	"time"
 
 	formatter "github.com/antonfisher/nested-logrus-formatter"
-	"github.com/sirupsen/logrus"
-
+	golog "github.com/fclairamb/go-log"
+	adapter "github.com/fclairamb/go-log/logrus"
 	logger_util "github.com/free5gc/util/logger"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -22,6 +23,8 @@ var (
 	ChargingdataPostLog *logrus.Entry
 	NotifyEventLog      *logrus.Entry
 	RechargingLog       *logrus.Entry
+	FtpLog              *logrus.Entry
+	FtpServerLog        golog.Logger
 )
 
 func init() {
@@ -47,6 +50,8 @@ func init() {
 	ChargingdataPostLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "ChargingdataPost"})
 	NotifyEventLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "NotifyEventLog"})
 	RechargingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "RechargingLog"})
+	FtpLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "FTP"})
+	FtpServerLog = adapter.NewWrap(FtpLog.Logger).With("component", "CHF", "category", "FTP")
 }
 
 func LogFileHook(logNfPath string, log5gcPath string) error {

@@ -15,6 +15,7 @@ import (
 	"github.com/urfave/cli"
 
 	"github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/recharge"
 	"github.com/free5gc/chf/internal/sbi/consumer"
@@ -166,6 +167,7 @@ func (chf *CHF) Start() {
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
 	chf.RechargServer = recharge.OpenServer()
+	ftp.OpenServer()
 
 	go func() {
 		defer func() {
