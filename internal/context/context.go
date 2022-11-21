@@ -12,7 +12,6 @@ import (
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/idgenerator"
-	"github.com/fsnotify/fsnotify"
 )
 
 var chfCtx *CHFContext
@@ -52,9 +51,11 @@ type CHFContext struct {
 	RatingSessionGenerator *idgenerator.IDGenerator
 
 	InitMonetaryQuota uint32
-	QuotaWatcher      **fsnotify.Watcher
 
 	RatingGroupMonetaryQuotaMapMutex sync.RWMutex
+	NewUe                            chan string
+	// RechargServer *recharge.Server
+	// FtpServer *ftp.FTPServer
 }
 
 // Create new CHF context
@@ -123,6 +124,8 @@ func (c *CHFContext) NewCHFUe(Supi string) (*ChfUe, error) {
 		newUeContext := &ChfUe{}
 		newUeContext.Supi = Supi
 		c.UePool.Store(Supi, newUeContext)
+
+		c.NewUe <- Supi
 		return newUeContext, nil
 	} else {
 		return nil, fmt.Errorf(" add Ue context fail ")

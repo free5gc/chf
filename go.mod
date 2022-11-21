@@ -15,7 +15,6 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/gin-contrib/cors v1.3.1
 	github.com/gin-gonic/gin v1.7.3
-	github.com/go-kit/log v0.2.1
 	github.com/google/uuid v1.3.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/urfave/cli v1.22.5

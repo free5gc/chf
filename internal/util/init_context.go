@@ -9,6 +9,7 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/util/mongoapi"
 )
 
 // Init CHF Context from config flie
@@ -22,6 +23,13 @@ func InitchfContext(context *context.CHFContext) {
 	}
 	context.OnlineCharging = configuration.OnlineCharging
 	context.InitMonetaryQuota = configuration.MonetaryQuota
+
+	mongodb := config.Configuration.Mongodb
+	// Connect to MongoDB
+	if err := mongoapi.SetMongoDB(mongodb.Name, mongodb.Url); err != nil {
+		logger.UtilLog.Errorf("InitpcfContext err: %+v", err)
+		return
+	}
 
 	sbi := configuration.Sbi
 	context.NrfUri = configuration.NrfUri

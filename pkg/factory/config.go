@@ -62,13 +62,15 @@ func (i *Info) validate() (bool, error) {
 }
 
 type Configuration struct {
-	ChfName        string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
-	Sbi            *Sbi      `yaml:"sbi,omitempty" valid:"required"`
-	NrfUri         string    `yaml:"nrfUri,omitempty" valid:"required, url"`
-	ServiceList    []Service `yaml:"serviceList,omitempty" valid:"required"`
-	Tarrif         *Tarrif   `yaml:"tarrif,omitempty" valid:"required"`
-	MonetaryQuota  uint32    `yaml:"monetaryQuota,omitempty" valid:"required"`
-	OnlineCharging bool      `yaml:"onlineCharging,omitempty" valid:"required"`
+	ChfName       string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
+	Sbi           *Sbi      `yaml:"sbi,omitempty" valid:"required"`
+	NrfUri        string    `yaml:"nrfUri,omitempty" valid:"required, url"`
+	ServiceList   []Service `yaml:"serviceList,omitempty" valid:"required"`
+	Tarrif        *Tarrif   `yaml:"tarrif,omitempty" valid:"required"`
+	MonetaryQuota uint32    `yaml:"monetaryQuota,omitempty" valid:"required"`
+	Mongodb       *Mongodb  `yaml:"mongodb" valid:"required"`
+
+	OnlineCharging bool `yaml:"onlineCharging,omitempty" valid:"required"`
 }
 
 func (c *Configuration) validate() (bool, error) {
@@ -198,4 +200,22 @@ func (c *Config) GetVersion() string {
 		return c.Info.Version
 	}
 	return ""
+}
+
+type Mongodb struct {
+	Name string `yaml:"name" valid:"required, type(string)"`
+	Url  string `yaml:"url" valid:"required"`
+}
+
+func (m *Mongodb) validate() (bool, error) {
+	pattern := `[-a-zA-Z0-9@:%._\+~#=]{1,256}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)`
+	if result := govalidator.StringMatches(m.Url, pattern); !result {
+		err := fmt.Errorf("Invalid Url: %s", m.Url)
+		return false, err
+	}
+	if _, err := govalidator.ValidateStruct(m); err != nil {
+		return false, appendInvalid(err)
+	}
+
+	return true, nil
 }

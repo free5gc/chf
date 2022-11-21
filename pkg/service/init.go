@@ -17,7 +17,6 @@ import (
 	"github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/chf/internal/recharge"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/convergedcharging"
 	"github.com/free5gc/chf/internal/util"
@@ -27,8 +26,7 @@ import (
 )
 
 type CHF struct {
-	KeyLogPath    string
-	RechargServer *recharge.Server
+	KeyLogPath string
 }
 
 type (
@@ -155,6 +153,11 @@ func (chf *CHF) Start() {
 
 	addr := fmt.Sprintf("%s:%d", self.BindingIPv4, self.SBIPort)
 
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	ftp.OpenServer(&wg)
+
 	profile, err := consumer.BuildNFInstance(self)
 	if err != nil {
 		logger.InitLog.Error("Build CHF Profile Error")
@@ -166,8 +169,6 @@ func (chf *CHF) Start() {
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
-	chf.RechargServer = recharge.OpenServer()
-	ftp.OpenServer()
 
 	go func() {
 		defer func() {
@@ -215,7 +216,7 @@ func (chf *CHF) Exec(c *cli.Context) error {
 		logger.InitLog.Fatalln(err)
 	}
 	wg := sync.WaitGroup{}
-	wg.Add(4)
+	wg.Add(3)
 	go func() {
 		defer func() {
 			if p := recover(); p != nil {

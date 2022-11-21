@@ -2,8 +2,6 @@ package producer
 
 import (
 	"context"
-	"encoding/binary"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -512,41 +510,12 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	return nil
 }
 
-func UpdateQuotaFile(supi string, quota uint32, forNotify bool) {
-	if forNotify {
-		fileDir := "/tmp/quota/"
-		fileName := fileDir + supi + ".quota"
-		q := make([]byte, 4)
-		binary.BigEndian.PutUint32(q, uint32(quota))
-
-		err := ioutil.WriteFile(fileName, q, 0666)
-		if err != nil {
-			panic(err)
-		}
-	}
-	fileDir := "/tmp/quota_webconsole/"
-	fileName := fileDir + supi + ".quota"
-	q := make([]byte, 4)
-	binary.BigEndian.PutUint32(q, uint32(quota))
-
-	err := ioutil.WriteFile(fileName, q, 0666)
-	if err != nil {
-		panic(err)
-	}
-}
-
-func allocateQuota(supi string) error {
+func allocateQuota(supi string) {
 	self := chf_context.CHF_Self()
-
 	self.UeQuotaMap[supi] = self.InitMonetaryQuota
 
-	fileDir := "/tmp/quota/"
-	fileName := fileDir + supi + ".quota"
-
-	UpdateQuotaFile(supi, self.UeQuotaMap[supi], true)
-	err := (*self.QuotaWatcher).Add(fileName)
-
-	return err
+	// self.RechargServer.UpdateQuotaFile(supi, self.UeQuotaMap[supi])
+	return
 }
 
 func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest) models.ChargingDataResponse {
@@ -559,10 +528,7 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 
 	// allocate MonetaryQuota for new UE
 	if self.UeQuotaMap[supi] == 0 {
-		err := allocateQuota(supi)
-		if err != nil {
-			logger.ChargingdataPostLog.Errorln(err)
-		}
+		allocateQuota(supi)
 	}
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
@@ -607,10 +573,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 
 	for _, trigger := range chargingData.Triggers {
 		if trigger.TriggerType == models.TriggerType_START_OF_SERVICE_DATA_FLOW && self.UeQuotaMap[supi] == 0 {
-			err := allocateQuota(supi)
-			if err != nil {
-				logger.ChargingdataPostLog.Errorln(err)
-			}
+			allocateQuota(supi)
 		}
 	}
 
@@ -652,8 +615,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			} else {
 				self.UeQuotaMap[supi] = uint32(remainQuota)
 			}
-			// renewQuota(int(ratingGroup), rsp.ServiceRating.MonetaryQuota)
-			UpdateQuotaFile(supi, self.UeQuotaMap[supi], false)
+			// self.RechargServer.UpdateQuotaFile(supi, self.UeQuotaMap[supi])
 
 			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%d]", supi, self.UeQuotaMap[supi])
 

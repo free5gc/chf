@@ -4,8 +4,7 @@ package ftp
 import (
 	"io/ioutil"
 	"os"
-	"os/signal"
-	"syscall"
+	"sync"
 	"time"
 
 	"github.com/fclairamb/ftpserver/config"
@@ -14,23 +13,22 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 )
 
-var (
+type FTPServer struct {
 	ftpServer *ftpserver.FtpServer
 	driver    *server.Server
-)
+}
 
-func OpenServer() {
+func OpenServer(wg *sync.WaitGroup) *FTPServer {
 	// Arguments vars
 	var confFile string
-	var onlyConf bool
+	var autoCreate bool
 
-	logger.FtpLog.Info("Start FTP server")
-	autoCreate := onlyConf
-	// The general idea here is that if you start it without any arg, you're probably doing a local quick&dirty run
-	// possibly on a windows machine, so we're better of just using a default file name and create the file.
+	f := &FTPServer{}
+
 	if confFile == "" {
-		confFile = "ftpserver.json"
+		confFile = "/tmp/ftpserver.json"
 		autoCreate = true
+
 	}
 
 	if autoCreate {
@@ -47,69 +45,53 @@ func OpenServer() {
 	if errConfig != nil {
 		logger.FtpLog.Error("Can't load conf", "Err", errConfig)
 
-		return
+		return nil
 	}
 
 	// Loading the driver
 	var errNewServer error
-	driver, errNewServer = server.NewServer(conf, logger.FtpServerLog)
+	f.driver, errNewServer = server.NewServer(conf, logger.FtpServerLog)
 
 	if errNewServer != nil {
 		logger.FtpLog.Error("Could not load the driver", "err", errNewServer)
 
-		return
+		return nil
 	}
 
 	// Instantiating the server by passing our driver implementation
-	ftpServer = ftpserver.NewFtpServer(driver)
+	f.ftpServer = ftpserver.NewFtpServer(f.driver)
 
 	// Setting up the ftpserver logger
-	ftpServer.Logger = logger.FtpServerLog
+	f.ftpServer.Logger = logger.FtpServerLog
 
-	// Preparing the SIGTERM handling
-	go signalHandler()
+	go f.Serve(wg)
+	logger.FtpLog.Info(" FTP server Start")
 
-	// Blocking call, behaving similarly to the http.ListenAndServe
-	if onlyConf {
-		logger.FtpLog.Warn("Only creating conf")
+	return f
+}
 
-		return
-	}
-
-	go func() {
-		defer stop()
-		if err := ftpServer.ListenAndServe(); err != nil {
-			logger.FtpLog.Error("Problem listening", "err", err)
-		}
-
-		// We wait at most 1 minutes for all clients to disconnect
-		if err := driver.WaitGracefully(time.Minute); err != nil {
-			ftpServer.Logger.Warn("Problem stopping server", "Err", err)
-		}
+func (f *FTPServer) Serve(wg *sync.WaitGroup) {
+	defer func() {
+		logger.FtpLog.Error("FTP server stopped")
+		f.Stop()
+		wg.Done()
 	}()
 
-}
+	if err := f.ftpServer.ListenAndServe(); err != nil {
+		logger.FtpLog.Error("Problem listening", "err", err)
+	}
 
-func stop() {
-	driver.Stop()
-
-	if err := ftpServer.Stop(); err != nil {
-		ftpServer.Logger.Error("Problem stopping server", "Err", err)
+	// We wait at most 1 minutes for all clients to disconnect
+	if err := f.driver.WaitGracefully(time.Minute); err != nil {
+		logger.FtpLog.Warn("Problem stopping server", "Err", err)
 	}
 }
 
-func signalHandler() {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGTERM)
+func (f *FTPServer) Stop() {
+	f.driver.Stop()
 
-	for {
-		sig := <-ch
-
-		if sig == syscall.SIGTERM {
-			stop()
-
-			break
-		}
+	if err := f.ftpServer.Stop(); err != nil {
+		logger.FtpLog.Error("Problem stopping server", "Err", err)
 	}
 }
 
