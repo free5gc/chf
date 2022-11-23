@@ -22,6 +22,7 @@ func init() {
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
 	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
+	chfCtx.UeIdRatingGroupMap = make(map[string]int32)
 }
 
 type CHFContext struct {
@@ -37,12 +38,10 @@ type CHFContext struct {
 	UePool                    sync.Map
 	ChargingSession           map[string]*cdrType.CHFRecord
 
-	NotifyUri string
+	NotifyUri          string
+	UeIdRatingGroupMap map[string]int32
 	// Rating
 	RatingSessionGenerator *idgenerator.IDGenerator
-
-	// RechargServer *recharge.Server
-	// FtpServer *ftp.FTPServer
 }
 
 // Create new CHF context

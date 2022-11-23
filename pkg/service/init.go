@@ -17,6 +17,7 @@ import (
 	"github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/recharge"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/convergedcharging"
 	"github.com/free5gc/chf/internal/util"
@@ -157,6 +158,9 @@ func (chf *CHF) Start() {
 
 	wg.Add(1)
 	ftp.OpenServer(&wg)
+
+	wg.Add(1)
+	recharge.OpenServer(&wg)
 
 	profile, err := consumer.BuildNFInstance(self)
 	if err != nil {

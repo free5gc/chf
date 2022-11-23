@@ -139,6 +139,8 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	// A unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
 	ueId := chargingData.SubscriberIdentifier
+	self.UeIdRatingGroupMap[ueId] = chargingData.MultipleUnitUsage[0].RatingGroup
+
 	consumerId := chargingData.NfConsumerIdentification.NFName
 	if !chargingData.OneTimeEvent {
 		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
