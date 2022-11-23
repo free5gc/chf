@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/free5gc/CDRUtil/cdrType"
-	"github.com/free5gc/TarrifUtil/tarrifType"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/idgenerator"
@@ -22,8 +21,6 @@ func init() {
 	chfCtx.UriScheme = models.UriScheme_HTTPS
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
-	chfCtx.UeQuotaMap = make(map[string]uint32)
-	chfCtx.UeDebitMap = make(map[string]int32)
 	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
 }
 
@@ -40,20 +37,10 @@ type CHFContext struct {
 	UePool                    sync.Map
 	ChargingSession           map[string]*cdrType.CHFRecord
 
-	OnlineCharging bool
-	NotifyUri      string
+	NotifyUri string
 	// Rating
-	Tarrif tarrifType.CurrentTariff
-	// AMBF
-	UeQuotaMap map[string]uint32
-	UeDebitMap map[string]int32
-
 	RatingSessionGenerator *idgenerator.IDGenerator
 
-	InitMonetaryQuota uint32
-
-	RatingGroupMonetaryQuotaMapMutex sync.RWMutex
-	NewUe                            chan string
 	// RechargServer *recharge.Server
 	// FtpServer *ftp.FTPServer
 }
@@ -65,24 +52,6 @@ func CHF_Self() *CHFContext {
 
 func (c *CHFContext) GetIPv4Uri() string {
 	return fmt.Sprintf("%s://%s:%d", c.UriScheme, c.RegisterIPv4, c.SBIPort)
-}
-
-func (c *CHFContext) InitTarrif(tarrif *factory.Tarrif) {
-	c.Tarrif = tarrifType.CurrentTariff{
-		RateElement: &tarrifType.RateElement{
-			ChargeReasonCode: &tarrifType.ChargeReasonCode{
-				Value: tarrif.ChargeReasonCode.Value,
-			},
-			UnitCost: &tarrifType.UnitCost{
-				ValueDigits: tarrif.UnitCost.ValueDigits,
-				Exponent:    tarrif.UnitCost.Exponent,
-			},
-			CCUnitType: &tarrifType.CCUnitType{
-				Value: tarrif.CCUnitType.Value,
-			},
-			UnitQuotaThreshold: tarrif.UnitQuotaThreshold,
-		},
-	}
 }
 
 // Init NfService with supported service list ,and version of services
@@ -124,8 +93,6 @@ func (c *CHFContext) NewCHFUe(Supi string) (*ChfUe, error) {
 		newUeContext := &ChfUe{}
 		newUeContext.Supi = Supi
 		c.UePool.Store(Supi, newUeContext)
-
-		c.NewUe <- Supi
 		return newUeContext, nil
 	} else {
 		return nil, fmt.Errorf(" add Ue context fail ")

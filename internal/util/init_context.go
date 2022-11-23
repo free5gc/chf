@@ -21,8 +21,6 @@ func InitchfContext(context *context.CHFContext) {
 	if configuration.ChfName != "" {
 		context.Name = configuration.ChfName
 	}
-	context.OnlineCharging = configuration.OnlineCharging
-	context.InitMonetaryQuota = configuration.MonetaryQuota
 
 	mongodb := config.Configuration.Mongodb
 	// Connect to MongoDB
@@ -65,7 +63,4 @@ func InitchfContext(context *context.CHFContext) {
 	}
 	serviceList := configuration.ServiceList
 	context.InitNFService(serviceList, config.Info.Version)
-
-	tarrif := configuration.Tarrif
-	context.InitTarrif(tarrif)
 }

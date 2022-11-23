@@ -2,13 +2,11 @@ package rating
 
 import (
 	"github.com/free5gc/TarrifUtil/tarrifType"
-	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
 )
 
 func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails, bool) {
-	self := chf_context.CHF_Self()
 	lastgrantedquota := false
 
 	// unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(math.Pow10(self.Tarrif.RateElement.UnitCost.Exponent))
@@ -19,8 +17,8 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 	rsp := tarrifType.ServiceUsageResponse{
 		SessionID: serviceUsage.SessionID,
 		ServiceRating: &tarrifType.ServiceRating{
-			CurrentTariff: &self.Tarrif,
 			Price:         uint32(monetaryCost),
+			MonetaryQuota: serviceUsage.ServiceRating.MonetaryQuota,
 		},
 	}
 
