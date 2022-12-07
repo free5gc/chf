@@ -17,7 +17,6 @@ import (
 	"github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/chf/internal/recharge"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/convergedcharging"
 	"github.com/free5gc/chf/internal/util"
@@ -159,9 +158,6 @@ func (chf *CHF) Start() {
 	wg.Add(1)
 	ftp.OpenServer(&wg)
 
-	wg.Add(1)
-	recharge.OpenServer(&wg)
-
 	profile, err := consumer.BuildNFInstance(self)
 	if err != nil {
 		logger.InitLog.Error("Build CHF Profile Error")
@@ -170,7 +166,6 @@ func (chf *CHF) Start() {
 	if err != nil {
 		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
 	}
-	self.Ftpconn, err = ftp.FTPLogin()
 	if err != nil {
 		logger.InitLog.Errorf("CHF register to Webcosole Error[%s]", err.Error())
 	}

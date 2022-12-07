@@ -11,7 +11,6 @@ import (
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/idgenerator"
-	"github.com/jlaffaye/ftp"
 )
 
 var chfCtx *CHFContext
@@ -43,8 +42,6 @@ type CHFContext struct {
 	UeIdRatingGroupMap map[string]int32
 	// Rating
 	RatingSessionGenerator *idgenerator.IDGenerator
-
-	Ftpconn *ftp.ServerConn
 }
 
 // Create new CHF context

@@ -1,10 +1,8 @@
 package producer
 
 import (
-	"bytes"
 	"context"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -132,19 +130,18 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	self := chf_context.CHF_Self()
 
 	quotaManagementIndicator := chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator
-	quotaManagementIndicator = "ONLINE_CHARGING"
 	if quotaManagementIndicator == "ONLINE_CHARGING" {
 		responseBody = BuildOnlineChargingDataCreateResopone(chargingData)
 	}
-	// Open CDR
 
+	// Open CDR
 	// ChargingDataRef(charging session id):
 	// A unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
 	ueId := chargingData.SubscriberIdentifier
 	self.UeIdRatingGroupMap[ueId] = chargingData.MultipleUnitUsage[0].RatingGroup
-
 	consumerId := chargingData.NfConsumerIdentification.NFName
+
 	if !chargingData.OneTimeEvent {
 		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
 	}
@@ -176,8 +173,12 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 
 	}
 
-	// CDR management
-	// TODO
+	// CDR Transfer
+	err = ftp.SendCDR(chargingData.SubscriberIdentifier)
+	if err != nil {
+		logger.ChargingdataPostLog.Error("FTP err", err)
+	}
+
 	logger.ChargingdataPostLog.Infof("Open CDR for UE %s", ueId)
 	_, err = self.NewCHFUe(ueId)
 
@@ -200,8 +201,14 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 	var responseBody models.ChargingDataResponse
 
 	self := chf_context.CHF_Self()
-	cdr := self.ChargingSession[chargingSessionId]
 
+	// Online charging: Rate, Account, Reservation
+	quotaManagementIndicator := chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator
+	if quotaManagementIndicator == "ONLINE_CHARGING" {
+		responseBody = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
+	}
+
+	cdr := self.ChargingSession[chargingSessionId]
 	err := UpdateCDR(cdr, chargingData, chargingSessionId, false)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
@@ -220,11 +227,9 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		return nil, problemDetails
 	}
 
-	// Online charging: Rate, Account, Reservation
-	quotaManagementIndicator := chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator
-	quotaManagementIndicator = "ONLINE_CHARGING"
-	if quotaManagementIndicator == "ONLINE_CHARGING" {
-		responseBody = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
+	err = ftp.SendCDR(chargingData.SubscriberIdentifier)
+	if err != nil {
+		logger.ChargingdataPostLog.Error("FTP err", err)
 	}
 
 	timeStamp := time.Now()
@@ -263,31 +268,6 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 		}
 		return problemDetails
 	}
-
-	return nil
-}
-
-func SendCDR(supi string) error {
-	self := chf_context.CHF_Self()
-
-	if self.Ftpconn == nil {
-		conn, err := ftp.FTPLogin()
-
-		if err != nil {
-			return err
-		}
-		self.Ftpconn = conn
-	}
-	logger.ChargingdataPostLog.Error("Login Success")
-
-	fileName := supi + ".cdr"
-	cdrByte, err := os.ReadFile("/tmp/" + fileName)
-	if err != nil {
-		return err
-	}
-
-	cdrReader := bytes.NewReader(cdrByte)
-	self.Ftpconn.Stor(fileName, cdrReader)
 
 	return nil
 }
@@ -457,11 +437,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataRequest, sessionId string, partialRecord bool) error {
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
-	err := SendCDR(chargingData.SubscriberIdentifier)
-	logger.ChargingdataPostLog.Error("In UpdateCDR")
-	if err != nil {
-		logger.ChargingdataPostLog.Error("FTP err", err)
-	}
+
 	if len(chargingData.MultipleUnitUsage) != 0 {
 		// NOTE: quota info needn't be encoded to cdr, refer 32.291 Ch7.1
 		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
@@ -629,7 +605,6 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			if remainQuota < 0 {
 				chargingBsonM["quota"] = uint32(0)
 				// chargingBsonM["debit"] = remainQuota
-
 			} else {
 				chargingBsonM["quota"] = uint32(remainQuota)
 			}
@@ -699,17 +674,19 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	case float64:
 		quota = uint32(value)
 	}
-
-	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-	rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
-	unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
+	logger.ChargingdataPostLog.Errorf("Retrieve Quota: %+v", quota)
+	// tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
+	// rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
+	// unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
 
 	tarrif := tarrifType.CurrentTariff{
 		// CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
 		RateElement: &tarrifType.RateElement{
 			UnitCost: &tarrifType.UnitCost{
-				Exponent:    int(unitCostInterface["exponent"].(int32)),
-				ValueDigits: int64(unitCostInterface["valueDigits"].(int64)),
+				// Exponent:    int(unitCostInterface["exponent"].(int32)),
+				// ValueDigits: int64(unitCostInterface["valueDigits"].(int64)),
+				Exponent:    int(1),
+				ValueDigits: int64(1),
 			},
 		},
 	}

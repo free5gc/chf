@@ -2,6 +2,7 @@
 package ftp
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"sync"
@@ -11,19 +12,24 @@ import (
 	"github.com/fclairamb/ftpserver/server"
 	ftpserver "github.com/fclairamb/ftpserverlib"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/jlaffaye/ftp"
+	ftpclient "github.com/jlaffaye/ftp"
 )
 
 type FTPServer struct {
 	ftpServer *ftpserver.FtpServer
 	driver    *server.Server
+	conn      *ftpclient.ServerConn
 }
+
+var ftpServ *FTPServer
 
 func OpenServer(wg *sync.WaitGroup) *FTPServer {
 	// Arguments vars
 	var confFile string
 	var autoCreate bool
 
-	f := &FTPServer{}
+	ftpServ = new(FTPServer)
 
 	if confFile == "" {
 		confFile = "/tmp/ftpserver.json"
@@ -50,7 +56,7 @@ func OpenServer(wg *sync.WaitGroup) *FTPServer {
 
 	// Loading the driver
 	var errNewServer error
-	f.driver, errNewServer = server.NewServer(conf, logger.FtpServerLog)
+	ftpServ.driver, errNewServer = server.NewServer(conf, logger.FtpServerLog)
 
 	if errNewServer != nil {
 		logger.FtpLog.Error("Could not load the driver", "err", errNewServer)
@@ -59,15 +65,58 @@ func OpenServer(wg *sync.WaitGroup) *FTPServer {
 	}
 
 	// Instantiating the server by passing our driver implementation
-	f.ftpServer = ftpserver.NewFtpServer(f.driver)
+	ftpServ.ftpServer = ftpserver.NewFtpServer(ftpServ.driver)
 
 	// Setting up the ftpserver logger
-	f.ftpServer.Logger = logger.FtpServerLog
+	ftpServ.ftpServer.Logger = logger.FtpServerLog
 
-	go f.Serve(wg)
-	logger.FtpLog.Info(" FTP server Start")
+	go ftpServ.Serve(wg)
+	logger.FtpLog.Info("FTP server Start")
 
-	return f
+	return ftpServ
+}
+
+func Login() error {
+	// FTP server is for CDR transfer
+	var c *ftp.ServerConn
+
+	c, err := ftp.Dial("127.0.0.1:2122", ftp.DialWithTimeout(5*time.Second))
+	if err != nil {
+		return err
+	}
+
+	err = c.Login("admin", "free5gc")
+	if err != nil {
+		logger.FtpLog.Warnf("Login FTP server Fail")
+		return err
+	}
+
+	logger.FtpLog.Info("Login FTP server")
+	ftpServ.conn = c
+	return err
+}
+
+func SendCDR(supi string) error {
+	if ftpServ.conn == nil {
+		err := Login()
+
+		if err != nil {
+			return err
+		}
+		logger.ChargingdataPostLog.Error("Re-Login Success")
+
+	}
+
+	fileName := supi + ".cdr"
+	cdrByte, err := os.ReadFile("/tmp/" + fileName)
+	if err != nil {
+		return err
+	}
+
+	cdrReader := bytes.NewReader(cdrByte)
+	ftpServ.conn.Stor(fileName, cdrReader)
+
+	return nil
 }
 
 func (f *FTPServer) Serve(wg *sync.WaitGroup) {
@@ -76,6 +125,10 @@ func (f *FTPServer) Serve(wg *sync.WaitGroup) {
 		f.Stop()
 		wg.Done()
 	}()
+
+	if err := Login(); err != nil {
+		logger.FtpLog.Error("Login to Webconsole FTP fail", "err", err)
+	}
 
 	if err := f.ftpServer.ListenAndServe(); err != nil {
 		logger.FtpLog.Error("Problem listening", "err", err)
