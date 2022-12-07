@@ -1,8 +1,10 @@
 package producer
 
 import (
+	"bytes"
 	"context"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	tarrif_asn "github.com/free5gc/TarrifUtil/asn"
 	"github.com/free5gc/TarrifUtil/tarrifType"
 	chf_context "github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
@@ -264,6 +267,31 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 	return nil
 }
 
+func SendCDR(supi string) error {
+	self := chf_context.CHF_Self()
+
+	if self.Ftpconn == nil {
+		conn, err := ftp.FTPLogin()
+
+		if err != nil {
+			return err
+		}
+		self.Ftpconn = conn
+	}
+	logger.ChargingdataPostLog.Error("Login Success")
+
+	fileName := supi + ".cdr"
+	cdrByte, err := os.ReadFile("/tmp/" + fileName)
+	if err != nil {
+		return err
+	}
+
+	cdrReader := bytes.NewReader(cdrByte)
+	self.Ftpconn.Stor(fileName, cdrReader)
+
+	return nil
+}
+
 func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId string, partialRecord bool) (*cdrType.CHFRecord, error) {
 	// 32.298 5.1.5.0.1 for CHF CDR field
 	var chfCdr cdrType.ChargingRecord
@@ -429,7 +457,11 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataRequest, sessionId string, partialRecord bool) error {
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
-
+	err := SendCDR(chargingData.SubscriberIdentifier)
+	logger.ChargingdataPostLog.Error("In UpdateCDR")
+	if err != nil {
+		logger.ChargingdataPostLog.Error("FTP err", err)
+	}
 	if len(chargingData.MultipleUnitUsage) != 0 {
 		// NOTE: quota info needn't be encoded to cdr, refer 32.291 Ch7.1
 		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)

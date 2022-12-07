@@ -170,6 +170,10 @@ func (chf *CHF) Start() {
 	if err != nil {
 		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
 	}
+	self.Ftpconn, err = ftp.FTPLogin()
+	if err != nil {
+		logger.InitLog.Errorf("CHF register to Webcosole Error[%s]", err.Error())
+	}
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
