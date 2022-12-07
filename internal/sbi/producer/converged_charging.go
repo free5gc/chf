@@ -627,11 +627,11 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			chargingBsonM := bson.M{"ueId": chargingData.SubscriberIdentifier}
 
 			if remainQuota < 0 {
-				chargingBsonM["quota"] = 0
+				chargingBsonM["quota"] = uint32(0)
 				// chargingBsonM["debit"] = remainQuota
 
 			} else {
-				chargingBsonM["quota"] = float64(remainQuota)
+				chargingBsonM["quota"] = uint32(remainQuota)
 			}
 			if _, err := mongoapi.RestfulAPIPost(chargingDataColl, filterUeIdOnly, chargingBsonM); err != nil {
 				logger.ChargingdataPostLog.Errorf("PutSubscriberByID err: %+v", err)
@@ -691,18 +691,25 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
 	}
 
-	quota := uint32(chargingInterface["quota"].(float64))
+	// workaround
+	quota := uint32(0)
+	switch value := chargingInterface["quota"].(type) {
+	case int:
+		quota = uint32(value)
+	case float64:
+		quota = uint32(value)
+	}
 
 	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-	rateElementInterface := tarrifInterface["rateelement"].(map[string]interface{})
-	unitCostInterface := rateElementInterface["unitcost"].(map[string]interface{})
+	rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
+	unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
 
 	tarrif := tarrifType.CurrentTariff{
-		CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
+		// CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
 		RateElement: &tarrifType.RateElement{
 			UnitCost: &tarrifType.UnitCost{
 				Exponent:    int(unitCostInterface["exponent"].(int32)),
-				ValueDigits: int64(unitCostInterface["valuedigits"].(int64)),
+				ValueDigits: int64(unitCostInterface["valueDigits"].(int64)),
 			},
 		},
 	}
