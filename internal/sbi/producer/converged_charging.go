@@ -130,7 +130,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	self := chf_context.CHF_Self()
 
 	quotaManagementIndicator := chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator
-	if quotaManagementIndicator == "ONLINE_CHARGING" {
+	if quotaManagementIndicator == models.QuotaManagementIndicator_ONLINE_CHARGING {
 		responseBody = BuildOnlineChargingDataCreateResopone(chargingData)
 	}
 
@@ -183,7 +183,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	_, err = self.NewCHFUe(ueId)
 
 	if err != nil {
-		logger.ChargingdataPostLog.Error("New CHFUe error %s", err)
+		logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
 	}
 	// build response
 	logger.ChargingdataPostLog.Infof("NewChfUe %s", ueId)
@@ -204,7 +204,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 
 	// Online charging: Rate, Account, Reservation
 	quotaManagementIndicator := chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator
-	if quotaManagementIndicator == "ONLINE_CHARGING" {
+	if quotaManagementIndicator == models.QuotaManagementIndicator_ONLINE_CHARGING {
 		responseBody = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
 	}
 
@@ -235,7 +235,6 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 	timeStamp := time.Now()
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
-	responseBody.Triggers = chargingData.Triggers
 
 	return &responseBody, nil
 }
@@ -548,7 +547,7 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
-				logger.ChargingdataPostLog.Infof("Last granted unit for UE [%s]: [%u]", rsp.ServiceRating.AllowedUnits)
+				logger.ChargingdataPostLog.Infof("Last granted unit for UE [%s]: [%d]", supi, rsp.ServiceRating.AllowedUnits)
 			}
 
 			quota := ServiceUsageRequest.ServiceRating.MonetaryQuota
@@ -581,7 +580,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			}
 
 			if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
-				unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * 0.2)
+				unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8)
 				unitInformation.GrantedUnit = &models.GrantedUnit{
 					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
 					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
@@ -593,13 +592,13 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
 					FinalUnitAction: models.FinalUnitAction_TERMINATE,
 				}
-				logger.ChargingdataPostLog.Infof("UE's [%s] last granted quota: %u", supi, rsp.ServiceRating.AllowedUnits)
+				logger.ChargingdataPostLog.Infof("UE's [%s] last granted quota: %d", supi, rsp.ServiceRating.AllowedUnits)
 			}
 
-			remainQuota := int32(rsp.ServiceRating.MonetaryQuota - rsp.ServiceRating.Price)
+			remainQuota := int32(rsp.ServiceRating.MonetaryQuota) - int32(rsp.ServiceRating.Price)
 			logger.ChargingdataPostLog.Warnf("remainQuota %d", remainQuota)
 
-			filterUeIdOnly := bson.M{"ueId": chargingData.SubscriberIdentifier}
+			filter := bson.M{"ueId": chargingData.SubscriberIdentifier}
 			chargingBsonM := bson.M{"ueId": chargingData.SubscriberIdentifier}
 
 			if remainQuota < 0 {
@@ -608,12 +607,15 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			} else {
 				chargingBsonM["quota"] = uint32(remainQuota)
 			}
-			if _, err := mongoapi.RestfulAPIPost(chargingDataColl, filterUeIdOnly, chargingBsonM); err != nil {
+
+			if _, err := mongoapi.RestfulAPIPutOne(chargingDataColl, filter, chargingBsonM); err != nil {
 				logger.ChargingdataPostLog.Errorf("PutSubscriberByID err: %+v", err)
 			}
 			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%d]", supi, remainQuota)
 
 			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+		} else {
+			logger.ChargingdataPostLog.Errorf("Rating Session Allocate err: %+v", err)
 		}
 
 	}
@@ -674,7 +676,6 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	case float64:
 		quota = uint32(value)
 	}
-	logger.ChargingdataPostLog.Errorf("Retrieve Quota: %+v", quota)
 	// tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
 	// rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
 	// unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})

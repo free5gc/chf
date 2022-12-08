@@ -1,6 +1,8 @@
 package rating
 
 import (
+	"math"
+
 	"github.com/free5gc/TarrifUtil/tarrifType"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
@@ -9,8 +11,7 @@ import (
 func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails, bool) {
 	lastgrantedquota := false
 
-	// unitCost := self.Tarrif.RateElement.UnitCost.ValueDigits * int64(math.Pow10(self.Tarrif.RateElement.UnitCost.Exponent))
-	unitCost := int64(10)
+	unitCost := (serviceUsage.ServiceRating.CurrentTariff.RateElement.UnitCost.ValueDigits) * int64(math.Pow10(int(serviceUsage.ServiceRating.CurrentTariff.RateElement.UnitCost.Exponent)))
 	monetaryCost := int64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
 	monetaryRequest := int64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
 
