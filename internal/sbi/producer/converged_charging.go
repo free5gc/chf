@@ -26,12 +26,14 @@ import (
 
 const chargingDataColl = "chargingData"
 
-func NotifyRecharge() {
+func NotifyRecharge(ratingGroup int32) {
 	self := chf_context.CHF_Self()
 
 	//TODO: send notify to all UE's rating group
 	notifyRequest := models.ChargingNotifyRequest{
-		ReauthorizationDetails: []models.ReauthorizationDetails{},
+		ReauthorizationDetails: []models.ReauthorizationDetails{
+			{RatingGroup: ratingGroup},
+		},
 	}
 
 	SendChargingNotification(self.NotifyUri, notifyRequest)
@@ -673,8 +675,12 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	switch value := chargingInterface["quota"].(type) {
 	case int:
 		quota = uint32(value)
+	case int64:
+		quota = uint32(value)
 	case float64:
 		quota = uint32(value)
+	default:
+		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
 	}
 	// tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
 	// rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
