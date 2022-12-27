@@ -56,7 +56,7 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 	return rsp, nil, lastgrantedquota
 }
 
-func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage, sessionid int64) tarrifType.ServiceUsageRequest {
+func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage, sessionid int64, ratingGroup int32) tarrifType.ServiceUsageRequest {
 	supi := chargingData.SubscriberIdentifier
 	supiType := strings.Split(supi, "-")[0]
 	var subscriberIdentifier tarrifType.SubscriptionID
@@ -116,15 +116,23 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	// tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
 	// rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
 	// unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
+	filter = bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": ratingGroup}
+	chargingInterface, err = mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
+	if err != nil {
+		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
+	}
+	logger.ChargingdataPostLog.Warnln("chargingInterface", chargingInterface, "(", ratingGroup, ")  ue:", chargingData.SubscriberIdentifier)
+
+	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
+	rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
+	unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
 
 	tarrif := tarrifType.CurrentTariff{
 		// CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
 		RateElement: &tarrifType.RateElement{
 			UnitCost: &tarrifType.UnitCost{
-				// Exponent:    int(unitCostInterface["exponent"].(int32)),
-				// ValueDigits: int64(unitCostInterface["valueDigits"].(int64)),
-				Exponent:    int(1),
-				ValueDigits: int64(1),
+				Exponent:    int(unitCostInterface["exponent"].(int32)),
+				ValueDigits: int64(unitCostInterface["valueDigits"].(int64)),
 			},
 		},
 	}

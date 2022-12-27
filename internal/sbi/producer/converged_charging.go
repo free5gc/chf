@@ -136,6 +136,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	// A unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
 	ueId := chargingData.SubscriberIdentifier
+	logger.ChargingdataPostLog.Warnln("chargingData.MultipleUnitUsage[0].RatingGroup", chargingData.MultipleUnitUsage[0].RatingGroup)
 	self.UeIdRatingGroupMap[ueId] = chargingData.MultipleUnitUsage[0].RatingGroup
 	consumerId := chargingData.NfConsumerIdentification.NFName
 
@@ -295,7 +296,7 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
+			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
 			unitInformation := models.MultipleUnitInformation{
@@ -346,7 +347,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
+			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 			unitInformation := models.MultipleUnitInformation{
 				RatingGroup:         ratingGroup,
