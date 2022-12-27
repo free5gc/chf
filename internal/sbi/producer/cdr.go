@@ -17,12 +17,24 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	// 32.298 5.1.5.0.1 for CHF CDR field
 	var chfCdr cdrType.ChargingRecord
 
+	self := chf_context.CHF_Self()
+
+	// Record Sequence Number(Conditional IE): Partial record sequence number, only present in case of partial records.
+	// Partial CDR: Fragments of CDR, for long session charging
+	if partialRecord {
+		// TODO partial record
+		cdr := self.ChargingSession[sessionId]
+		partialRecordSeqNum := self.RecordSequenceNumber[sessionId]
+		cdr.ChargingFunctionRecord.RecordSequenceNumber = &partialRecordSeqNum
+
+		return cdr, nil
+	}
+
 	chfCdr.RecordType = cdrType.RecordType{
 		Value: 200,
 	}
 
 	// TODO IA5 string coversion
-	self := chf_context.CHF_Self()
 	chfCdr.RecordingNetworkFunctionID = cdrType.NetworkFunctionName{
 		Value: asn.IA5String(self.NfId),
 	}
@@ -35,14 +47,6 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	// Initial CDR duration
 	chfCdr.Duration = cdrType.CallDuration{
 		Value: 0,
-	}
-
-	// Record Sequence Number(Conditional IE): Partial record sequence number, only present in case of partial records.
-	// Partial CDR: Fragments of CDR, for long session charging
-	if partialRecord {
-		// TODO partial record
-		var partialRecordSeqNum int64
-		chfCdr.RecordSequenceNumber = &partialRecordSeqNum
 	}
 
 	// 32.298 5.1.5.1.5 Local Record Sequence Number

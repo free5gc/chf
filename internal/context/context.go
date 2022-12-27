@@ -33,6 +33,7 @@ type CHFContext struct {
 	RegisterIPv4              string
 	SBIPort                   int
 	NfService                 map[models.ServiceName]models.NfService
+	RecordSequenceNumber      map[string]int64
 	LocalRecordSequenceNumber uint64
 	NrfUri                    string
 	UePool                    sync.Map

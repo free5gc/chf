@@ -196,13 +196,14 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSessionId string) (*models.ChargingDataResponse,
 	*models.ProblemDetails) {
 	var responseBody models.ChargingDataResponse
+	var partialRecord bool
 
 	self := chf_context.CHF_Self()
 
 	// Online charging: Rate, Account, Reservation
 	quotaManagementIndicator := chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator
 	if quotaManagementIndicator == models.QuotaManagementIndicator_ONLINE_CHARGING {
-		responseBody = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
+		responseBody, partialRecord = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
 	}
 
 	cdr := self.ChargingSession[chargingSessionId]
@@ -214,6 +215,21 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		return nil, problemDetails
 	}
 
+	if partialRecord {
+		ueId := chargingData.SubscriberIdentifier
+
+		CloseCDR(cdr, partialRecord)
+		err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
+		if err != nil {
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusBadRequest,
+			}
+			return nil, problemDetails
+		}
+
+		OpenCDR(chargingData, ueId, chargingSessionId, partialRecord)
+		logger.ChargingdataPostLog.Info("CDR: %+v", self.ChargingSession[chargingSessionId].ChargingFunctionRecord)
+	}
 	// NOTE: for demo
 	ueId := chargingData.SubscriberIdentifier
 	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
@@ -291,6 +307,8 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
 					UplinkVolume:   int32(rsp.ServiceRating.AllowedUnits),
 				},
+				// TODO: Control by Webconsole or Config?
+				ValidityTime: 10,
 			}
 
 			if lastgrantedquota {
@@ -312,15 +330,20 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	return responseBody
 }
 
-func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) models.ChargingDataResponse {
+func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) (models.ChargingDataResponse, bool) {
+	var partialRecord bool
+
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
 	self := chf_context.CHF_Self()
 	supi := chargingData.SubscriberIdentifier
 	multipleUnitInformation := []models.MultipleUnitInformation{}
-
 	// Rating for each report
+	for _, trigger := range chargingData.Triggers {
+		if trigger.TriggerType == models.TriggerType_VALIDITY_TIME {
+			partialRecord = true
+		}
+	}
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
-
 		ratingGroup := unitUsage.RatingGroup
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
 			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
@@ -328,6 +351,8 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			unitInformation := models.MultipleUnitInformation{
 				RatingGroup:         ratingGroup,
 				FinalUnitIndication: &models.FinalUnitIndication{},
+				// TODO: Control by Webconsole or Config?
+				ValidityTime: 10,
 			}
 
 			if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
@@ -373,5 +398,5 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	responseBody := models.ChargingDataResponse{}
 	responseBody.MultipleUnitInformation = multipleUnitInformation
 
-	return responseBody
+	return responseBody, partialRecord
 }
