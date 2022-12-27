@@ -141,6 +141,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	// A unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
 	ueId := chargingData.SubscriberIdentifier
+	logger.ChargingdataPostLog.Warnln("chargingData.MultipleUnitUsage[0].RatingGroup", chargingData.MultipleUnitUsage[0].RatingGroup)
 	self.UeIdRatingGroupMap[ueId] = chargingData.MultipleUnitUsage[0].RatingGroup
 	consumerId := chargingData.NfConsumerIdentification.NFName
 
@@ -531,7 +532,7 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
+			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
 			unitInformation := models.MultipleUnitInformation{
@@ -574,7 +575,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid)
+			ServiceUsageRequest := BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 			unitInformation := models.MultipleUnitInformation{
 				RatingGroup:         ratingGroup,
@@ -628,7 +629,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	return responseBody
 }
 
-func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage, sessionid int64) tarrifType.ServiceUsageRequest {
+func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage, sessionid int64, ratingGroup int32) tarrifType.ServiceUsageRequest {
 	supi := chargingData.SubscriberIdentifier
 	supiType := strings.Split(supi, "-")[0]
 	var subscriberIdentifier tarrifType.SubscriptionID
@@ -663,12 +664,14 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	for _, useduint := range unitUsage.UsedUnitContainer {
 		totalUsaedUnit += uint32(useduint.TotalVolume)
 	}
-
+	// chargingData.MultipleUnitUsage[0].RatingGroup
 	filter := bson.M{"ueId": chargingData.SubscriberIdentifier}
 	chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
 	}
+	logger.ChargingdataPostLog.Warnln("chargingInterface", chargingInterface, "(0)")
+
 
 	// workaround
 	quota := uint32(0)
@@ -682,18 +685,24 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	default:
 		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
 	}
-	// tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-	// rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
-	// unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
+
+	filter = bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": ratingGroup}
+	chargingInterface, err = mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
+	if err != nil {
+		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
+	}
+	logger.ChargingdataPostLog.Warnln("chargingInterface", chargingInterface, "(", ratingGroup, ")  ue:", chargingData.SubscriberIdentifier)
+
+	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
+	rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
+	unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
 
 	tarrif := tarrifType.CurrentTariff{
 		// CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
 		RateElement: &tarrifType.RateElement{
 			UnitCost: &tarrifType.UnitCost{
-				// Exponent:    int(unitCostInterface["exponent"].(int32)),
-				// ValueDigits: int64(unitCostInterface["valueDigits"].(int64)),
-				Exponent:    int(1),
-				ValueDigits: int64(1),
+				Exponent:    int(unitCostInterface["exponent"].(int32)),
+				ValueDigits: int64(unitCostInterface["valueDigits"].(int64)),
 			},
 		},
 	}
