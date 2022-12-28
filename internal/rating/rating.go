@@ -95,7 +95,7 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		totalUsaedUnit += uint32(useduint.TotalVolume)
 	}
 
-	filter := bson.M{"ueId": chargingData.SubscriberIdentifier}
+	filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 0}
 	chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
@@ -105,6 +105,8 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	quota := uint32(0)
 	switch value := chargingInterface["quota"].(type) {
 	case int:
+		quota = uint32(value)
+	case int32:
 		quota = uint32(value)
 	case int64:
 		quota = uint32(value)
