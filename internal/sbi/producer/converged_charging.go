@@ -375,8 +375,11 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			remainQuota := int32(rsp.ServiceRating.MonetaryQuota) - int32(rsp.ServiceRating.Price)
 			logger.ChargingdataPostLog.Warnf("remainQuota %d", remainQuota)
 
-			filter := bson.M{"ueId": chargingData.SubscriberIdentifier}
-			chargingBsonM := bson.M{"ueId": chargingData.SubscriberIdentifier}
+			filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 1}
+			chargingBsonM :=  bson.M{}
+			if chargingBsonM, err = mongoapi.RestfulAPIGetOne(chargingDataColl, filter); err != nil {
+				logger.ChargingdataPostLog.Errorf("RestfulAPIGetOne err: %+v", err)
+			}
 
 			if remainQuota < 0 {
 				chargingBsonM["quota"] = uint32(0)
@@ -385,8 +388,15 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				chargingBsonM["quota"] = uint32(remainQuota)
 			}
 
+			logger.ChargingdataPostLog.Warnln("Get quota-2:", chargingBsonM["quota"], "rsp.ServiceRating.Price:", rsp.ServiceRating.Price)
+
+
+			if err := mongoapi.RestfulAPIDeleteMany(chargingDataColl, filter); err != nil {
+				logger.ChargingdataPostLog.Errorf("RestfulAPIDeleteMany err: %+v", err)
+			}
+
 			if _, err := mongoapi.RestfulAPIPutOne(chargingDataColl, filter, chargingBsonM); err != nil {
-				logger.ChargingdataPostLog.Errorf("PutSubscriberByID err: %+v", err)
+				logger.ChargingdataPostLog.Errorf("RestfulAPIPutOne err: %+v", err)
 			}
 			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%d]", supi, remainQuota)
 

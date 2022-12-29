@@ -95,12 +95,12 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		totalUsaedUnit += uint32(useduint.TotalVolume)
 	}
 
-	filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 0}
+	filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 1}
 	chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
 	}
-
+	
 	// workaround
 	quota := uint32(0)
 	switch value := chargingInterface["quota"].(type) {
@@ -115,6 +115,7 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	default:
 		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
 	}
+	logger.ChargingdataPostLog.Warnln("Get quota:", quota)
 	// tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
 	// rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
 	// unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
