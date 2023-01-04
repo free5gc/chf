@@ -38,9 +38,10 @@ type CHFContext struct {
 	NrfUri                    string
 	UePool                    sync.Map
 	ChargingSession           map[string]*cdrType.CHFRecord
-
-	NotifyUri          string
-	UeIdRatingGroupMap map[string]int32
+	QuotaValidityTime         int32
+	VolumeLimit               int32
+	NotifyUri                 string
+	UeIdRatingGroupMap        map[string]int32
 	// Rating
 	RatingSessionGenerator *idgenerator.IDGenerator
 }

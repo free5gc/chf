@@ -136,7 +136,6 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	// A unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
 	ueId := chargingData.SubscriberIdentifier
-	logger.ChargingdataPostLog.Warnln("chargingData.MultipleUnitUsage[0].RatingGroup", chargingData.MultipleUnitUsage[0].RatingGroup)
 	self.UeIdRatingGroupMap[ueId] = chargingData.MultipleUnitUsage[0].RatingGroup
 	consumerId := chargingData.NfConsumerIdentification.NFName
 
@@ -302,14 +301,20 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 			unitInformation := models.MultipleUnitInformation{
 				RatingGroup:          ratingGroup,
 				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8),
-				FinalUnitIndication:  &models.FinalUnitIndication{},
+				Triggers: []models.Trigger{
+					{
+						TriggerType: models.TriggerType_VOLUME_LIMIT,
+						VolumeLimit: self.VolumeLimit,
+					},
+				},
+				FinalUnitIndication: &models.FinalUnitIndication{},
 				GrantedUnit: &models.GrantedUnit{
 					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
 					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
 					UplinkVolume:   int32(rsp.ServiceRating.AllowedUnits),
 				},
 				// TODO: Control by Webconsole or Config?
-				ValidityTime: 10,
+				ValidityTime: self.QuotaValidityTime,
 			}
 
 			if lastgrantedquota {
@@ -349,11 +354,18 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
 			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
+
 			unitInformation := models.MultipleUnitInformation{
-				RatingGroup:         ratingGroup,
+				RatingGroup: ratingGroup,
+				Triggers: []models.Trigger{
+					{
+						TriggerType: models.TriggerType_VOLUME_LIMIT,
+						VolumeLimit: self.VolumeLimit,
+					},
+				},
 				FinalUnitIndication: &models.FinalUnitIndication{},
 				// TODO: Control by Webconsole or Config?
-				ValidityTime: 10,
+				ValidityTime: self.QuotaValidityTime,
 			}
 
 			if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
@@ -373,10 +385,9 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			}
 
 			remainQuota := int32(rsp.ServiceRating.MonetaryQuota) - int32(rsp.ServiceRating.Price)
-			logger.ChargingdataPostLog.Warnf("remainQuota %d", remainQuota)
 
 			filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 1}
-			chargingBsonM :=  bson.M{}
+			chargingBsonM := bson.M{}
 			if chargingBsonM, err = mongoapi.RestfulAPIGetOne(chargingDataColl, filter); err != nil {
 				logger.ChargingdataPostLog.Errorf("RestfulAPIGetOne err: %+v", err)
 			}
@@ -387,9 +398,6 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			} else {
 				chargingBsonM["quota"] = uint32(remainQuota)
 			}
-
-			logger.ChargingdataPostLog.Warnln("Get quota-2:", chargingBsonM["quota"], "rsp.ServiceRating.Price:", rsp.ServiceRating.Price)
-
 
 			if err := mongoapi.RestfulAPIDeleteMany(chargingDataColl, filter); err != nil {
 				logger.ChargingdataPostLog.Errorf("RestfulAPIDeleteMany err: %+v", err)

@@ -28,12 +28,15 @@ func InitchfContext(context *context.CHFContext) {
 		logger.UtilLog.Errorf("InitpcfContext err: %+v", err)
 		return
 	}
+	context.VolumeLimit = config.Configuration.VolumeLimit
+	context.QuotaValidityTime = config.Configuration.QuotaValidityTime
 
 	sbi := configuration.Sbi
 	context.NrfUri = configuration.NrfUri
 	context.UriScheme = ""
 	context.RegisterIPv4 = factory.ChfSbiDefaultIPv4 // default localhost
 	context.SBIPort = factory.ChfSbiDefaultPort      // default port
+
 	if sbi != nil {
 		if sbi.Scheme != "" {
 			context.UriScheme = models.UriScheme(sbi.Scheme)

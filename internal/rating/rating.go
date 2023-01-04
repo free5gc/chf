@@ -100,7 +100,7 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
 	}
-	
+
 	// workaround
 	quota := uint32(0)
 	switch value := chargingInterface["quota"].(type) {
@@ -115,7 +115,7 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	default:
 		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
 	}
-	logger.ChargingdataPostLog.Warnln("Get quota:", quota)
+	logger.ChargingdataPostLog.Tracef("Get quota: [%v]", quota)
 	// tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
 	// rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
 	// unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
@@ -124,18 +124,17 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
 	}
-	logger.ChargingdataPostLog.Warnln("chargingInterface", chargingInterface, "(", ratingGroup, ")  ue:", chargingData.SubscriberIdentifier)
 
 	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-	rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
-	unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
+	rateElementInterface := tarrifInterface["rateelement"].(map[string]interface{})
+	unitCostInterface := rateElementInterface["unitcost"].(map[string]interface{})
 
 	tarrif := tarrifType.CurrentTariff{
 		// CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
 		RateElement: &tarrifType.RateElement{
 			UnitCost: &tarrifType.UnitCost{
 				Exponent:    int(unitCostInterface["exponent"].(int32)),
-				ValueDigits: int64(unitCostInterface["valueDigits"].(int64)),
+				ValueDigits: int64(unitCostInterface["valuedigits"].(int64)),
 			},
 		},
 	}
