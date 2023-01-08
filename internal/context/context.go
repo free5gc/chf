@@ -22,7 +22,8 @@ func init() {
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
 	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
 	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
-	chfCtx.UeIdRatingGroupMap = make(map[string]int32)
+	chfCtx.UeIdRatingGroupsMap = make(map[string][]int32)
+	chfCtx.NotifyUri = map[string]string{}
 }
 
 type CHFContext struct {
@@ -40,15 +41,25 @@ type CHFContext struct {
 	ChargingSession           map[string]*cdrType.CHFRecord
 	QuotaValidityTime         int32
 	VolumeLimit               int32
-	NotifyUri                 string
-	UeIdRatingGroupMap        map[string]int32
+	NotifyUri                 map[string]string
 	// Rating
+	UeIdRatingGroupsMap    map[string][]int32
 	RatingSessionGenerator *idgenerator.IDGenerator
 }
 
 // Create new CHF context
 func CHF_Self() *CHFContext {
 	return chfCtx
+}
+
+func (c *CHFContext) NewRatingGroup(ueId string, ratingGroup int32) bool {
+	for _, rg := range c.UeIdRatingGroupsMap[ueId] {
+		if rg == ratingGroup {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (c *CHFContext) GetIPv4Uri() string {

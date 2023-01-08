@@ -9,7 +9,6 @@ import (
 	// "github.com/free5gc/openapi"
 	// "github.com/free5gc/openapi/models"
 	// "github.com/free5gc/util/httpwrapper"
-	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,11 +18,9 @@ func RechargeGet(c *gin.Context) {
 
 func RechargePut(c *gin.Context) {
 	ueid := c.Param("UeId")
-	self := chf_context.CHF_Self()
 
-	ratingGroup := self.UeIdRatingGroupMap[ueid]
 	logger.RechargingLog.Warnf("UE[%s] Recharg", ueid)
-	producer.NotifyRecharge(ratingGroup)
+	producer.NotifyRecharge(ueid)
 
 	c.JSON(http.StatusNoContent, gin.H{})
 }

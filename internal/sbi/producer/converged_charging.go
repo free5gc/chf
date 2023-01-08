@@ -21,17 +21,21 @@ import (
 
 const chargingDataColl = "chargingData"
 
-func NotifyRecharge(ratingGroup int32) {
-	self := chf_context.CHF_Self()
+func NotifyRecharge(ueId string) {
+	var reauthorizationDetails []models.ReauthorizationDetails
 
-	//TODO: send notify to all UE's rating group
-	notifyRequest := models.ChargingNotifyRequest{
-		ReauthorizationDetails: []models.ReauthorizationDetails{
-			{RatingGroup: ratingGroup},
-		},
+	self := chf_context.CHF_Self()
+	for _, rg := range self.UeIdRatingGroupsMap[ueId] {
+		reauthorizationDetails = append(reauthorizationDetails, models.ReauthorizationDetails{
+			RatingGroup: rg,
+		})
 	}
 
-	SendChargingNotification(self.NotifyUri, notifyRequest)
+	notifyRequest := models.ChargingNotifyRequest{
+		ReauthorizationDetails: reauthorizationDetails,
+	}
+
+	SendChargingNotification(self.NotifyUri[ueId], notifyRequest)
 }
 
 func SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
@@ -136,7 +140,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	// A unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
 	ueId := chargingData.SubscriberIdentifier
-	self.UeIdRatingGroupMap[ueId] = chargingData.MultipleUnitUsage[0].RatingGroup
+	self.UeIdRatingGroupsMap[ueId] = append(self.UeIdRatingGroupsMap[ueId], chargingData.MultipleUnitUsage[0].RatingGroup)
 	consumerId := chargingData.NfConsumerIdentification.NFName
 
 	if !chargingData.OneTimeEvent {
@@ -288,9 +292,9 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataCreateResopone ")
 	self := chf_context.CHF_Self()
 
-	self.NotifyUri = chargingData.NotifyUri
 	multipleUnitInformation := []models.MultipleUnitInformation{}
 	supi := chargingData.SubscriberIdentifier
+	self.NotifyUri[supi] = chargingData.NotifyUri
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
@@ -351,6 +355,10 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	}
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
+
+		if self.NewRatingGroup(supi, ratingGroup) {
+			self.UeIdRatingGroupsMap[supi] = append(self.UeIdRatingGroupsMap[supi], ratingGroup)
+		}
 		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
 			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
