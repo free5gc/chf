@@ -126,15 +126,43 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	}
 
 	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-	rateElementInterface := tarrifInterface["rateelement"].(map[string]interface{})
-	unitCostInterface := rateElementInterface["unitcost"].(map[string]interface{})
+	rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
+	unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
 
+	// workaround
+	exponent := int32(0)
+	switch value := unitCostInterface["exponent"].(type) {
+	case int:
+		exponent = int32(value)
+	case int32:
+		exponent = int32(value)
+	case int64:
+		exponent = int32(value)
+	case float64:
+		exponent = int32(value)
+	default:
+		logger.ChargingdataPostLog.Errorf("Get exponent error: do not belong to int or float, type:%T", unitCostInterface["exponent"])
+	}
+
+	valueDigits := int64(0)
+	switch value := unitCostInterface["valueDigits"].(type) {
+	case int:
+		valueDigits = int64(value)
+	case int32:
+		valueDigits = int64(value)
+	case int64:
+		valueDigits = int64(value)
+	case float64:
+		valueDigits = int64(value)
+	default:
+		logger.ChargingdataPostLog.Errorf("Get valueDigits error: do not belong to int or float, type:%T", unitCostInterface["valueDigits"])
+	}
 	tarrif := tarrifType.CurrentTariff{
 		// CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
 		RateElement: &tarrifType.RateElement{
 			UnitCost: &tarrifType.UnitCost{
-				Exponent:    int(unitCostInterface["exponent"].(int32)),
-				ValueDigits: int64(unitCostInterface["valuedigits"].(int64)),
+			Exponent:    int(exponent),
+			ValueDigits: valueDigits,
 			},
 		},
 	}
