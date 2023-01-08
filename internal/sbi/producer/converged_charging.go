@@ -289,7 +289,7 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 }
 
 func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest) models.ChargingDataResponse {
-	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataCreateResopone ")
+	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
 	self := chf_context.CHF_Self()
 
 	multipleUnitInformation := []models.MultipleUnitInformation{}
@@ -298,42 +298,11 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
-		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
-			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
-
-			unitInformation := models.MultipleUnitInformation{
-				RatingGroup:          ratingGroup,
-				VolumeQuotaThreshold: int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8),
-				Triggers: []models.Trigger{
-					{
-						TriggerType: models.TriggerType_VOLUME_LIMIT,
-						VolumeLimit: self.VolumeLimit,
-					},
-				},
-				FinalUnitIndication: &models.FinalUnitIndication{},
-				GrantedUnit: &models.GrantedUnit{
-					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
-					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
-					UplinkVolume:   int32(rsp.ServiceRating.AllowedUnits),
-				},
-				// TODO: Control by Webconsole or Config?
-				ValidityTime: self.QuotaValidityTime,
-			}
-
-			if lastgrantedquota {
-				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
-					FinalUnitAction: models.FinalUnitAction_TERMINATE,
-				}
-				logger.ChargingdataPostLog.Infof("Last granted unit for UE [%s]: [%d]", supi, rsp.ServiceRating.AllowedUnits)
-			}
-
-			quota := ServiceUsageRequest.ServiceRating.MonetaryQuota
-
-			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%d]", supi, quota)
-			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+		if self.NewRatingGroup(supi, ratingGroup) {
+			self.UeIdRatingGroupsMap[supi] = append(self.UeIdRatingGroupsMap[supi], ratingGroup)
 		}
 	}
+
 	responseBody := models.ChargingDataResponse{}
 	responseBody.MultipleUnitInformation = multipleUnitInformation
 
