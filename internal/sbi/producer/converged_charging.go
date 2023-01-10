@@ -210,7 +210,12 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		responseBody, partialRecord = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
 	}
 
+	logger.ChargingdataPostLog.Warnln("ChargingSession", self.ChargingSession)
+
 	cdr := self.ChargingSession[chargingSessionId]
+	logger.ChargingdataPostLog.Warnln("chargingData pdu", chargingData.PDUSessionChargingInformation)
+
+
 	err := UpdateCDR(cdr, chargingData, chargingSessionId, false)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
@@ -236,7 +241,16 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 	}
 	// NOTE: for demo
 	ueId := chargingData.SubscriberIdentifier
-	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
+
+	var records []*cdrType.CHFRecord
+	for chId, record := range self.ChargingSession {
+		if chId != chargingSessionId {
+			records = append(records, record)
+		}
+	}
+	records = append(records, cdr)
+
+	err = dumpCdrFile(ueId, records)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
