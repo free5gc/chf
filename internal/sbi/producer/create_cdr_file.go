@@ -15,15 +15,15 @@ func getCdrByte(supi string) (out []byte) {
 	cr := cdrType.ChargingRecord{
 		SubscriberIdentifier: &cdrType.SubscriptionID{SubscriptionIDData: asn.UTF8String(supi)},
 		ListOfMultipleUnitUsage: []cdrType.MultipleUnitUsage{
-			cdrType.MultipleUnitUsage{
+			{
 				RatingGroup: cdrType.RatingGroupId{1},
 				UsedUnitContainers: []cdrType.UsedUnitContainer{
-					cdrType.UsedUnitContainer{
+					{
 						DataTotalVolume:    &cdrType.DataVolumeOctets{6912},
 						DataVolumeUplink:   &cdrType.DataVolumeOctets{1234},
 						DataVolumeDownlink: &cdrType.DataVolumeOctets{6789},
 					},
-					cdrType.UsedUnitContainer{
+					{
 						DataTotalVolume:    &cdrType.DataVolumeOctets{3},
 						DataVolumeUplink:   &cdrType.DataVolumeOctets{1},
 						DataVolumeDownlink: &cdrType.DataVolumeOctets{2},

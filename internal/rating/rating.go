@@ -126,8 +126,10 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	}
 
 	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-	rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
-	unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
+	logger.ChargingdataPostLog.Errorf("tarrifInterface %+v", tarrifInterface)
+
+	rateElementInterface := tarrifInterface["rateelement"].(map[string]interface{})
+	unitCostInterface := rateElementInterface["unitcost"].(map[string]interface{})
 
 	// workaround
 	exponent := int32(0)
@@ -142,10 +144,11 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		exponent = int32(value)
 	default:
 		logger.ChargingdataPostLog.Errorf("Get exponent error: do not belong to int or float, type:%T", unitCostInterface["exponent"])
+
 	}
 
 	valueDigits := int64(0)
-	switch value := unitCostInterface["valueDigits"].(type) {
+	switch value := unitCostInterface["valuedigits"].(type) {
 	case int:
 		valueDigits = int64(value)
 	case int32:
@@ -161,8 +164,8 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		// CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
 		RateElement: &tarrifType.RateElement{
 			UnitCost: &tarrifType.UnitCost{
-			Exponent:    int(exponent),
-			ValueDigits: valueDigits,
+				Exponent:    int(exponent),
+				ValueDigits: valueDigits,
 			},
 		},
 	}

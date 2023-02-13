@@ -130,19 +130,14 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 
 	self := chf_context.CHF_Self()
 
-	quotaManagementIndicator := chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator
-	if quotaManagementIndicator == models.QuotaManagementIndicator_ONLINE_CHARGING {
-		responseBody = BuildOnlineChargingDataCreateResopone(chargingData)
-	}
-
 	// Open CDR
 	// ChargingDataRef(charging session id):
 	// A unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
 	ueId := chargingData.SubscriberIdentifier
-	self.UeIdRatingGroupsMap[ueId] = append(self.UeIdRatingGroupsMap[ueId], chargingData.MultipleUnitUsage[0].RatingGroup)
-	consumerId := chargingData.NfConsumerIdentification.NFName
+	self.NotifyUri[ueId] = chargingData.NotifyUri
 
+	consumerId := chargingData.NfConsumerIdentification.NFName
 	if !chargingData.OneTimeEvent {
 		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
 	}
@@ -171,7 +166,6 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 			}
 			return nil, "", problemDetails
 		}
-
 	}
 
 	// CDR Transfer
@@ -210,12 +204,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		responseBody, partialRecord = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
 	}
 
-	logger.ChargingdataPostLog.Warnln("ChargingSession", self.ChargingSession)
-
 	cdr := self.ChargingSession[chargingSessionId]
-	logger.ChargingdataPostLog.Warnln("chargingData pdu", chargingData.PDUSessionChargingInformation)
-
-
 	err := UpdateCDR(cdr, chargingData, chargingSessionId, false)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
