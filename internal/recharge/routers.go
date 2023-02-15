@@ -2,7 +2,6 @@ package recharge
 
 import (
 	"net/http"
-	// "strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -64,11 +63,4 @@ var routes = Routes{
 		"/",
 		Index,
 	},
-
-	// {
-	// 	"RechargePost",
-	// 	strings.ToUpper("Post"),
-	// 	"/recharge",
-	// 	RechargePost,
-	// },
 }

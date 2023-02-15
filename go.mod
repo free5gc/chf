@@ -17,13 +17,12 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/jlaffaye/ftp v0.1.0
 	github.com/sirupsen/logrus v1.9.0
+	github.com/stretchr/testify v1.8.0
 	github.com/urfave/cli v1.22.5
 	go.mongodb.org/mongo-driver v1.8.4
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 replace github.com/free5gc/openapi => /home/free5gc/openapi
-
 replace github.com/free5gc/TarrifUtil => /home/free5gc/TarrifUtil
-
 replace github.com/free5gc/CDRUtil => /home/free5gc/CDRUtil

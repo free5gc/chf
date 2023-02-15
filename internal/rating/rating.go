@@ -102,6 +102,10 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	}
 
 	// workaround
+	// type reading from mongoDB is not stabe
+	// i.g. chargingInterface["quota"] may be int, float...
+	// 		tarrifInterface["rateelement"] may be tarrifInterface["rateElement"]
+
 	quota := uint32(0)
 	switch value := chargingInterface["quota"].(type) {
 	case int:
@@ -116,9 +120,6 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
 	}
 	logger.ChargingdataPostLog.Tracef("Get quota: [%v]", quota)
-	// tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-	// rateElementInterface := tarrifInterface["rateElement"].(map[string]interface{})
-	// unitCostInterface := rateElementInterface["unitCost"].(map[string]interface{})
 	filter = bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": ratingGroup}
 	chargingInterface, err = mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
 	if err != nil {
@@ -144,7 +145,6 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		exponent = int32(value)
 	default:
 		logger.ChargingdataPostLog.Errorf("Get exponent error: do not belong to int or float, type:%T", unitCostInterface["exponent"])
-
 	}
 
 	valueDigits := int64(0)
@@ -161,7 +161,6 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		logger.ChargingdataPostLog.Errorf("Get valueDigits error: do not belong to int or float, type:%T", unitCostInterface["valueDigits"])
 	}
 	tarrif := tarrifType.CurrentTariff{
-		// CurrencyCode: uint32(tarrifInterface["currencycode"].(int64)),
 		RateElement: &tarrifType.RateElement{
 			UnitCost: &tarrifType.UnitCost{
 				Exponent:    int(exponent),
