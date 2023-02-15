@@ -127,7 +127,9 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	}
 
 	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-	logger.ChargingdataPostLog.Errorf("tarrifInterface %+v", tarrifInterface)
+
+	logger.ChargingdataPostLog.Errorf("Please check if the tarrifInterface exactly contains rateelement/unitcost or rateElement/unitCost if error occurs")
+	logger.ChargingdataPostLog.Warnf("tarrifInterface %+v", tarrifInterface)
 
 	rateElementInterface := tarrifInterface["rateelement"].(map[string]interface{})
 	unitCostInterface := rateElementInterface["unitcost"].(map[string]interface{})
