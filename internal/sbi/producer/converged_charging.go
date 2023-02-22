@@ -336,6 +336,7 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
 			unitInformation := models.MultipleUnitInformation{
+				UPFID:       unitUsage.UPFID,
 				RatingGroup: ratingGroup,
 				Triggers: []models.Trigger{
 					{
