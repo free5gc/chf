@@ -119,7 +119,7 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	default:
 		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
 	}
-	logger.ChargingdataPostLog.Tracef("Get quota: [%v]", quota)
+
 	filter = bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": ratingGroup}
 	chargingInterface, err = mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
 	if err != nil {
@@ -128,11 +128,22 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 
 	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
 
-	logger.ChargingdataPostLog.Errorf("Please check if the tarrifInterface exactly contains rateelement/unitcost or rateElement/unitCost if error occurs")
-	logger.ChargingdataPostLog.Warnf("tarrifInterface %+v", tarrifInterface)
+	// logger.ChargingdataPostLog.Errorf("Please check if the tarrifInterface exactly contains rateelement/unitcost or rateElement/unitCost if error occurs")
+	// logger.ChargingdataPostLog.Warnf("tarrifInterface %+v", tarrifInterface)
 
-	rateElementInterface := tarrifInterface["rateelement"].(map[string]interface{})
-	unitCostInterface := rateElementInterface["unitcost"].(map[string]interface{})
+	rateElementInterface := make(map[string]interface{})
+	if tarrifInterface["rateElement"] == nil {
+		rateElementInterface = tarrifInterface["rateelement"].(map[string]interface{})
+	} else {
+		rateElementInterface = tarrifInterface["rateElement"].(map[string]interface{})
+	}
+
+	unitCostInterface := make(map[string]interface{})
+	if rateElementInterface["unitCost"] == nil {
+		unitCostInterface = rateElementInterface["unitcost"].(map[string]interface{})
+	} else {
+		unitCostInterface = rateElementInterface["unitCost"].(map[string]interface{})
+	}
 
 	// workaround
 	exponent := int32(0)
@@ -149,8 +160,15 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		logger.ChargingdataPostLog.Errorf("Get exponent error: do not belong to int or float, type:%T", unitCostInterface["exponent"])
 	}
 
+	var valueDigitsString string
+	if unitCostInterface["valueDigits"] == nil {
+		valueDigitsString = "valuedigits"
+	} else {
+		valueDigitsString = "valueDigits"
+	}
+
 	valueDigits := int64(0)
-	switch value := unitCostInterface["valuedigits"].(type) {
+	switch value := unitCostInterface[valueDigitsString].(type) {
 	case int:
 		valueDigits = int64(value)
 	case int32:
