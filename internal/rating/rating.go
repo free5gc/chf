@@ -22,6 +22,7 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 	monetaryCost := int64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
 	monetaryRequest := int64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
 
+	logger.ChargingdataPostLog.Tracef("Cost per Byte[%d]", unitCost)
 	rsp := tarrifType.ServiceUsageResponse{
 		SessionID: serviceUsage.SessionID,
 		ServiceRating: &tarrifType.ServiceRating{
@@ -63,7 +64,6 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 
 	switch supiType {
 	case "imsi":
-		logger.ChargingdataPostLog.Debugf("SUPI: %s", supi)
 		subscriberIdentifier = tarrifType.SubscriptionID{
 			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_IMSI},
 			SubscriptionIDData: asn.UTF8String(supi[5:]),

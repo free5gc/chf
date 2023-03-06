@@ -199,10 +199,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 	self := chf_context.CHF_Self()
 
 	// Online charging: Rate, Account, Reservation
-	quotaManagementIndicator := chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator
-	if quotaManagementIndicator == models.QuotaManagementIndicator_ONLINE_CHARGING {
-		responseBody, partialRecord = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
-	}
+	responseBody, partialRecord = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
 
 	cdr := self.ChargingSession[chargingSessionId]
 	err := UpdateCDR(cdr, chargingData, chargingSessionId, false)
@@ -295,16 +292,10 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
 	self := chf_context.CHF_Self()
 
-	multipleUnitInformation := []models.MultipleUnitInformation{}
 	supi := chargingData.SubscriberIdentifier
 	self.NotifyUri[supi] = chargingData.NotifyUri
 
-	for _, unitUsage := range chargingData.MultipleUnitUsage {
-		ratingGroup := unitUsage.RatingGroup
-		if self.NewRatingGroup(supi, ratingGroup) {
-			self.UeIdRatingGroupsMap[supi] = append(self.UeIdRatingGroupsMap[supi], ratingGroup)
-		}
-	}
+	multipleUnitInformation := allocateQuota(self, chargingData)
 
 	responseBody := models.ChargingDataResponse{}
 	responseBody.MultipleUnitInformation = multipleUnitInformation
@@ -317,22 +308,33 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
 	self := chf_context.CHF_Self()
-	supi := chargingData.SubscriberIdentifier
-	multipleUnitInformation := []models.MultipleUnitInformation{}
 	// Rating for each report
 	for _, trigger := range chargingData.Triggers {
 		if trigger.TriggerType == models.TriggerType_VALIDITY_TIME {
 			partialRecord = true
 		}
 	}
+	multipleUnitInformation := allocateQuota(self, chargingData)
+
+	responseBody := models.ChargingDataResponse{}
+	responseBody.MultipleUnitInformation = multipleUnitInformation
+
+	return responseBody, partialRecord
+}
+
+func allocateQuota(chfContext *chf_context.CHFContext, chargingData models.ChargingDataRequest) []models.MultipleUnitInformation {
+	var multipleUnitInformation []models.MultipleUnitInformation
+	supi := chargingData.SubscriberIdentifier
+
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
 
-		if self.NewRatingGroup(supi, ratingGroup) {
-			self.UeIdRatingGroupsMap[supi] = append(self.UeIdRatingGroupsMap[supi], ratingGroup)
+		if chfContext.NewRatingGroup(supi, ratingGroup) {
+			chfContext.UeIdRatingGroupsMap[supi] = append(chfContext.UeIdRatingGroupsMap[supi], ratingGroup)
 		}
-		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
+		if sessionid, err := chfContext.RatingSessionGenerator.Allocate(); err == nil {
 			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
+			logger.ChargingdataPostLog.Tracef("Rate for UE's[%s] rating group[%d]", supi, ratingGroup)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
 			unitInformation := models.MultipleUnitInformation{
@@ -341,12 +343,12 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 				Triggers: []models.Trigger{
 					{
 						TriggerType: models.TriggerType_VOLUME_LIMIT,
-						VolumeLimit: self.VolumeLimit,
+						VolumeLimit: chfContext.VolumeLimit,
 					},
 				},
 				FinalUnitIndication: &models.FinalUnitIndication{},
 				// TODO: Control by Webconsole or Config?
-				ValidityTime: self.QuotaValidityTime,
+				ValidityTime: chfContext.QuotaValidityTime,
 			}
 
 			if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
@@ -395,8 +397,5 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 		}
 	}
 
-	responseBody := models.ChargingDataResponse{}
-	responseBody.MultipleUnitInformation = multipleUnitInformation
-
-	return responseBody, partialRecord
+	return multipleUnitInformation
 }

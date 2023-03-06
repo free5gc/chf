@@ -60,7 +60,6 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	supiType := strings.Split(supi, "-")[0]
 	switch supiType {
 	case "imsi":
-		logger.ChargingdataPostLog.Debugf("SUPI: %s", supi)
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
 			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERIMSI},
 			SubscriptionIDData: asn.UTF8String(supi[5:]),
