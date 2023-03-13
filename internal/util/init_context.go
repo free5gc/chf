@@ -29,6 +29,8 @@ func InitchfContext(context *context.CHFContext) {
 		return
 	}
 	context.VolumeLimit = config.Configuration.VolumeLimit
+	context.VolumeLimitPDU = config.Configuration.VolumeLimitPDU
+
 	context.QuotaValidityTime = config.Configuration.QuotaValidityTime
 
 	sbi := configuration.Sbi

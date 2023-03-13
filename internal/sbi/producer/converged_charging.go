@@ -223,7 +223,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		}
 
 		OpenCDR(chargingData, ueId, chargingSessionId, partialRecord)
-		logger.ChargingdataPostLog.Info("CDR: %+v", self.ChargingSession[chargingSessionId].ChargingFunctionRecord)
+		logger.ChargingdataPostLog.Tracef("CDR Record Sequence Number after Reopen %+v", *self.ChargingSession[chargingSessionId].ChargingFunctionRecord.RecordSequenceNumber)
 	}
 	// NOTE: for demo
 	ueId := chargingData.SubscriberIdentifier
@@ -295,7 +295,7 @@ func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataReque
 	supi := chargingData.SubscriberIdentifier
 	self.NotifyUri[supi] = chargingData.NotifyUri
 
-	multipleUnitInformation := allocateQuota(self, chargingData)
+	multipleUnitInformation, _ := allocateQuota(self, chargingData)
 
 	responseBody := models.ChargingDataResponse{}
 	responseBody.MultipleUnitInformation = multipleUnitInformation
@@ -308,13 +308,8 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
 	self := chf_context.CHF_Self()
-	// Rating for each report
-	for _, trigger := range chargingData.Triggers {
-		if trigger.TriggerType == models.TriggerType_VALIDITY_TIME {
-			partialRecord = true
-		}
-	}
-	multipleUnitInformation := allocateQuota(self, chargingData)
+
+	multipleUnitInformation, partialRecord := allocateQuota(self, chargingData)
 
 	responseBody := models.ChargingDataResponse{}
 	responseBody.MultipleUnitInformation = multipleUnitInformation
@@ -322,8 +317,11 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	return responseBody, partialRecord
 }
 
-func allocateQuota(chfContext *chf_context.CHFContext, chargingData models.ChargingDataRequest) []models.MultipleUnitInformation {
+func allocateQuota(chfContext *chf_context.CHFContext, chargingData models.ChargingDataRequest) ([]models.MultipleUnitInformation, bool) {
 	var multipleUnitInformation []models.MultipleUnitInformation
+	var addPDULimit bool
+	var partialRecord bool
+
 	supi := chargingData.SubscriberIdentifier
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
@@ -338,21 +336,44 @@ func allocateQuota(chfContext *chf_context.CHFContext, chargingData models.Charg
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
 			unitInformation := models.MultipleUnitInformation{
-				UPFID:       unitUsage.UPFID,
-				RatingGroup: ratingGroup,
-				Triggers: []models.Trigger{
-					{
-						TriggerType: models.TriggerType_VOLUME_LIMIT,
-						VolumeLimit: chfContext.VolumeLimit,
-					},
-				},
+				UPFID:               unitUsage.UPFID,
+				RatingGroup:         ratingGroup,
 				FinalUnitIndication: &models.FinalUnitIndication{},
 				// TODO: Control by Webconsole or Config?
 				ValidityTime: chfContext.QuotaValidityTime,
 			}
 
+			for _, uuc := range unitUsage.UsedUnitContainer {
+				for _, t := range uuc.Triggers {
+					if t.TriggerType == models.TriggerType_VOLUME_LIMIT &&
+						t.TriggerCategory == models.TriggerCategory_IMMEDIATE_REPORT {
+						partialRecord = true
+					}
+				}
+			}
+
+			if chfContext.VolumeLimit != 0 {
+				unitInformation.Triggers = append(unitInformation.Triggers,
+					models.Trigger{
+						TriggerType:     models.TriggerType_VOLUME_LIMIT,
+						TriggerCategory: models.TriggerCategory_DEFERRED_REPORT,
+						VolumeLimit:     chfContext.VolumeLimit,
+					},
+				)
+			}
+
+			if chfContext.VolumeLimitPDU != 0 && !addPDULimit {
+				unitInformation.Triggers = append(unitInformation.Triggers,
+					models.Trigger{
+						TriggerType:     models.TriggerType_VOLUME_LIMIT,
+						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+						VolumeLimit:     chfContext.VolumeLimitPDU,
+					},
+				)
+				addPDULimit = true
+			}
 			if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
-				unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * 0.8)
+				unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * 0.5)
 				unitInformation.GrantedUnit = &models.GrantedUnit{
 					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
 					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
@@ -397,5 +418,5 @@ func allocateQuota(chfContext *chf_context.CHFContext, chargingData models.Charg
 		}
 	}
 
-	return multipleUnitInformation
+	return multipleUnitInformation, partialRecord
 }

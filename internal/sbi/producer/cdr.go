@@ -16,6 +16,7 @@ import (
 func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId string, partialRecord bool) (*cdrType.CHFRecord, error) {
 	// 32.298 5.1.5.0.1 for CHF CDR field
 	var chfCdr cdrType.ChargingRecord
+	logger.ChargingdataPostLog.Tracef("Open CDR")
 
 	self := chf_context.CHF_Self()
 
@@ -25,7 +26,8 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 		// TODO partial record
 		cdr := self.ChargingSession[sessionId]
 		partialRecordSeqNum := self.RecordSequenceNumber[sessionId]
-		cdr.ChargingFunctionRecord.RecordSequenceNumber = &partialRecordSeqNum
+		partialRecordSeqNum++
+		cdr.ChargingFunctionRecord.RecordSequenceNumber = &(partialRecordSeqNum)
 
 		return cdr, nil
 	}
@@ -193,10 +195,19 @@ func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataReques
 		chfCdr.Triggers = append(chfCdr.Triggers, triggers...)
 	}
 
+	// chfCdrstring, err := json.Marshal(chfCdr)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	return nil
+	// }
+	// // logger.ChargingdataPostLog.Infof("chfCdr: %+v", string(chfCdrstring))
+
 	return nil
 }
 
 func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
+	logger.ChargingdataPostLog.Infof("Close CDR")
+
 	chfCdr := record.ChargingFunctionRecord
 
 	// Initial Cause for record closing
@@ -231,8 +242,6 @@ func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 }
 
 func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
-	logger.ChargingdataPostLog.Tracef("Dump CDR File")
-
 	var cdrfile cdrFile.CDRFile
 	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
 	cdrfile.Hdr.LengthOfPrivateExtension = 0
@@ -260,5 +269,6 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 
 	cdrfile.Encoding("/tmp/" + ueid + ".cdr")
 
+	cdrfile.Decoding("/tmp/" + ueid + ".cdr")
 	return nil
 }

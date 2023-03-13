@@ -41,6 +41,7 @@ type CHFContext struct {
 	ChargingSession           map[string]*cdrType.CHFRecord
 	QuotaValidityTime         int32
 	VolumeLimit               int32
+	VolumeLimitPDU            int32
 	NotifyUri                 map[string]string
 	// Rating
 	UeIdRatingGroupsMap    map[string][]int32
