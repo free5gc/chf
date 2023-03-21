@@ -16,6 +16,7 @@ require (
 	github.com/gin-gonic/gin v1.7.3
 	github.com/google/uuid v1.3.0
 	github.com/jlaffaye/ftp v0.1.0
+	github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b // indirect
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.0
 	github.com/urfave/cli v1.22.5
@@ -24,5 +25,7 @@ require (
 )
 
 replace github.com/free5gc/openapi => /home/free5gc/openapi
+
 replace github.com/free5gc/TarrifUtil => /home/free5gc/TarrifUtil
+
 replace github.com/free5gc/CDRUtil => /home/free5gc/CDRUtil

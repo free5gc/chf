@@ -28,10 +28,6 @@ func InitchfContext(context *context.CHFContext) {
 		logger.UtilLog.Errorf("InitpcfContext err: %+v", err)
 		return
 	}
-	context.VolumeLimit = config.Configuration.VolumeLimit
-	context.VolumeLimitPDU = config.Configuration.VolumeLimitPDU
-
-	context.QuotaValidityTime = config.Configuration.QuotaValidityTime
 
 	sbi := configuration.Sbi
 	context.NrfUri = configuration.NrfUri

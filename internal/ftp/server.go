@@ -103,7 +103,7 @@ func SendCDR(supi string) error {
 		if err != nil {
 			return err
 		}
-		logger.ChargingdataPostLog.Error("Re-Login Success")
+		logger.ChargingdataPostLog.Infof("FTP Re-Login Success")
 
 	}
 

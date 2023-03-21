@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/free5gc/CDRUtil/cdrType"
+	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/idgenerator"
@@ -20,10 +20,7 @@ func init() {
 	chfCtx.Name = "chf"
 	chfCtx.UriScheme = models.UriScheme_HTTPS
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
-	chfCtx.ChargingSession = make(map[string]*cdrType.CHFRecord)
 	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
-	chfCtx.UeIdRatingGroupsMap = make(map[string][]int32)
-	chfCtx.NotifyUri = map[string]string{}
 }
 
 type CHFContext struct {
@@ -38,29 +35,13 @@ type CHFContext struct {
 	LocalRecordSequenceNumber uint64
 	NrfUri                    string
 	UePool                    sync.Map
-	ChargingSession           map[string]*cdrType.CHFRecord
-	QuotaValidityTime         int32
-	VolumeLimit               int32
-	VolumeLimitPDU            int32
-	NotifyUri                 map[string]string
-	// Rating
-	UeIdRatingGroupsMap    map[string][]int32
+
 	RatingSessionGenerator *idgenerator.IDGenerator
 }
 
 // Create new CHF context
 func CHF_Self() *CHFContext {
 	return chfCtx
-}
-
-func (c *CHFContext) NewRatingGroup(ueId string, ratingGroup int32) bool {
-	for _, rg := range c.UeIdRatingGroupsMap[ueId] {
-		if rg == ratingGroup {
-			return false
-		}
-	}
-
-	return true
 }
 
 func (c *CHFContext) GetIPv4Uri() string {
@@ -97,16 +78,28 @@ func (c *CHFContext) InitNFService(serviceList []factory.Service, version string
 	}
 }
 
-// Allocate CHF Ue with supi and add to chf Context and returns allocated ue
-func (c *CHFContext) NewCHFUe(Supi string) (*ChfUe, error) {
-	if _, ok := c.ChfUeFindBySupi(Supi); ok {
-		return nil, fmt.Errorf("Ue exist")
+func (context *CHFContext) AddChfUeToUePool(ue *ChfUe, supi string) {
+	if len(supi) == 0 {
+		logger.CtxLog.Errorf("Supi is nil")
 	}
-	if strings.HasPrefix(Supi, "imsi-") {
-		newUeContext := &ChfUe{}
-		newUeContext.Supi = Supi
-		c.UePool.Store(Supi, newUeContext)
-		return newUeContext, nil
+	ue.Supi = supi
+	context.UePool.Store(ue.Supi, ue)
+}
+
+// Allocate CHF Ue with supi and add to chf Context and returns allocated ue
+func (context *CHFContext) NewCHFUe(supi string) (*ChfUe, error) {
+	if ue, ok := context.ChfUeFindBySupi(supi); ok {
+		return ue, nil
+	}
+	if strings.HasPrefix(supi, "imsi-") {
+		ue := ChfUe{}
+		ue.init()
+
+		if supi != "" {
+			context.AddChfUeToUePool(&ue, supi)
+		}
+
+		return &ue, nil
 	} else {
 		return nil, fmt.Errorf(" add Ue context fail ")
 	}

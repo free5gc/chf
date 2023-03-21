@@ -7,6 +7,7 @@ import (
 
 	"github.com/free5gc/TarrifUtil/asn"
 	"github.com/free5gc/TarrifUtil/tarrifType"
+	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/mongoapi"
@@ -93,6 +94,13 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		}
 
 		totalUsaedUnit += uint32(useduint.TotalVolume)
+	}
+
+	self := chf_context.CHF_Self()
+	ue, ok := self.ChfUeFindBySupi(supi)
+	if ok {
+		ue.AccumulateUsage.TotalVolume += int32(totalUsaedUnit)
+		logger.ChargingdataPostLog.Warnf("UE's[%s] accumulate data usage %d", supi, ue.AccumulateUsage.TotalVolume)
 	}
 
 	filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 1}

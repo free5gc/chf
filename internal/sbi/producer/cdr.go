@@ -13,7 +13,7 @@ import (
 	"github.com/free5gc/openapi/models"
 )
 
-func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId string, partialRecord bool) (*cdrType.CHFRecord, error) {
+func OpenCDR(chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, sessionId string, partialRecord bool) (*cdrType.CHFRecord, error) {
 	// 32.298 5.1.5.0.1 for CHF CDR field
 	var chfCdr cdrType.ChargingRecord
 	logger.ChargingdataPostLog.Tracef("Open CDR")
@@ -24,7 +24,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	// Partial CDR: Fragments of CDR, for long session charging
 	if partialRecord {
 		// TODO partial record
-		cdr := self.ChargingSession[sessionId]
+		cdr := ue.Cdr[sessionId]
 		partialRecordSeqNum := self.RecordSequenceNumber[sessionId]
 		partialRecordSeqNum++
 		cdr.ChargingFunctionRecord.RecordSequenceNumber = &(partialRecordSeqNum)
@@ -59,27 +59,27 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	}
 	// Skip Record Extensions: operator/manufacturer specific extensions
 
-	supiType := strings.Split(supi, "-")[0]
+	supiType := strings.Split(ue.Supi, "-")[0]
 	switch supiType {
 	case "imsi":
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
 			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERIMSI},
-			SubscriptionIDData: asn.UTF8String(supi[5:]),
+			SubscriptionIDData: asn.UTF8String(ue.Supi[5:]),
 		}
 	case "nai":
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
 			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERNAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+			SubscriptionIDData: asn.UTF8String(ue.Supi[4:]),
 		}
 	case "gci":
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
 			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERNAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+			SubscriptionIDData: asn.UTF8String(ue.Supi[4:]),
 		}
 	case "gli":
 		chfCdr.SubscriberIdentifier = &cdrType.SubscriptionID{
 			SubscriptionIDType: cdrType.SubscriptionIDType{Value: cdrType.SubscriptionIDTypePresentENDUSERNAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+			SubscriptionIDData: asn.UTF8String(ue.Supi[4:]),
 		}
 	}
 
@@ -180,7 +180,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, supi string, sessionId str
 	return &cdr, nil
 }
 
-func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataRequest, sessionId string, partialRecord bool) error {
+func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataRequest) error {
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
 
@@ -269,6 +269,5 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 
 	cdrfile.Encoding("/tmp/" + ueid + ".cdr")
 
-	cdrfile.Decoding("/tmp/" + ueid + ".cdr")
 	return nil
 }

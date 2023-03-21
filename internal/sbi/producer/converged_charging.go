@@ -25,7 +25,12 @@ func NotifyRecharge(ueId string) {
 	var reauthorizationDetails []models.ReauthorizationDetails
 
 	self := chf_context.CHF_Self()
-	for _, rg := range self.UeIdRatingGroupsMap[ueId] {
+	ue, ok := self.ChfUeFindBySupi(ueId)
+	if !ok {
+		logger.NotifyEventLog.Errorf("Do not find charging data for UE: %s", ueId)
+		return
+	}
+	for _, rg := range ue.RatingGroups {
 		reauthorizationDetails = append(reauthorizationDetails, models.ReauthorizationDetails{
 			RatingGroup: rg,
 		})
@@ -35,7 +40,7 @@ func NotifyRecharge(ueId string) {
 		ReauthorizationDetails: reauthorizationDetails,
 	}
 
-	SendChargingNotification(self.NotifyUri[ueId], notifyRequest)
+	SendChargingNotification(ue.NotifyUri, notifyRequest)
 }
 
 func SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
@@ -129,34 +134,47 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	var chargingSessionId string
 
 	self := chf_context.CHF_Self()
+	ueId := chargingData.SubscriberIdentifier
 
 	// Open CDR
 	// ChargingDataRef(charging session id):
 	// A unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
-	ueId := chargingData.SubscriberIdentifier
-	self.NotifyUri[ueId] = chargingData.NotifyUri
+	ue, err := self.NewCHFUe(ueId)
+	if err != nil {
+		logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusBadRequest,
+		}
+		return nil, "", problemDetails
+	}
+
+	ue.CULock.Lock()
+	defer ue.CULock.Unlock()
+
+	ue.NotifyUri = chargingData.NotifyUri
 
 	consumerId := chargingData.NfConsumerIdentification.NFName
 	if !chargingData.OneTimeEvent {
 		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
 	}
-	cdr, err := OpenCDR(chargingData, ueId, chargingSessionId, false)
+	cdr, err := OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
 		return nil, "", problemDetails
 	}
-	self.ChargingSession[chargingSessionId] = cdr
 
-	err = UpdateCDR(cdr, chargingData, chargingSessionId, false)
+	err = UpdateCDR(cdr, chargingData)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
 		return nil, "", problemDetails
 	}
+
+	ue.Cdr[chargingSessionId] = cdr
 
 	if chargingData.OneTimeEvent {
 		err = CloseCDR(cdr, false)
@@ -175,11 +193,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	}
 
 	logger.ChargingdataPostLog.Infof("Open CDR for UE %s", ueId)
-	_, err = self.NewCHFUe(ueId)
 
-	if err != nil {
-		logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
-	}
 	// build response
 	logger.ChargingdataPostLog.Infof("NewChfUe %s", ueId)
 	locationURI := self.GetIPv4Uri() + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
@@ -193,16 +207,27 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 
 func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSessionId string) (*models.ChargingDataResponse,
 	*models.ProblemDetails) {
-	var responseBody models.ChargingDataResponse
-	var partialRecord bool
+	var records []*cdrType.CHFRecord
 
 	self := chf_context.CHF_Self()
+	ueId := chargingData.SubscriberIdentifier
+	ue, ok := self.ChfUeFindBySupi(ueId)
+	if !ok {
+		logger.ChargingdataPostLog.Errorf("Do not find  CHFUe[%s] error", ueId)
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusBadRequest,
+		}
+		return nil, problemDetails
+	}
+
+	ue.CULock.Lock()
+	defer ue.CULock.Unlock()
 
 	// Online charging: Rate, Account, Reservation
-	responseBody, partialRecord = BuildOnlineChargingDataUpdateResopone(chargingData, chargingSessionId)
+	responseBody, partialRecord := BuildOnlineChargingDataUpdateResopone(ue, chargingData)
 
-	cdr := self.ChargingSession[chargingSessionId]
-	err := UpdateCDR(cdr, chargingData, chargingSessionId, false)
+	cdr := ue.Cdr[chargingSessionId]
+	err := UpdateCDR(cdr, chargingData)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -222,20 +247,13 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 			return nil, problemDetails
 		}
 
-		OpenCDR(chargingData, ueId, chargingSessionId, partialRecord)
-		logger.ChargingdataPostLog.Tracef("CDR Record Sequence Number after Reopen %+v", *self.ChargingSession[chargingSessionId].ChargingFunctionRecord.RecordSequenceNumber)
+		OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
+		logger.ChargingdataPostLog.Tracef("CDR Record Sequence Number after Reopen %+v", *cdr.ChargingFunctionRecord.RecordSequenceNumber)
 	}
-	// NOTE: for demo
-	ueId := chargingData.SubscriberIdentifier
 
-	var records []*cdrType.CHFRecord
-	for chId, record := range self.ChargingSession {
-		if chId != chargingSessionId {
-			records = append(records, record)
-		}
+	for _, cdr := range ue.Cdr {
+		records = append(records, cdr)
 	}
-	records = append(records, cdr)
-
 	err = dumpCdrFile(ueId, records)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
@@ -258,9 +276,22 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 
 func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessionId string) *models.ProblemDetails {
 	self := chf_context.CHF_Self()
-	cdr := self.ChargingSession[chargingSessionId]
+	ueId := chargingData.SubscriberIdentifier
+	ue, ok := self.ChfUeFindBySupi(ueId)
+	if !ok {
+		logger.ChargingdataPostLog.Errorf("Do not find CHFUe[%s] error", ueId)
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusBadRequest,
+		}
+		return problemDetails
+	}
 
-	err := UpdateCDR(cdr, chargingData, chargingSessionId, false)
+	ue.CULock.Lock()
+	defer ue.CULock.Unlock()
+
+	cdr := ue.Cdr[chargingSessionId]
+
+	err := UpdateCDR(cdr, chargingData)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -276,7 +307,6 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 		return problemDetails
 	}
 
-	ueId := chargingData.SubscriberIdentifier
 	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
@@ -288,49 +318,48 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 	return nil
 }
 
-func BuildOnlineChargingDataCreateResopone(chargingData models.ChargingDataRequest) models.ChargingDataResponse {
+func BuildOnlineChargingDataCreateResopone(ue *chf_context.ChfUe, chargingData models.ChargingDataRequest) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
-	self := chf_context.CHF_Self()
+	ue.NotifyUri = chargingData.NotifyUri
 
-	supi := chargingData.SubscriberIdentifier
-	self.NotifyUri[supi] = chargingData.NotifyUri
+	multipleUnitInformation, _ := allocateQuota(ue, chargingData)
 
-	multipleUnitInformation, _ := allocateQuota(self, chargingData)
-
-	responseBody := models.ChargingDataResponse{}
-	responseBody.MultipleUnitInformation = multipleUnitInformation
+	responseBody := models.ChargingDataResponse{
+		MultipleUnitInformation: multipleUnitInformation,
+	}
 
 	return responseBody
 }
 
-func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataRequest, chargingSessionId string) (models.ChargingDataResponse, bool) {
+func BuildOnlineChargingDataUpdateResopone(ue *chf_context.ChfUe, chargingData models.ChargingDataRequest) (models.ChargingDataResponse, bool) {
 	var partialRecord bool
 
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
-	self := chf_context.CHF_Self()
 
-	multipleUnitInformation, partialRecord := allocateQuota(self, chargingData)
+	multipleUnitInformation, partialRecord := allocateQuota(ue, chargingData)
 
-	responseBody := models.ChargingDataResponse{}
-	responseBody.MultipleUnitInformation = multipleUnitInformation
+	responseBody := models.ChargingDataResponse{
+		MultipleUnitInformation: multipleUnitInformation,
+	}
 
 	return responseBody, partialRecord
 }
 
-func allocateQuota(chfContext *chf_context.CHFContext, chargingData models.ChargingDataRequest) ([]models.MultipleUnitInformation, bool) {
+func allocateQuota(ue *chf_context.ChfUe, chargingData models.ChargingDataRequest) ([]models.MultipleUnitInformation, bool) {
 	var multipleUnitInformation []models.MultipleUnitInformation
 	var addPDULimit bool
 	var partialRecord bool
 
 	supi := chargingData.SubscriberIdentifier
+	self := chf_context.CHF_Self()
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
 
-		if chfContext.NewRatingGroup(supi, ratingGroup) {
-			chfContext.UeIdRatingGroupsMap[supi] = append(chfContext.UeIdRatingGroupsMap[supi], ratingGroup)
+		if ue.FindRatingGroup(ratingGroup) {
+			ue.RatingGroups = append(ue.RatingGroups, ratingGroup)
 		}
-		if sessionid, err := chfContext.RatingSessionGenerator.Allocate(); err == nil {
+		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
 			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
 			logger.ChargingdataPostLog.Tracef("Rate for UE's[%s] rating group[%d]", supi, ratingGroup)
 			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
@@ -340,7 +369,7 @@ func allocateQuota(chfContext *chf_context.CHFContext, chargingData models.Charg
 				RatingGroup:         ratingGroup,
 				FinalUnitIndication: &models.FinalUnitIndication{},
 				// TODO: Control by Webconsole or Config?
-				ValidityTime: chfContext.QuotaValidityTime,
+				ValidityTime: ue.QuotaValidityTime,
 			}
 
 			for _, uuc := range unitUsage.UsedUnitContainer {
@@ -352,28 +381,28 @@ func allocateQuota(chfContext *chf_context.CHFContext, chargingData models.Charg
 				}
 			}
 
-			if chfContext.VolumeLimit != 0 {
+			if ue.VolumeLimit != 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
 					models.Trigger{
 						TriggerType:     models.TriggerType_VOLUME_LIMIT,
 						TriggerCategory: models.TriggerCategory_DEFERRED_REPORT,
-						VolumeLimit:     chfContext.VolumeLimit,
+						VolumeLimit:     ue.VolumeLimit,
 					},
 				)
 			}
 
-			if chfContext.VolumeLimitPDU != 0 && !addPDULimit {
+			if ue.VolumeLimitPDU != 0 && !addPDULimit {
 				unitInformation.Triggers = append(unitInformation.Triggers,
 					models.Trigger{
 						TriggerType:     models.TriggerType_VOLUME_LIMIT,
 						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
-						VolumeLimit:     chfContext.VolumeLimitPDU,
+						VolumeLimit:     ue.VolumeLimitPDU,
 					},
 				)
 				addPDULimit = true
 			}
 			if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
-				unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * 0.5)
+				unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * ue.VolumeThresholdRate)
 				unitInformation.GrantedUnit = &models.GrantedUnit{
 					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
 					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
