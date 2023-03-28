@@ -58,10 +58,17 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 	return rsp, nil, lastgrantedquota
 }
 
-func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage, sessionid int64, ratingGroup int32) tarrifType.ServiceUsageRequest {
+func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage) tarrifType.ServiceUsageRequest {
+	var subscriberIdentifier tarrifType.SubscriptionID
+
+	self := chf_context.CHF_Self()
+	sessionid, err := self.RatingSessionGenerator.Allocate()
+	if err != nil {
+		logger.ChargingdataPostLog.Errorf("Rating Session Allocate err: %+v", err)
+	}
+
 	supi := chargingData.SubscriberIdentifier
 	supiType := strings.Split(supi, "-")[0]
-	var subscriberIdentifier tarrifType.SubscriptionID
 
 	switch supiType {
 	case "imsi":
@@ -96,14 +103,13 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		totalUsaedUnit += uint32(useduint.TotalVolume)
 	}
 
-	self := chf_context.CHF_Self()
 	ue, ok := self.ChfUeFindBySupi(supi)
 	if ok {
 		ue.AccumulateUsage.TotalVolume += int32(totalUsaedUnit)
 		logger.ChargingdataPostLog.Warnf("UE's[%s] accumulate data usage %d", supi, ue.AccumulateUsage.TotalVolume)
 	}
 
-	filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 1}
+	filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": unitUsage.RatingGroup}
 	chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
@@ -128,25 +134,19 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
 	}
 
-	filter = bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": ratingGroup}
-	chargingInterface, err = mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
-	if err != nil {
-		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
-	}
-
 	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
 
 	// logger.ChargingdataPostLog.Errorf("Please check if the tarrifInterface exactly contains rateelement/unitcost or rateElement/unitCost if error occurs")
 	// logger.ChargingdataPostLog.Warnf("tarrifInterface %+v", tarrifInterface)
 
-	rateElementInterface := make(map[string]interface{})
+	var rateElementInterface map[string]interface{}
 	if tarrifInterface["rateElement"] == nil {
 		rateElementInterface = tarrifInterface["rateelement"].(map[string]interface{})
 	} else {
 		rateElementInterface = tarrifInterface["rateElement"].(map[string]interface{})
 	}
 
-	unitCostInterface := make(map[string]interface{})
+	var unitCostInterface map[string]interface{}
 	if rateElementInterface["unitCost"] == nil {
 		unitCostInterface = rateElementInterface["unitcost"].(map[string]interface{})
 	} else {

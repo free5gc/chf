@@ -21,7 +21,7 @@ import (
 
 const chargingDataColl = "chargingData"
 
-func NotifyRecharge(ueId string) {
+func NotifyRecharge(ueId string, rg int) {
 	var reauthorizationDetails []models.ReauthorizationDetails
 
 	self := chf_context.CHF_Self()
@@ -30,11 +30,9 @@ func NotifyRecharge(ueId string) {
 		logger.NotifyEventLog.Errorf("Do not find charging data for UE: %s", ueId)
 		return
 	}
-	for _, rg := range ue.RatingGroups {
-		reauthorizationDetails = append(reauthorizationDetails, models.ReauthorizationDetails{
-			RatingGroup: rg,
-		})
-	}
+	reauthorizationDetails = append(reauthorizationDetails, models.ReauthorizationDetails{
+		RatingGroup: int32(rg),
+	})
 
 	notifyRequest := models.ChargingNotifyRequest{
 		ReauthorizationDetails: reauthorizationDetails,
@@ -351,100 +349,95 @@ func allocateQuota(ue *chf_context.ChfUe, chargingData models.ChargingDataReques
 	var partialRecord bool
 
 	supi := chargingData.SubscriberIdentifier
-	self := chf_context.CHF_Self()
 
 	for _, unitUsage := range chargingData.MultipleUnitUsage {
 		ratingGroup := unitUsage.RatingGroup
-
-		if ue.FindRatingGroup(ratingGroup) {
+		if !ue.FindRatingGroup(ratingGroup) {
 			ue.RatingGroups = append(ue.RatingGroups, ratingGroup)
 		}
-		if sessionid, err := self.RatingSessionGenerator.Allocate(); err == nil {
-			ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage, sessionid, ratingGroup)
-			logger.ChargingdataPostLog.Tracef("Rate for UE's[%s] rating group[%d]", supi, ratingGroup)
-			rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
-			unitInformation := models.MultipleUnitInformation{
-				UPFID:               unitUsage.UPFID,
-				RatingGroup:         ratingGroup,
-				FinalUnitIndication: &models.FinalUnitIndication{},
-				// TODO: Control by Webconsole or Config?
-				ValidityTime: ue.QuotaValidityTime,
-			}
+		ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage)
+		logger.ChargingdataPostLog.Tracef("Rate for UE's[%s] rating group[%d]", supi, ratingGroup)
+		rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
-			for _, uuc := range unitUsage.UsedUnitContainer {
-				for _, t := range uuc.Triggers {
-					if t.TriggerType == models.TriggerType_VOLUME_LIMIT &&
-						t.TriggerCategory == models.TriggerCategory_IMMEDIATE_REPORT {
-						partialRecord = true
-					}
-				}
-			}
-
-			if ue.VolumeLimit != 0 {
-				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.Trigger{
-						TriggerType:     models.TriggerType_VOLUME_LIMIT,
-						TriggerCategory: models.TriggerCategory_DEFERRED_REPORT,
-						VolumeLimit:     ue.VolumeLimit,
-					},
-				)
-			}
-
-			if ue.VolumeLimitPDU != 0 && !addPDULimit {
-				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.Trigger{
-						TriggerType:     models.TriggerType_VOLUME_LIMIT,
-						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
-						VolumeLimit:     ue.VolumeLimitPDU,
-					},
-				)
-				addPDULimit = true
-			}
-			if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
-				unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * ue.VolumeThresholdRate)
-				unitInformation.GrantedUnit = &models.GrantedUnit{
-					TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
-					DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
-					UplinkVolume:   int32(rsp.ServiceRating.AllowedUnits),
-				}
-			}
-
-			if lastgrantedquota {
-				unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
-					FinalUnitAction: models.FinalUnitAction_TERMINATE,
-				}
-				logger.ChargingdataPostLog.Infof("UE's [%s] last granted quota: %d", supi, rsp.ServiceRating.AllowedUnits)
-			}
-
-			remainQuota := int32(rsp.ServiceRating.MonetaryQuota) - int32(rsp.ServiceRating.Price)
-
-			filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 1}
-			chargingBsonM := bson.M{}
-			if chargingBsonM, err = mongoapi.RestfulAPIGetOne(chargingDataColl, filter); err != nil {
-				logger.ChargingdataPostLog.Errorf("RestfulAPIGetOne err: %+v", err)
-			}
-
-			if remainQuota < 0 {
-				chargingBsonM["quota"] = uint32(0)
-				// chargingBsonM["debit"] = remainQuota
-			} else {
-				chargingBsonM["quota"] = uint32(remainQuota)
-			}
-
-			if err := mongoapi.RestfulAPIDeleteMany(chargingDataColl, filter); err != nil {
-				logger.ChargingdataPostLog.Errorf("RestfulAPIDeleteMany err: %+v", err)
-			}
-
-			if _, err := mongoapi.RestfulAPIPutOne(chargingDataColl, filter, chargingBsonM); err != nil {
-				logger.ChargingdataPostLog.Errorf("RestfulAPIPutOne err: %+v", err)
-			}
-			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%d]", supi, remainQuota)
-
-			multipleUnitInformation = append(multipleUnitInformation, unitInformation)
-		} else {
-			logger.ChargingdataPostLog.Errorf("Rating Session Allocate err: %+v", err)
+		unitInformation := models.MultipleUnitInformation{
+			UPFID:               unitUsage.UPFID,
+			RatingGroup:         ratingGroup,
+			FinalUnitIndication: &models.FinalUnitIndication{},
+			// TODO: Control by Webconsole or Config?
+			ValidityTime: ue.QuotaValidityTime,
 		}
+
+		for _, uuc := range unitUsage.UsedUnitContainer {
+			for _, t := range uuc.Triggers {
+				if t.TriggerType == models.TriggerType_VOLUME_LIMIT &&
+					t.TriggerCategory == models.TriggerCategory_IMMEDIATE_REPORT {
+					partialRecord = true
+				}
+			}
+		}
+
+		if ue.VolumeLimit != 0 {
+			unitInformation.Triggers = append(unitInformation.Triggers,
+				models.Trigger{
+					TriggerType:     models.TriggerType_VOLUME_LIMIT,
+					TriggerCategory: models.TriggerCategory_DEFERRED_REPORT,
+					VolumeLimit:     ue.VolumeLimit,
+				},
+			)
+		}
+
+		if ue.VolumeLimitPDU != 0 && !addPDULimit {
+			unitInformation.Triggers = append(unitInformation.Triggers,
+				models.Trigger{
+					TriggerType:     models.TriggerType_VOLUME_LIMIT,
+					TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					VolumeLimit:     ue.VolumeLimitPDU,
+				},
+			)
+			addPDULimit = true
+		}
+		if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
+			unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * ue.VolumeThresholdRate)
+			unitInformation.GrantedUnit = &models.GrantedUnit{
+				TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
+				DownlinkVolume: int32(rsp.ServiceRating.AllowedUnits),
+				UplinkVolume:   int32(rsp.ServiceRating.AllowedUnits),
+			}
+		}
+
+		if lastgrantedquota {
+			unitInformation.FinalUnitIndication = &models.FinalUnitIndication{
+				FinalUnitAction: models.FinalUnitAction_TERMINATE,
+			}
+			logger.ChargingdataPostLog.Infof("UE's [%s] last granted quota: %d", supi, rsp.ServiceRating.AllowedUnits)
+		}
+
+		remainQuota := int32(rsp.ServiceRating.MonetaryQuota) - int32(rsp.ServiceRating.Price)
+
+		filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 1}
+		chargingBsonM, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
+		if err != nil {
+			logger.ChargingdataPostLog.Errorf("RestfulAPIGetOne err: %+v", err)
+		}
+
+		if remainQuota < 0 {
+			chargingBsonM["quota"] = uint32(0)
+			// chargingBsonM["debit"] = remainQuota
+		} else {
+			chargingBsonM["quota"] = uint32(remainQuota)
+		}
+
+		if err := mongoapi.RestfulAPIDeleteMany(chargingDataColl, filter); err != nil {
+			logger.ChargingdataPostLog.Errorf("RestfulAPIDeleteMany err: %+v", err)
+		}
+
+		if _, err := mongoapi.RestfulAPIPutOne(chargingDataColl, filter, chargingBsonM); err != nil {
+			logger.ChargingdataPostLog.Errorf("RestfulAPIPutOne err: %+v", err)
+		}
+		logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%d]", supi, remainQuota)
+
+		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
 	}
 
 	return multipleUnitInformation, partialRecord

@@ -106,7 +106,7 @@ var routes = Routes{
 	{
 		"RechargingQuotaUpdatePut",
 		"PUT",
-		"/recharging/:UeId",
+		"/recharging/:rechargingInfo",
 		recharge.RechargePut,
 	},
 }

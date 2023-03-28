@@ -2,6 +2,8 @@ package recharge
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi/producer"
@@ -13,10 +15,18 @@ func RechargeGet(c *gin.Context) {
 }
 
 func RechargePut(c *gin.Context) {
-	ueid := c.Param("UeId")
+	rechargingInfo := c.Param("rechargingInfo")
+	ueIdRatingGroup := strings.Split(rechargingInfo, "_")
+	ueId := ueIdRatingGroup[0]
+	rgStr := ueIdRatingGroup[1]
+	rg, err := strconv.Atoi(rgStr)
+	if err != nil {
+		logger.RechargingLog.Error("UE[%s] fail to recharge for rating group %s", ueId, rgStr)
+	}
 
-	logger.RechargingLog.Warnf("UE[%s] Recharg", ueid)
-	producer.NotifyRecharge(ueid)
+	logger.RechargingLog.Warnf("UE[%s] Recharg for rating group %d", ueId, rg)
+
+	producer.NotifyRecharge(ueId, rg)
 
 	c.JSON(http.StatusNoContent, gin.H{})
 }
