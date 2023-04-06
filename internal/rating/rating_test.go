@@ -4,42 +4,40 @@ import (
 	"testing"
 	"time"
 
-	tarrif_asn "github.com/free5gc/TarrifUtil/asn"
-	"github.com/free5gc/TarrifUtil/tarrifType"
+	"github.com/fiorix/go-diameter/diam/datatype"
+	rate_datatype "github.com/free5gc/RatingUtil/dataType"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRun(t *testing.T) {
 
-	normalRequest := tarrifType.ServiceUsageRequest{
-		SessionID: 1,
-		SubscriptionID: &tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_IMSI},
-			SubscriptionIDData: tarrif_asn.UTF8String("208930000000003"),
+	normalRequest := rate_datatype.ServiceUsageRequest{
+		SessionId: datatype.UTF8String("1"),
+		SubscriptionId: &rate_datatype.SubscriptionId{
+			SubscriptionIdType: rate_datatype.END_USER_IMSI,
+			SubscriptionIdData: datatype.UTF8String("208930000000003"),
 		},
-		ActualTime: time.Now(),
-		ServiceRating: &tarrifType.ServiceRating{
+		ActualTime: datatype.Time(time.Now()),
+		ServiceRating: &rate_datatype.ServiceRating{
 			RequestedUnits: 150,
 			ConsumedUnits:  100,
-			RequestSubType: &tarrifType.RequestSubType{
-				Value: tarrifType.REQ_SUBTYPE_RESERVE,
-			},
-			CurrentTariff: &tarrifType.CurrentTariff{
-				RateElement: &tarrifType.RateElement{
-					UnitCost: &tarrifType.UnitCost{
+			RequestSubType: rate_datatype.REQ_SUBTYPE_RESERVE,
+			MonetaryTariff: &rate_datatype.MonetaryTariff{
+				RateElement: &rate_datatype.RateElement{
+					UnitCost: &rate_datatype.UnitCost{
 						Exponent:    2,
 						ValueDigits: 2,
 					},
 				},
 			},
-			MonetaryQuota: uint32(100000),
+			MonetaryQuota: datatype.Unsigned32(100000),
 		},
 	}
 
-	expectResponse := tarrifType.ServiceUsageResponse{
-		SessionID: 1,
-		ServiceRating: &tarrifType.ServiceRating{
+	expectResponse := rate_datatype.ServiceUsageResponse{
+		SessionId: datatype.UTF8String("1"),
+		ServiceRating: &rate_datatype.ServiceRating{
 			Price:         20000,
 			MonetaryQuota: 100000,
 			AllowedUnits:  150,
@@ -52,37 +50,35 @@ func TestRun(t *testing.T) {
 	require.Equal(t, remainQuota, 80000)
 	require.Equal(t, lastgrantedquota, false)
 
-	lastGrantedQuotaRequest := tarrifType.ServiceUsageRequest{
-		SessionID: 1,
-		SubscriptionID: &tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_IMSI},
-			SubscriptionIDData: tarrif_asn.UTF8String("208930000000003"),
+	lastGrantedQuotaRequest := rate_datatype.ServiceUsageRequest{
+		SessionId: datatype.UTF8String("2"),
+		SubscriptionId: &rate_datatype.SubscriptionId{
+			SubscriptionIdType: rate_datatype.END_USER_IMSI,
+			SubscriptionIdData: datatype.UTF8String("208930000000003"),
 		},
-		ActualTime: time.Now(),
-		ServiceRating: &tarrifType.ServiceRating{
+		ActualTime: datatype.Time(time.Now()),
+		ServiceRating: &rate_datatype.ServiceRating{
 			RequestedUnits: 1000,
 			ConsumedUnits:  3500,
-			RequestSubType: &tarrifType.RequestSubType{
-				Value: tarrifType.REQ_SUBTYPE_RESERVE,
-			},
-			CurrentTariff: &tarrifType.CurrentTariff{
-				RateElement: &tarrifType.RateElement{
-					UnitCost: &tarrifType.UnitCost{
+			RequestSubType: rate_datatype.REQ_SUBTYPE_RESERVE,
+			MonetaryTariff: &rate_datatype.MonetaryTariff{
+				RateElement: &rate_datatype.RateElement{
+					UnitCost: &rate_datatype.UnitCost{
 						Exponent:    1,
 						ValueDigits: 2,
 					},
 				},
 			},
-			MonetaryQuota: uint32(remainQuota),
+			MonetaryQuota: datatype.Unsigned32(remainQuota),
 		},
 	}
 
-	expectResponse = tarrifType.ServiceUsageResponse{
-		SessionID: 1,
-		ServiceRating: &tarrifType.ServiceRating{
-			Price:         uint32(70000),
-			MonetaryQuota: uint32(80000),
-			AllowedUnits:  uint32(500),
+	expectResponse = rate_datatype.ServiceUsageResponse{
+		SessionId: datatype.UTF8String("2"),
+		ServiceRating: &rate_datatype.ServiceRating{
+			Price:         datatype.Unsigned32(70000),
+			MonetaryQuota: datatype.Unsigned32(80000),
+			AllowedUnits:  datatype.Unsigned32(500),
 		},
 	}
 	rsp, _, lastgrantedquota = rating.ServiceUsageRetrieval(lastGrantedQuotaRequest)
@@ -92,36 +88,34 @@ func TestRun(t *testing.T) {
 	require.Equal(t, remainQuota, 10000)
 	require.Equal(t, lastgrantedquota, true)
 
-	outOfQuota := tarrifType.ServiceUsageRequest{
-		SessionID: 1,
-		SubscriptionID: &tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_IMSI},
-			SubscriptionIDData: tarrif_asn.UTF8String("208930000000003"),
+	outOfQuota := rate_datatype.ServiceUsageRequest{
+		SessionId: datatype.UTF8String("3"),
+		SubscriptionId: &rate_datatype.SubscriptionId{
+			SubscriptionIdType: rate_datatype.END_USER_IMSI,
+			SubscriptionIdData: datatype.UTF8String("208930000000003"),
 		},
-		ActualTime: time.Now(),
-		ServiceRating: &tarrifType.ServiceRating{
+		ActualTime: datatype.Time(time.Now()),
+		ServiceRating: &rate_datatype.ServiceRating{
 			RequestedUnits: 1000,
 			ConsumedUnits:  600,
-			RequestSubType: &tarrifType.RequestSubType{
-				Value: tarrifType.REQ_SUBTYPE_RESERVE,
-			},
-			CurrentTariff: &tarrifType.CurrentTariff{
-				RateElement: &tarrifType.RateElement{
-					UnitCost: &tarrifType.UnitCost{
+			RequestSubType: rate_datatype.REQ_SUBTYPE_RESERVE,
+			MonetaryTariff: &rate_datatype.MonetaryTariff{
+				RateElement: &rate_datatype.RateElement{
+					UnitCost: &rate_datatype.UnitCost{
 						Exponent:    1,
 						ValueDigits: 2,
 					},
 				},
 			},
-			MonetaryQuota: uint32(remainQuota),
+			MonetaryQuota: datatype.Unsigned32(remainQuota),
 		},
 	}
-	expectResponse = tarrifType.ServiceUsageResponse{
-		SessionID: 1,
-		ServiceRating: &tarrifType.ServiceRating{
-			Price:         uint32(12000),
-			MonetaryQuota: uint32(10000),
-			AllowedUnits:  uint32(0),
+	expectResponse = rate_datatype.ServiceUsageResponse{
+		SessionId: datatype.UTF8String("3"),
+		ServiceRating: &rate_datatype.ServiceRating{
+			Price:         datatype.Unsigned32(12000),
+			MonetaryQuota: datatype.Unsigned32(10000),
+			AllowedUnits:  datatype.Unsigned32(0),
 		},
 	}
 	rsp, _, lastgrantedquota = rating.ServiceUsageRetrieval(outOfQuota)

@@ -2,11 +2,13 @@ package rating
 
 import (
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/free5gc/TarrifUtil/asn"
-	"github.com/free5gc/TarrifUtil/tarrifType"
+	"github.com/fiorix/go-diameter/diam/datatype"
+	"github.com/free5gc/RatingUtil/dataType"
+	rate_datatype "github.com/free5gc/RatingUtil/dataType"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
@@ -16,33 +18,33 @@ import (
 
 const chargingDataColl = "chargingData"
 
-func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifType.ServiceUsageResponse, *models.ProblemDetails, bool) {
+func ServiceUsageRetrieval(serviceUsage rate_datatype.ServiceUsageRequest) (rate_datatype.ServiceUsageResponse, *models.ProblemDetails, bool) {
 	lastgrantedquota := false
 
-	unitCost := (serviceUsage.ServiceRating.CurrentTariff.RateElement.UnitCost.ValueDigits) * int64(math.Pow10(int(serviceUsage.ServiceRating.CurrentTariff.RateElement.UnitCost.Exponent)))
-	monetaryCost := int64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
-	monetaryRequest := int64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
+	unitCost := (serviceUsage.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) * datatype.Integer64(math.Pow10(int(serviceUsage.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+	monetaryCost := datatype.Integer64(serviceUsage.ServiceRating.ConsumedUnits) * unitCost
+	monetaryRequest := datatype.Integer64(serviceUsage.ServiceRating.RequestedUnits) * unitCost
 
 	logger.ChargingdataPostLog.Tracef("Cost per Byte[%d]", unitCost)
-	rsp := tarrifType.ServiceUsageResponse{
-		SessionID: serviceUsage.SessionID,
-		ServiceRating: &tarrifType.ServiceRating{
-			Price:         uint32(monetaryCost),
+	rsp := dataType.ServiceUsageResponse{
+		SessionId: serviceUsage.SessionId,
+		ServiceRating: &dataType.ServiceRating{
+			Price:         datatype.Unsigned32(monetaryCost),
 			MonetaryQuota: serviceUsage.ServiceRating.MonetaryQuota,
 		},
 	}
 
-	if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_DEBIT {
+	if serviceUsage.ServiceRating.RequestSubType == dataType.REQ_SUBTYPE_DEBIT {
 		logger.ChargingdataPostLog.Warnf("Out of Monetary Quota, Debit mode")
 		rsp.ServiceRating.AllowedUnits = 0
 		return rsp, nil, lastgrantedquota
-	} else if serviceUsage.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE {
-		if monetaryCost < int64(serviceUsage.ServiceRating.MonetaryQuota) {
-			monetaryRemain := int64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost
+	} else if serviceUsage.ServiceRating.RequestSubType == dataType.REQ_SUBTYPE_RESERVE {
+		if monetaryCost < datatype.Integer64(serviceUsage.ServiceRating.MonetaryQuota) {
+			monetaryRemain := datatype.Integer64(serviceUsage.ServiceRating.MonetaryQuota) - monetaryCost
 			if (monetaryRemain - monetaryRequest) > 0 {
 				rsp.ServiceRating.AllowedUnits = serviceUsage.ServiceRating.RequestedUnits
 			} else {
-				rsp.ServiceRating.AllowedUnits = uint32(monetaryRemain / unitCost)
+				rsp.ServiceRating.AllowedUnits = datatype.Unsigned32(monetaryRemain / unitCost)
 				logger.ChargingdataPostLog.Warn("Last granted Quota")
 				lastgrantedquota = true
 			}
@@ -58,8 +60,8 @@ func ServiceUsageRetrieval(serviceUsage tarrifType.ServiceUsageRequest) (tarrifT
 	return rsp, nil, lastgrantedquota
 }
 
-func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage) tarrifType.ServiceUsageRequest {
-	var subscriberIdentifier tarrifType.SubscriptionID
+func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage) dataType.ServiceUsageRequest {
+	var subscriberIdentifier dataType.SubscriptionId
 
 	self := chf_context.CHF_Self()
 	sessionid, err := self.RatingSessionGenerator.Allocate()
@@ -72,24 +74,24 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 
 	switch supiType {
 	case "imsi":
-		subscriberIdentifier = tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_IMSI},
-			SubscriptionIDData: asn.UTF8String(supi[5:]),
+		subscriberIdentifier = dataType.SubscriptionId{
+			SubscriptionIdType: rate_datatype.END_USER_IMSI,
+			SubscriptionIdData: datatype.UTF8String(supi[5:]),
 		}
 	case "nai":
-		subscriberIdentifier = tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		subscriberIdentifier = dataType.SubscriptionId{
+			SubscriptionIdType: rate_datatype.END_USER_NAI,
+			SubscriptionIdData: datatype.UTF8String(supi[4:]),
 		}
 	case "gci":
-		subscriberIdentifier = tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		subscriberIdentifier = dataType.SubscriptionId{
+			SubscriptionIdType: rate_datatype.END_USER_NAI,
+			SubscriptionIdData: datatype.UTF8String(supi[4:]),
 		}
 	case "gli":
-		subscriberIdentifier = tarrifType.SubscriptionID{
-			SubscriptionIDType: &tarrifType.SubscriptionIDType{Value: tarrifType.END_USER_NAI},
-			SubscriptionIDData: asn.UTF8String(supi[4:]),
+		subscriberIdentifier = dataType.SubscriptionId{
+			SubscriptionIdType: dataType.END_USER_NAI,
+			SubscriptionIdData: datatype.UTF8String(supi[4:]),
 		}
 	}
 
@@ -188,36 +190,34 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	default:
 		logger.ChargingdataPostLog.Errorf("Get valueDigits error: do not belong to int or float, type:%T", unitCostInterface["valueDigits"])
 	}
-	tarrif := tarrifType.CurrentTariff{
-		RateElement: &tarrifType.RateElement{
-			UnitCost: &tarrifType.UnitCost{
-				Exponent:    int(exponent),
-				ValueDigits: valueDigits,
+	tarrif := dataType.MonetaryTariff{
+		RateElement: &dataType.RateElement{
+			UnitCost: &dataType.UnitCost{
+				Exponent:    datatype.Integer32(exponent),
+				ValueDigits: datatype.Integer64(valueDigits),
 			},
 		},
 	}
 
-	ServiceUsageRequest := tarrifType.ServiceUsageRequest{
-		SessionID:      int(sessionid),
-		SubscriptionID: &subscriberIdentifier,
-		ActualTime:     time.Now(),
-		ServiceRating: &tarrifType.ServiceRating{
-			RequestedUnits: uint32(unitUsage.RequestedUnit.TotalVolume),
-			ConsumedUnits:  totalUsaedUnit,
-			RequestSubType: &tarrifType.RequestSubType{
-				Value: tarrifType.REQ_SUBTYPE_RESERVE,
-			},
-			CurrentTariff: &tarrif,
-			MonetaryQuota: quota,
+	ServiceUsageRequest := dataType.ServiceUsageRequest{
+		SessionId:      datatype.UTF8String(strconv.Itoa(int(sessionid))),
+		SubscriptionId: &subscriberIdentifier,
+		ActualTime:     datatype.Time(time.Now()),
+		ServiceRating: &dataType.ServiceRating{
+			RequestedUnits: datatype.Unsigned32(unitUsage.RequestedUnit.TotalVolume),
+			ConsumedUnits:  datatype.Unsigned32(totalUsaedUnit),
+			RequestSubType: rate_datatype.REQ_SUBTYPE_RESERVE,
+			MonetaryTariff: &tarrif,
+			MonetaryQuota:  datatype.Unsigned32(quota),
 		},
 	}
 	if quota == 0 {
-		ServiceUsageRequest.ServiceRating.RequestSubType.Value = tarrifType.REQ_SUBTYPE_DEBIT
+		ServiceUsageRequest.ServiceRating.RequestSubType = dataType.REQ_SUBTYPE_DEBIT
 	}
 
 	for _, trigger := range chargingData.Triggers {
 		if trigger.TriggerType == models.TriggerType_FINAL {
-			ServiceUsageRequest.ServiceRating.RequestSubType.Value = tarrifType.REQ_SUBTYPE_DEBIT
+			ServiceUsageRequest.ServiceRating.RequestSubType = dataType.REQ_SUBTYPE_DEBIT
 		}
 	}
 	return ServiceUsageRequest

@@ -9,7 +9,6 @@ import (
 
 	"github.com/asaskevich/govalidator"
 
-	tarrif_asn "github.com/free5gc/TarrifUtil/asn"
 	logger_util "github.com/free5gc/util/logger"
 )
 
@@ -146,32 +145,6 @@ func (s *Sbi) validate() (bool, error) {
 	}
 
 	return true, nil
-}
-
-type Tarrif struct {
-	CCUnitType         CCUnitType       `yaml:"ccUnitType" valid:"required"`
-	ChargeReasonCode   ChargeReasonCode `yaml:"chargeReasonCode,omitempty" valid:"-"`
-	UnitValue          UnitValue        `yaml:"unitValue,omitempty" valid:"-"`
-	UnitCost           UnitCost         `yaml:"unitCost" valid:"required"`
-	UnitQuotaThreshold uint32           `yaml:"unitQuotaThreshold" valid:"-"`
-}
-
-type CCUnitType struct {
-	Value tarrif_asn.Enumerated `yaml:"value" valid:"required"`
-}
-
-type UnitCost struct {
-	ValueDigits int64 `yaml:"valueDigits" valid:"required"`
-	Exponent    int   `yaml:"exponent" valid:"required"`
-}
-
-type UnitValue struct {
-	ValueDigits int64 `yaml:"valueDigits" valid:"required"`
-	Exponent    int32 `yaml:"exponent" valid:"required"`
-}
-
-type ChargeReasonCode struct {
-	Value tarrif_asn.Enumerated `yaml:"value" valid:"required"`
 }
 
 type Tls struct {

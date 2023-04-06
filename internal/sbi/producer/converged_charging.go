@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/free5gc/CDRUtil/cdrType"
-	"github.com/free5gc/TarrifUtil/tarrifType"
+	"github.com/free5gc/RatingUtil/dataType"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
@@ -397,7 +397,7 @@ func allocateQuota(ue *chf_context.ChfUe, chargingData models.ChargingDataReques
 			)
 			addPDULimit = true
 		}
-		if ServiceUsageRequest.ServiceRating.RequestSubType.Value == tarrifType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
+		if ServiceUsageRequest.ServiceRating.RequestSubType == dataType.REQ_SUBTYPE_RESERVE && rsp.ServiceRating.AllowedUnits != 0 {
 			unitInformation.VolumeQuotaThreshold = int32(float32(rsp.ServiceRating.AllowedUnits) * ue.VolumeThresholdRate)
 			unitInformation.GrantedUnit = &models.GrantedUnit{
 				TotalVolume:    int32(rsp.ServiceRating.AllowedUnits),
