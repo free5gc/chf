@@ -60,6 +60,29 @@ func ServiceUsageRetrieval(serviceUsage rate_datatype.ServiceUsageRequest) (rate
 	return rsp, nil, lastgrantedquota
 }
 
+func buildTaffif(unitCostStr string) rate_datatype.MonetaryTariff {
+	// unitCost
+	unitCost := rate_datatype.UnitCost{}
+	dotPos := strings.Index(unitCostStr, ".")
+	if dotPos == -1 {
+		unitCost.Exponent = 0
+		if digit, err := strconv.Atoi(unitCostStr); err == nil {
+			unitCost.ValueDigits = datatype.Integer64(digit)
+		}
+	} else {
+		if digit, err := strconv.Atoi(strings.Replace(unitCostStr, ".", "", -1)); err == nil {
+			unitCost.ValueDigits = datatype.Integer64(digit)
+		}
+		unitCost.Exponent = datatype.Integer32(len(unitCostStr) - dotPos - 1)
+	}
+
+	return rate_datatype.MonetaryTariff{
+		RateElement: &dataType.RateElement{
+			UnitCost: &unitCost,
+		},
+	}
+}
+
 func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage) dataType.ServiceUsageRequest {
 	var subscriberIdentifier dataType.SubscriptionId
 
@@ -121,7 +144,6 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 	// type reading from mongoDB is not stabe
 	// i.g. chargingInterface["quota"] may be int, float...
 	// 		tarrifInterface["rateelement"] may be tarrifInterface["rateElement"]
-
 	quota := uint32(0)
 	switch value := chargingInterface["quota"].(type) {
 	case int:
@@ -136,68 +158,8 @@ func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage
 		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
 	}
 
-	tarrifInterface := chargingInterface["tarrif"].(map[string]interface{})
-
-	// logger.ChargingdataPostLog.Errorf("Please check if the tarrifInterface exactly contains rateelement/unitcost or rateElement/unitCost if error occurs")
-	// logger.ChargingdataPostLog.Warnf("tarrifInterface %+v", tarrifInterface)
-
-	var rateElementInterface map[string]interface{}
-	if tarrifInterface["rateElement"] == nil {
-		rateElementInterface = tarrifInterface["rateelement"].(map[string]interface{})
-	} else {
-		rateElementInterface = tarrifInterface["rateElement"].(map[string]interface{})
-	}
-
-	var unitCostInterface map[string]interface{}
-	if rateElementInterface["unitCost"] == nil {
-		unitCostInterface = rateElementInterface["unitcost"].(map[string]interface{})
-	} else {
-		unitCostInterface = rateElementInterface["unitCost"].(map[string]interface{})
-	}
-
-	// workaround
-	exponent := int32(0)
-	switch value := unitCostInterface["exponent"].(type) {
-	case int:
-		exponent = int32(value)
-	case int32:
-		exponent = int32(value)
-	case int64:
-		exponent = int32(value)
-	case float64:
-		exponent = int32(value)
-	default:
-		logger.ChargingdataPostLog.Errorf("Get exponent error: do not belong to int or float, type:%T", unitCostInterface["exponent"])
-	}
-
-	var valueDigitsString string
-	if unitCostInterface["valueDigits"] == nil {
-		valueDigitsString = "valuedigits"
-	} else {
-		valueDigitsString = "valueDigits"
-	}
-
-	valueDigits := int64(0)
-	switch value := unitCostInterface[valueDigitsString].(type) {
-	case int:
-		valueDigits = int64(value)
-	case int32:
-		valueDigits = int64(value)
-	case int64:
-		valueDigits = int64(value)
-	case float64:
-		valueDigits = int64(value)
-	default:
-		logger.ChargingdataPostLog.Errorf("Get valueDigits error: do not belong to int or float, type:%T", unitCostInterface["valueDigits"])
-	}
-	tarrif := dataType.MonetaryTariff{
-		RateElement: &dataType.RateElement{
-			UnitCost: &dataType.UnitCost{
-				Exponent:    datatype.Integer32(exponent),
-				ValueDigits: datatype.Integer64(valueDigits),
-			},
-		},
-	}
+	unitCost := chargingInterface["unitCost"].(string)
+	tarrif := buildTaffif(unitCost)
 
 	ServiceUsageRequest := dataType.ServiceUsageRequest{
 		SessionId:      datatype.UTF8String(strconv.Itoa(int(sessionid))),

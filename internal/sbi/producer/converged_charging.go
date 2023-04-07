@@ -357,7 +357,6 @@ func allocateQuota(ue *chf_context.ChfUe, chargingData models.ChargingDataReques
 		}
 
 		ServiceUsageRequest := rating.BuildServiceUsageRequest(chargingData, unitUsage)
-		logger.ChargingdataPostLog.Tracef("Rate for UE's[%s] rating group[%d]", supi, ratingGroup)
 		rsp, _, lastgrantedquota := rating.ServiceUsageRetrieval(ServiceUsageRequest)
 
 		unitInformation := models.MultipleUnitInformation{
@@ -415,7 +414,7 @@ func allocateQuota(ue *chf_context.ChfUe, chargingData models.ChargingDataReques
 
 		remainQuota := int32(rsp.ServiceRating.MonetaryQuota) - int32(rsp.ServiceRating.Price)
 
-		filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": 1}
+		filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": unitUsage.RatingGroup}
 		chargingBsonM, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
 		if err != nil {
 			logger.ChargingdataPostLog.Errorf("RestfulAPIGetOne err: %+v", err)
@@ -426,10 +425,6 @@ func allocateQuota(ue *chf_context.ChfUe, chargingData models.ChargingDataReques
 			// chargingBsonM["debit"] = remainQuota
 		} else {
 			chargingBsonM["quota"] = uint32(remainQuota)
-		}
-
-		if err := mongoapi.RestfulAPIDeleteMany(chargingDataColl, filter); err != nil {
-			logger.ChargingdataPostLog.Errorf("RestfulAPIDeleteMany err: %+v", err)
 		}
 
 		if _, err := mongoapi.RestfulAPIPutOne(chargingDataColl, filter, chargingBsonM); err != nil {
