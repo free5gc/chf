@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
@@ -36,6 +37,8 @@ type CHFContext struct {
 	NrfUri                    string
 	UePool                    sync.Map
 
+	RatingAddr             string
+	RatingCfg              *sm.Settings
 	RatingSessionGenerator *idgenerator.IDGenerator
 }
 

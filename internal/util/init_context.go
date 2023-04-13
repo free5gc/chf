@@ -2,7 +2,10 @@ package util
 
 import (
 	"os"
+	"time"
 
+	"github.com/fiorix/go-diameter/diam/datatype"
+	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/google/uuid"
 
 	"github.com/free5gc/chf/internal/context"
@@ -63,5 +66,15 @@ func InitchfContext(context *context.CHFContext) {
 		}
 	}
 	serviceList := configuration.ServiceList
+
+	context.RatingCfg = &sm.Settings{
+		OriginHost:       datatype.DiameterIdentity("client"),
+		OriginRealm:      datatype.DiameterIdentity("go-diameter"),
+		VendorID:         13,
+		ProductName:      "go-diameter",
+		OriginStateID:    datatype.Unsigned32(time.Now().Unix()),
+		FirmwareRevision: 1,
+	}
+
 	context.InitNFService(serviceList, config.Info.Version)
 }

@@ -2,7 +2,13 @@ package context
 
 import (
 	"sync"
+	"time"
 
+	"github.com/fiorix/go-diameter/diam"
+	"github.com/fiorix/go-diameter/diam/avp"
+	"github.com/fiorix/go-diameter/diam/datatype"
+	"github.com/fiorix/go-diameter/diam/dict"
+	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/free5gc/CDRUtil/cdrType"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
@@ -28,6 +34,15 @@ type ChfUe struct {
 	RecordSequenceNumber int64
 	Cdr                  map[string]*cdrType.CHFRecord
 
+	// ABMF
+	ReservedQuota map[int32]int64
+	UnitCost      map[int32]uint32
+
+	// Rating
+	RatingClient *sm.Client
+	RatingMux    *sm.StateMachine
+	RatingChan   chan *diam.Message
+
 	// lock
 	CdrFileLock fslock.Lock
 	CULock      sync.Mutex
@@ -49,4 +64,29 @@ func (ue *ChfUe) init() {
 	ue.VolumeLimitPDU = config.Configuration.VolumeLimitPDU
 	ue.QuotaValidityTime = config.Configuration.QuotaValidityTime
 	ue.VolumeThresholdRate = config.Configuration.VolumeThresholdRate
+
+	// This needed to be added if rating server do not locat in the same machine
+	// err := dict.Default.Load(bytes.NewReader([]byte(rate_dict.RateDictionary)))
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	ue.ReservedQuota = make(map[int32]int64)
+	ue.UnitCost = make(map[int32]uint32)
+
+	ue.RatingChan = make(chan *diam.Message)
+	// Create the state machine (it's a diam.ServeMux) and client.
+	ue.RatingMux = sm.New(chfCtx.RatingCfg)
+	ue.RatingClient = &sm.Client{
+		Dict:               dict.Default,
+		Handler:            ue.RatingMux,
+		MaxRetransmits:     3,
+		RetransmitInterval: time.Second,
+		EnableWatchdog:     true,
+		WatchdogInterval:   5 * time.Second,
+		AuthApplicationID: []*diam.AVP{
+			// Advertise support for credit control application
+			diam.NewAVP(avp.AuthApplicationID, avp.Mbit, 0, datatype.Unsigned32(4)), // RFC 4006
+		},
+	}
+
 }

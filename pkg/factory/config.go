@@ -70,6 +70,7 @@ type Configuration struct {
 	VolumeLimitPDU      int32     `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
 	VolumeThresholdRate float32   `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
 	QuotaValidityTime   int32     `yaml:"quotaValidityTime,omitempty" valid:"optional"`
+	RateFuncAddress     string    `yaml:"rateFuncAddress,omitempty" valid:"required"`
 }
 
 func (c *Configuration) validate() (bool, error) {

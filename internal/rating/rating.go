@@ -1,19 +1,21 @@
 package rating
 
 import (
+	"fmt"
 	"math"
-	"strconv"
-	"strings"
 	"time"
 
+	chf_context "github.com/free5gc/chf/internal/context"
+
+	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
+	"github.com/fiorix/go-diameter/diam/dict"
+	"github.com/fiorix/go-diameter/diam/sm/smpeer"
+	rate_code "github.com/free5gc/RatingUtil/code"
 	"github.com/free5gc/RatingUtil/dataType"
 	rate_datatype "github.com/free5gc/RatingUtil/dataType"
-	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
-	"github.com/free5gc/util/mongoapi"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 const chargingDataColl = "chargingData"
@@ -60,127 +62,47 @@ func ServiceUsageRetrieval(serviceUsage rate_datatype.ServiceUsageRequest) (rate
 	return rsp, nil, lastgrantedquota
 }
 
-func buildTaffif(unitCostStr string) rate_datatype.MonetaryTariff {
-	// unitCost
-	unitCost := rate_datatype.UnitCost{}
-	dotPos := strings.Index(unitCostStr, ".")
-	if dotPos == -1 {
-		unitCost.Exponent = 0
-		if digit, err := strconv.Atoi(unitCostStr); err == nil {
-			unitCost.ValueDigits = datatype.Integer64(digit)
-		}
-	} else {
-		if digit, err := strconv.Atoi(strings.Replace(unitCostStr, ".", "", -1)); err == nil {
-			unitCost.ValueDigits = datatype.Integer64(digit)
-		}
-		unitCost.Exponent = datatype.Integer32(len(unitCostStr) - dotPos - 1)
+func SendServiceUsageRequest(ue *chf_context.ChfUe, sur *dataType.ServiceUsageRequest) (*dataType.ServiceUsageResponse, error) {
+	self := chf_context.CHF_Self()
+	ue.RatingMux.Handle("SUA", HandleSUA(ue.RatingChan))
+
+	conn, err := ue.RatingClient.DialNetwork("tcp", self.RatingAddr)
+	if err != nil {
+		return nil, err
 	}
 
-	return rate_datatype.MonetaryTariff{
-		RateElement: &dataType.RateElement{
-			UnitCost: &unitCost,
-		},
+	meta, ok := smpeer.FromContext(conn.Context())
+	if !ok {
+		return nil, fmt.Errorf("peer metadata unavailable")
+	}
+
+	sur.DestinationRealm = datatype.DiameterIdentity(meta.OriginRealm)
+	sur.DestinationHost = datatype.DiameterIdentity(meta.OriginHost)
+
+	msg := diam.NewRequest(rate_code.ServiceUsageMessage, rate_code.Re_interface, dict.Default)
+	msg.Marshal(sur)
+	_, err = msg.WriteTo(conn)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to send message from %s: %s\n",
+			conn.RemoteAddr(), err)
+	}
+
+	select {
+	case m := <-ue.RatingChan:
+		var sua rate_datatype.ServiceUsageResponse
+		if err := m.Unmarshal(&sua); err != nil {
+			return nil, fmt.Errorf("Failed to parse message from %v", err)
+		}
+		return &sua, nil
+	case <-time.After(5 * time.Second):
+		return nil, fmt.Errorf("timeout: no rate answer received")
 	}
 }
 
-func BuildServiceUsageRequest(chargingData models.ChargingDataRequest, unitUsage models.MultipleUnitUsage) dataType.ServiceUsageRequest {
-	var subscriberIdentifier dataType.SubscriptionId
+func HandleSUA(rgChan chan *diam.Message) diam.HandlerFunc {
+	return func(c diam.Conn, m *diam.Message) {
+		logger.RatingLog.Tracef("Received SUA from %s", c.RemoteAddr())
 
-	self := chf_context.CHF_Self()
-	sessionid, err := self.RatingSessionGenerator.Allocate()
-	if err != nil {
-		logger.ChargingdataPostLog.Errorf("Rating Session Allocate err: %+v", err)
+		rgChan <- m
 	}
-
-	supi := chargingData.SubscriberIdentifier
-	supiType := strings.Split(supi, "-")[0]
-
-	switch supiType {
-	case "imsi":
-		subscriberIdentifier = dataType.SubscriptionId{
-			SubscriptionIdType: rate_datatype.END_USER_IMSI,
-			SubscriptionIdData: datatype.UTF8String(supi[5:]),
-		}
-	case "nai":
-		subscriberIdentifier = dataType.SubscriptionId{
-			SubscriptionIdType: rate_datatype.END_USER_NAI,
-			SubscriptionIdData: datatype.UTF8String(supi[4:]),
-		}
-	case "gci":
-		subscriberIdentifier = dataType.SubscriptionId{
-			SubscriptionIdType: rate_datatype.END_USER_NAI,
-			SubscriptionIdData: datatype.UTF8String(supi[4:]),
-		}
-	case "gli":
-		subscriberIdentifier = dataType.SubscriptionId{
-			SubscriptionIdType: dataType.END_USER_NAI,
-			SubscriptionIdData: datatype.UTF8String(supi[4:]),
-		}
-	}
-
-	// Rating for each rating group
-	var totalUsaedUnit uint32
-	for _, useduint := range unitUsage.UsedUnitContainer {
-		if useduint.QuotaManagementIndicator == models.QuotaManagementIndicator_OFFLINE_CHARGING {
-			continue
-		}
-
-		totalUsaedUnit += uint32(useduint.TotalVolume)
-	}
-
-	ue, ok := self.ChfUeFindBySupi(supi)
-	if ok {
-		ue.AccumulateUsage.TotalVolume += int32(totalUsaedUnit)
-		logger.ChargingdataPostLog.Warnf("UE's[%s] accumulate data usage %d", supi, ue.AccumulateUsage.TotalVolume)
-	}
-
-	filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": unitUsage.RatingGroup}
-	chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
-	if err != nil {
-		logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
-	}
-
-	// workaround
-	// type reading from mongoDB is not stabe
-	// i.g. chargingInterface["quota"] may be int, float...
-	// 		tarrifInterface["rateelement"] may be tarrifInterface["rateElement"]
-	quota := uint32(0)
-	switch value := chargingInterface["quota"].(type) {
-	case int:
-		quota = uint32(value)
-	case int32:
-		quota = uint32(value)
-	case int64:
-		quota = uint32(value)
-	case float64:
-		quota = uint32(value)
-	default:
-		logger.ChargingdataPostLog.Errorf("Get quota error: do not belong to int or float, type:%T", chargingInterface["quota"])
-	}
-
-	unitCost := chargingInterface["unitCost"].(string)
-	tarrif := buildTaffif(unitCost)
-
-	ServiceUsageRequest := dataType.ServiceUsageRequest{
-		SessionId:      datatype.UTF8String(strconv.Itoa(int(sessionid))),
-		SubscriptionId: &subscriberIdentifier,
-		ActualTime:     datatype.Time(time.Now()),
-		ServiceRating: &dataType.ServiceRating{
-			RequestedUnits: datatype.Unsigned32(unitUsage.RequestedUnit.TotalVolume),
-			ConsumedUnits:  datatype.Unsigned32(totalUsaedUnit),
-			RequestSubType: rate_datatype.REQ_SUBTYPE_RESERVE,
-			MonetaryTariff: &tarrif,
-			MonetaryQuota:  datatype.Unsigned32(quota),
-		},
-	}
-	if quota == 0 {
-		ServiceUsageRequest.ServiceRating.RequestSubType = dataType.REQ_SUBTYPE_DEBIT
-	}
-
-	for _, trigger := range chargingData.Triggers {
-		if trigger.TriggerType == models.TriggerType_FINAL {
-			ServiceUsageRequest.ServiceRating.RequestSubType = dataType.REQ_SUBTYPE_DEBIT
-		}
-	}
-	return ServiceUsageRequest
 }

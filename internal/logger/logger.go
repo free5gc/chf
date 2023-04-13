@@ -23,6 +23,7 @@ var (
 	ChargingdataPostLog *logrus.Entry
 	NotifyEventLog      *logrus.Entry
 	RechargingLog       *logrus.Entry
+	RatingLog           *logrus.Entry
 	FtpLog              *logrus.Entry
 	FtpServerLog        golog.Logger
 )
@@ -48,9 +49,10 @@ func init() {
 	ConsumerLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Consumer"})
 	GinLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "GIN"})
 	ChargingdataPostLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "ChargingdataPost"})
-	NotifyEventLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "NotifyEventLog"})
-	RechargingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "RechargingLog"})
+	NotifyEventLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "NotifyEvent"})
+	RechargingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Recharging"})
 	FtpLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "FTP"})
+	RatingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Rating"})
 	FtpServerLog = adapter.NewWrap(FtpLog.Logger).With("component", "CHF", "category", "FTP")
 }
 

@@ -17,10 +17,11 @@ require (
 	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-gonic/gin v1.9.0
 	github.com/google/uuid v1.3.0
+	github.com/ishidawataru/sctp v0.0.0-20230406120618-7ff4192f6ff2 // indirect
 	github.com/jlaffaye/ftp v0.1.0
 	github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b
 	github.com/sirupsen/logrus v1.9.0
-	github.com/stretchr/testify v1.8.2 // indirect
+	github.com/stretchr/testify v1.8.2
 	github.com/urfave/cli v1.22.12
 	go.mongodb.org/mongo-driver v1.11.3
 	gopkg.in/yaml.v2 v2.4.0
