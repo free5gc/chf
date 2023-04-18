@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	rate_datatype "github.com/free5gc/RatingUtil/dataType"
+	charging_datatype "github.com/free5gc/ChargingUtil/datatype"
 
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/free5gc/CDRUtil/cdrType"
-	"github.com/free5gc/RatingUtil/dataType"
+	"github.com/free5gc/chf/internal/abmf"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
@@ -20,13 +20,9 @@ import (
 	"github.com/free5gc/chf/internal/util"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
-	"github.com/free5gc/util/mongoapi"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
-const chargingDataColl = "chargingData"
-
-func NotifyRecharge(ueId string, rg int) {
+func NotifyRecharge(ueId string, rg int32) {
 	var reauthorizationDetails []models.ReauthorizationDetails
 
 	self := chf_context.CHF_Self()
@@ -35,8 +31,11 @@ func NotifyRecharge(ueId string, rg int) {
 		logger.NotifyEventLog.Errorf("Do not find charging data for UE: %s", ueId)
 		return
 	}
+
+	// If it is previosly set to debit mode due to quota exhausted, need to reverse to the reserve mode
+	ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
 	reauthorizationDetails = append(reauthorizationDetails, models.ReauthorizationDetails{
-		RatingGroup: int32(rg),
+		RatingGroup: rg,
 	})
 
 	notifyRequest := models.ChargingNotifyRequest{
@@ -351,9 +350,8 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 // 32.296 6.2.2.3.1: Service usage request method with reservation
 func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]models.MultipleUnitInformation, bool) {
 	var multipleUnitInformation []models.MultipleUnitInformation
-	var addPDULimit bool
 	var partialRecord bool
-	var subscriberIdentifier *dataType.SubscriptionId
+	var subscriberIdentifier *charging_datatype.SubscriptionId
 
 	self := chf_context.CHF_Self()
 	supi := chargingData.SubscriberIdentifier
@@ -367,34 +365,37 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 	supiType := strings.Split(supi, "-")[0]
 	switch supiType {
 	case "imsi":
-		subscriberIdentifier = &dataType.SubscriptionId{
-			SubscriptionIdType: rate_datatype.END_USER_IMSI,
+		subscriberIdentifier = &charging_datatype.SubscriptionId{
+			SubscriptionIdType: charging_datatype.END_USER_IMSI,
 			SubscriptionIdData: datatype.UTF8String(supi[5:]),
 		}
 	case "nai":
-		subscriberIdentifier = &dataType.SubscriptionId{
-			SubscriptionIdType: rate_datatype.END_USER_NAI,
+		subscriberIdentifier = &charging_datatype.SubscriptionId{
+			SubscriptionIdType: charging_datatype.END_USER_NAI,
 			SubscriptionIdData: datatype.UTF8String(supi[4:]),
 		}
 	case "gci":
-		subscriberIdentifier = &dataType.SubscriptionId{
-			SubscriptionIdType: rate_datatype.END_USER_NAI,
+		subscriberIdentifier = &charging_datatype.SubscriptionId{
+			SubscriptionIdType: charging_datatype.END_USER_NAI,
 			SubscriptionIdData: datatype.UTF8String(supi[4:]),
 		}
 	case "gli":
-		subscriberIdentifier = &dataType.SubscriptionId{
-			SubscriptionIdType: dataType.END_USER_NAI,
+		subscriberIdentifier = &charging_datatype.SubscriptionId{
+			SubscriptionIdType: charging_datatype.END_USER_NAI,
 			SubscriptionIdData: datatype.UTF8String(supi[4:]),
 		}
 	}
 
-	for _, unitUsage := range chargingData.MultipleUnitUsage {
+	for unitUsageNum, unitUsage := range chargingData.MultipleUnitUsage {
 		var totalUsaedUnit uint32
-		var requestSubType rate_datatype.RequestSubType
-		var sur *rate_datatype.ServiceUsageRequest
 		var finalUnitIndication models.FinalUnitIndication
-
 		offline := true
+
+		rg := unitUsage.RatingGroup
+		if !ue.FindRatingGroup(rg) {
+			ue.RatingGroups = append(ue.RatingGroups, rg)
+			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
+		}
 
 		for _, useduint := range unitUsage.UsedUnitContainer {
 			switch useduint.QuotaManagementIndicator {
@@ -409,134 +410,37 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 						partialRecord = true
 					}
 					if trigger.TriggerType == models.TriggerType_FINAL {
-						requestSubType = dataType.REQ_SUBTYPE_DEBIT
+						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
 					}
 				}
 				// calculate total used unit
 				totalUsaedUnit += uint32(useduint.TotalVolume)
-				// For debug
-				ue.AccumulateUsage.TotalVolume += int32(totalUsaedUnit)
+			case models.QuotaManagementIndicator_QUOTA_MANAGEMENT_SUSPENDED:
+				logger.ChargingdataPostLog.Errorf("Current do not support QUOTA MANAGEMENT SUSPENDED")
 			}
 		}
 		if offline {
 			continue
 		}
 
-		sessionid, err := self.RatingSessionGenerator.Allocate()
-		if err != nil {
-			logger.ChargingdataPostLog.Errorf("Rating Session Allocate err: %+v", err)
+		ccr := &charging_datatype.AccountDebitRequest{
+			SessionId:       datatype.UTF8String(strconv.Itoa(int(ue.AcctSessionId))),
+			OriginHost:      datatype.DiameterIdentity(self.AbmfCfg.OriginHost),
+			OriginRealm:     datatype.DiameterIdentity(self.AbmfCfg.OriginRealm),
+			EventTimestamp:  datatype.Time(time.Now()),
+			SubscriptionId:  subscriberIdentifier,
+			UserName:        datatype.OctetString(self.Name),
+			CcRequestNumber: datatype.Unsigned32(ue.AcctRequestNum[rg]),
 		}
 
-		rg := unitUsage.RatingGroup
-		if !ue.FindRatingGroup(rg) {
-			ue.RatingGroups = append(ue.RatingGroups, rg)
+		sur := &charging_datatype.ServiceUsageRequest{
+			SessionId:      datatype.UTF8String(strconv.Itoa(int(ue.RateSessionId))),
+			OriginHost:     datatype.DiameterIdentity(self.RatingCfg.OriginHost),
+			OriginRealm:    datatype.DiameterIdentity(self.RatingCfg.OriginRealm),
+			ActualTime:     datatype.Time(time.Now()),
+			SubscriptionId: subscriberIdentifier,
+			UserName:       datatype.OctetString(self.Name),
 		}
-
-		// Retrieve quota into ABMF
-		filter := bson.M{"ueId": chargingData.SubscriberIdentifier, "ratingGroup": rg}
-		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
-		if err != nil {
-			logger.ChargingdataPostLog.Errorf("Get quota error: %+v", err)
-		}
-
-		quotaStr := chargingInterface["quota"].(string)
-		quota, _ := strconv.ParseInt(quotaStr, 10, 64)
-
-		// No quota left, perform final price calculation
-		if quota <= 0 {
-			requestSubType = dataType.REQ_SUBTYPE_DEBIT
-			sur = &rate_datatype.ServiceUsageRequest{
-				SessionId:      datatype.UTF8String(strconv.Itoa(int(sessionid))),
-				OriginHost:     datatype.DiameterIdentity(self.RatingCfg.OriginHost),
-				OriginRealm:    datatype.DiameterIdentity(self.RatingCfg.OriginRealm),
-				ActualTime:     datatype.Time(time.Now()),
-				SubscriptionId: subscriberIdentifier,
-				UserName:       datatype.OctetString(self.Name),
-				ServiceRating: &rate_datatype.ServiceRating{
-					ServiceIdentifier: datatype.Unsigned32(rg),
-					ConsumedUnits:     datatype.Unsigned32(totalUsaedUnit),
-					RequestSubType:    requestSubType,
-				},
-			}
-		} else {
-			// reserve account balance
-			requestSubType = rate_datatype.REQ_SUBTYPE_RESERVE
-			logger.ChargingdataPostLog.Tracef("MonetaryQuota Quota before reserved: %d", quota)
-
-			if ue.ReservedQuota[rg] == 0 {
-				ue.ReservedQuota[rg] = int64(unitUsage.RequestedUnit.TotalVolume * 10)
-				if ue.ReservedQuota[rg] > quota {
-					logger.ChargingdataPostLog.Tracef("Last granted quota")
-					finalUnitIndication = models.FinalUnitIndication{
-						FinalUnitAction: models.FinalUnitAction_TERMINATE,
-					}
-					ue.ReservedQuota[rg] = quota
-				}
-				quota -= ue.ReservedQuota[rg]
-				logger.ChargingdataPostLog.Tracef("First quota reserved: %d", ue.ReservedQuota[rg])
-			} else {
-				usedQuota := totalUsaedUnit * ue.UnitCost[rg]
-				insufficient := int64(usedQuota) - ue.ReservedQuota[rg]
-				logger.ChargingdataPostLog.Tracef("insufficient: %v, used quota: %v", insufficient, usedQuota)
-
-				if insufficient > 0 {
-					// Before reserve, first deduct the insufficient from the quota
-					quota -= insufficient
-					// make sure that the next reserved quota is bigger then the next used quota
-					ue.ReservedQuota[rg] += insufficient * 3
-					if ue.ReservedQuota[rg] > quota {
-						logger.ChargingdataPostLog.Errorf("Last granted quota")
-						finalUnitIndication = models.FinalUnitIndication{
-							FinalUnitAction: models.FinalUnitAction_TERMINATE,
-						}
-						ue.ReservedQuota[rg] = quota
-					}
-					logger.ChargingdataPostLog.Tracef("Reserved: %v", ue.ReservedQuota[rg])
-					quota -= ue.ReservedQuota[rg]
-				} else {
-					// If the reserved quota is bigger then the used quota,
-					// replenish the used quota to the ReservedQuota
-					// so that ReservedQuota remains the same
-					logger.ChargingdataPostLog.Tracef("still remain reserved quota , replenish: %v", usedQuota)
-					quota -= int64(usedQuota)
-
-				}
-			}
-
-			// Update quota into ABMF after reserved
-			chargingBsonM := make(bson.M)
-			chargingBsonM["quota"] = strconv.FormatInt(quota, 10)
-			if _, err := mongoapi.RestfulAPIPutOne(chargingDataColl, filter, chargingBsonM); err != nil {
-				logger.ChargingdataPostLog.Errorf("RestfulAPIPutOne err: %+v", err)
-			}
-			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota After reserved: [%v]", supi, quota)
-
-			// retrived tarrif
-			sur = &rate_datatype.ServiceUsageRequest{
-				SessionId:      datatype.UTF8String(strconv.Itoa(int(sessionid))),
-				OriginHost:     datatype.DiameterIdentity(self.RatingCfg.OriginHost),
-				OriginRealm:    datatype.DiameterIdentity(self.RatingCfg.OriginRealm),
-				ActualTime:     datatype.Time(time.Now()),
-				SubscriptionId: subscriberIdentifier,
-				UserName:       datatype.OctetString(self.Name),
-				ServiceRating: &rate_datatype.ServiceRating{
-					ServiceIdentifier: datatype.Unsigned32(rg),
-					MonetaryQuota:     datatype.Unsigned32(ue.ReservedQuota[rg]),
-					RequestSubType:    requestSubType,
-				},
-			}
-		}
-
-		serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
-		if err != nil {
-			logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
-			continue
-		}
-
-		// Save the tariff for pricing the next usage
-		ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
-			uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
-		logger.ChargingdataPostLog.Tracef("unitcost for the next usage: %d", ue.UnitCost[rg])
 
 		unitInformation := models.MultipleUnitInformation{
 			UPFID:               unitUsage.UPFID,
@@ -544,10 +448,95 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			RatingGroup:         rg,
 		}
 
-		switch requestSubType {
-		case dataType.REQ_SUBTYPE_RESERVE:
+		switch ue.RatingType[rg] {
+		case charging_datatype.REQ_SUBTYPE_RESERVE:
+			if ue.ReservedQuota[rg] == 0 {
+				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
+				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
+				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+					RatingGroup: datatype.Unsigned32(rg),
+					RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
+						CCTotalOctets: datatype.Unsigned64(unitUsage.RequestedUnit.TotalVolume * 10),
+					},
+				}
+			} else {
+				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
+				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
+				logger.ChargingdataPostLog.Tracef("UsedUnit %v UnitCost: %v", totalUsaedUnit, ue.UnitCost[rg])
+
+				prevReserved := ue.ReservedQuota[rg]
+				usedQuota := int64(totalUsaedUnit * ue.UnitCost[rg])
+				ue.ReservedQuota[rg] -= usedQuota
+
+				insufficient := usedQuota - prevReserved
+				if insufficient > 0 {
+					// make sure that the next reserved quota is bigger then the next used quota
+					reserveQuota := prevReserved + insufficient*3
+					ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+						RatingGroup: datatype.Unsigned32(rg),
+						// Before reserve, first deduct the insufficient from the quota
+						RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
+							CCTotalOctets: datatype.Unsigned64(reserveQuota),
+						},
+					}
+				} else {
+					// If the reserved quota is bigger then the used quota,
+					// replenish the used quota to the ReservedQuota
+					// so that ReservedQuota remains the same
+					ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+						RatingGroup: datatype.Unsigned32(rg),
+						RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
+							CCTotalOctets: datatype.Unsigned64(usedQuota),
+						},
+					}
+
+					logger.ChargingdataPostLog.Tracef("still remain reserved quota, replenish used quota: %v", usedQuota)
+				}
+			}
+
+			acctDebitRsp, err := abmf.SendAccountDebitRequest(ue, ccr)
+			if err != nil {
+				logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
+				continue
+			}
+
+			ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
+
+			if acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication != nil {
+				switch acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication.FinalUnitAction {
+				case charging_datatype.TERMINATE:
+					logger.ChargingdataPostLog.Warnf("Last granted quota")
+					finalUnitIndication = models.FinalUnitIndication{
+						FinalUnitAction: models.FinalUnitAction_TERMINATE,
+					}
+					ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
+				}
+			}
+
+			// retrived tarrif
+			sur.ServiceRating = &charging_datatype.ServiceRating{
+				ServiceIdentifier: datatype.Unsigned32(rg),
+				MonetaryQuota:     datatype.Unsigned32(ue.ReservedQuota[rg]),
+				RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
+			}
+
+			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+			if err != nil {
+				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
+				continue
+			}
+
+			// Save the tariff for pricing the next usage
+			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
+				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+
 			grantedUnit := uint32(serviceUsageRsp.ServiceRating.AllowedUnits)
-			unitInformation.VolumeQuotaThreshold = int32(float32(grantedUnit) * ue.VolumeThresholdRate)
+			logger.ChargingdataPostLog.Tracef("granted Unit: %d", grantedUnit)
+
+			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
+				unitInformation.VolumeQuotaThreshold = int32(float32(grantedUnit) * ue.VolumeThresholdRate)
+			}
+
 			unitInformation.GrantedUnit = &models.GrantedUnit{
 				TotalVolume:    int32(grantedUnit),
 				DownlinkVolume: int32(grantedUnit),
@@ -564,7 +553,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				)
 			}
 
-			if ue.VolumeLimitPDU != 0 && !addPDULimit {
+			// VolumeLimit for PDU session only need to add once
+			if ue.VolumeLimitPDU != 0 && unitUsageNum == 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
 					models.Trigger{
 						TriggerType:     models.TriggerType_VOLUME_LIMIT,
@@ -572,25 +562,62 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 						VolumeLimit:     ue.VolumeLimitPDU,
 					},
 				)
-				addPDULimit = true
 			}
 
 			if ue.QuotaValidityTime != 0 {
 				unitInformation.ValidityTime = ue.QuotaValidityTime
 			}
-		case dataType.REQ_SUBTYPE_DEBIT:
+
+		case charging_datatype.REQ_SUBTYPE_DEBIT:
 			// final account control
 			logger.ChargingdataPostLog.Warnf("Debit mode, will not further grant unit")
-			quota -= int64(sur.ServiceRating.Price)
-			chargingBsonM := make(bson.M)
-			chargingBsonM["quota"] = strconv.FormatInt(quota, 10)
-			if _, err := mongoapi.RestfulAPIPutOne(chargingDataColl, filter, chargingBsonM); err != nil {
-				logger.ChargingdataPostLog.Errorf("RestfulAPIPutOne err: %+v", err)
+			// retrived tarrif
+			sur.ServiceRating = &charging_datatype.ServiceRating{
+				ServiceIdentifier: datatype.Unsigned32(rg),
+				ConsumedUnits:     datatype.Unsigned32(totalUsaedUnit),
+				RequestSubType:    charging_datatype.REQ_SUBTYPE_DEBIT,
 			}
-			logger.ChargingdataPostLog.Infof("UE's [%s] MonetaryQuota: [%d]", supi, quota)
-		}
 
+			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+			if err != nil {
+				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
+				continue
+			}
+
+			if int64(serviceUsageRsp.ServiceRating.Price) < ue.ReservedQuota[rg] {
+				// The final consumed quota is smaller than the reserved quota
+				// Therefore, return the extra reserved quota back to the user account
+				reservedRemained := ue.ReservedQuota[rg] - int64(serviceUsageRsp.ServiceRating.Price)
+				ccr.RequestedAction = charging_datatype.REFUND_ACCOUNT
+				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+					RatingGroup: datatype.Unsigned32(rg),
+					RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
+						CCTotalOctets: datatype.Unsigned64(reservedRemained),
+					},
+				}
+			} else {
+				// The final consumed quota exceed the reserved quota
+				extraConsumed := int64(serviceUsageRsp.ServiceRating.Price) - ue.ReservedQuota[rg]
+				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
+				ccr.CcRequestType = charging_datatype.TERMINATION_REQUEST
+				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+					RatingGroup: datatype.Unsigned32(rg),
+					UsedServiceUnit: &charging_datatype.UsedServiceUnit{
+						CCTotalOctets: datatype.Unsigned64(extraConsumed),
+					},
+				}
+			}
+
+			_, err = abmf.SendAccountDebitRequest(ue, ccr)
+			if err != nil {
+				logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
+				continue
+			}
+			ue.ReservedQuota[rg] = 0
+		}
 		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+
+		ue.AcctRequestNum[rg]++
 	}
 
 	return multipleUnitInformation, partialRecord

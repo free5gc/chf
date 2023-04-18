@@ -21,7 +21,8 @@ func init() {
 	chfCtx.Name = "chf"
 	chfCtx.UriScheme = models.UriScheme_HTTPS
 	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
-	chfCtx.RatingSessionGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
+	chfCtx.RatingSessionIdGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
+	chfCtx.AccountSessionIdGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
 }
 
 type CHFContext struct {
@@ -37,9 +38,14 @@ type CHFContext struct {
 	NrfUri                    string
 	UePool                    sync.Map
 
-	RatingAddr             string
-	RatingCfg              *sm.Settings
-	RatingSessionGenerator *idgenerator.IDGenerator
+	RatingAddr string
+	RatingCfg  *sm.Settings
+
+	AbmfAddr string
+	AbmfCfg  *sm.Settings
+
+	RatingSessionIdGenerator  *idgenerator.IDGenerator
+	AccountSessionIdGenerator *idgenerator.IDGenerator
 }
 
 // Create new CHF context
@@ -113,4 +119,18 @@ func (context *CHFContext) ChfUeFindBySupi(supi string) (*ChfUe, bool) {
 		return value.(*ChfUe), ok
 	}
 	return nil, false
+}
+
+func GenerateRatingSessionId() uint32 {
+	if id, err := chfCtx.RatingSessionIdGenerator.Allocate(); err == nil {
+		return uint32(id)
+	}
+	return 0
+}
+
+func GenerateAccountSessionId() uint32 {
+	if id, err := chfCtx.AccountSessionIdGenerator.Allocate(); err == nil {
+		return uint32(id)
+	}
+	return 0
 }

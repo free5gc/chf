@@ -24,8 +24,10 @@ var (
 	NotifyEventLog      *logrus.Entry
 	RechargingLog       *logrus.Entry
 	RatingLog           *logrus.Entry
+	AcctLog             *logrus.Entry
 	FtpLog              *logrus.Entry
-	FtpServerLog        golog.Logger
+
+	FtpServerLog golog.Logger
 )
 
 func init() {
@@ -53,6 +55,7 @@ func init() {
 	RechargingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Recharging"})
 	FtpLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "FTP"})
 	RatingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Rating"})
+	AcctLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Acct"})
 	FtpServerLog = adapter.NewWrap(FtpLog.Logger).With("component", "CHF", "category", "FTP")
 }
 

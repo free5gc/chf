@@ -71,6 +71,7 @@ type Configuration struct {
 	VolumeThresholdRate float32   `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
 	QuotaValidityTime   int32     `yaml:"quotaValidityTime,omitempty" valid:"optional"`
 	RateFuncAddress     string    `yaml:"rateFuncAddress,omitempty" valid:"required"`
+	AbmfAddress         string    `yaml:"abmfAddress,omitempty" valid:"required"`
 }
 
 func (c *Configuration) validate() (bool, error) {

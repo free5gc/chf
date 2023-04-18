@@ -30,8 +30,8 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm"
-	rate_datatype "github.com/free5gc/RatingUtil/dataType"
-	rate_dict "github.com/free5gc/RatingUtil/dict"
+	charging_datatype "github.com/free5gc/ChargingUtil/datatype"
+	charging_dict "github.com/free5gc/ChargingUtil/dict"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/util/mongoapi"
 	"go.mongodb.org/mongo-driver/bson"
@@ -43,7 +43,7 @@ func OpenServer(wg *sync.WaitGroup) {
 	// Load our custom dictionary on top of the default one, which
 	// always have the Base Protocol (RFC6733) and Credit Control
 	// Application (RFC4006).
-	err := dict.Default.Load(bytes.NewReader([]byte(rate_dict.RateDictionary)))
+	err := dict.Default.Load(bytes.NewReader([]byte(charging_dict.RateDictionary)))
 	if err != nil {
 		logger.RatingLog.Error(err)
 	}
@@ -92,9 +92,9 @@ func listen(addr, cert, key string, handler diam.Handler) error {
 	return diam.ListenAndServe(addr, handler, nil)
 }
 
-func buildTaffif(unitCostStr string) *rate_datatype.MonetaryTariff {
+func buildTaffif(unitCostStr string) *charging_datatype.MonetaryTariff {
 	// unitCost
-	unitCost := &rate_datatype.UnitCost{}
+	unitCost := &charging_datatype.UnitCost{}
 
 	dotPos := strings.Index(unitCostStr, ".")
 	if dotPos == -1 {
@@ -109,14 +109,14 @@ func buildTaffif(unitCostStr string) *rate_datatype.MonetaryTariff {
 		unitCost.Exponent = datatype.Integer32(len(unitCostStr) - dotPos - 1)
 	}
 
-	return &rate_datatype.MonetaryTariff{
+	return &charging_datatype.MonetaryTariff{
 		CurrencyCode: datatype.Unsigned32(901),
-		ScaleFactor: &rate_datatype.ScaleFactor{
+		ScaleFactor: &charging_datatype.ScaleFactor{
 			ValueDigits: datatype.Integer64(0),
 			Exponent:    datatype.Integer32(0),
 		},
-		RateElement: &rate_datatype.RateElement{
-			CCUnitType: rate_datatype.MONEY,
+		RateElement: &charging_datatype.RateElement{
+			CCUnitType: charging_datatype.MONEY,
 			UnitCost:   unitCost,
 		},
 	}
@@ -124,7 +124,7 @@ func buildTaffif(unitCostStr string) *rate_datatype.MonetaryTariff {
 
 func handleSUR() diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
-		var sur rate_datatype.ServiceUsageRequest
+		var sur charging_datatype.ServiceUsageRequest
 		var monetaryCost datatype.Unsigned32
 
 		var subscriberId string
@@ -140,7 +140,7 @@ func handleSUR() diam.HandlerFunc {
 		rg := uint32(sr.ServiceIdentifier)
 
 		switch sur.SubscriptionId.SubscriptionIdType {
-		case rate_datatype.END_USER_IMSI:
+		case charging_datatype.END_USER_IMSI:
 			subscriberId = "imsi-" + string(sur.SubscriptionId.SubscriptionIdData)
 		}
 		// // Retrieve tarrif information from database
@@ -154,23 +154,22 @@ func handleSUR() diam.HandlerFunc {
 		unitCostStr := chargingInterface["unitCost"].(string)
 		monetaryTariff := buildTaffif(unitCostStr)
 		unitCost := datatype.Unsigned32(monetaryTariff.RateElement.UnitCost.ValueDigits) * datatype.Unsigned32(math.Pow10(int(monetaryTariff.RateElement.UnitCost.Exponent)))
-		sua := rate_datatype.ServiceUsageResponse{
+		sua := charging_datatype.ServiceUsageResponse{
 			SessionId:      sur.SessionId,
 			EventTimestamp: datatype.Time(time.Now()),
-			ServiceRating: &rate_datatype.ServiceRating{
+			ServiceRating: &charging_datatype.ServiceRating{
 				MonetaryTariff: monetaryTariff,
 			},
 		}
 
 		switch sr.RequestSubType {
 		// price for the consumed units
-		case rate_datatype.REQ_SUBTYPE_DEBIT:
-			logger.RatingLog.Warnf("Debit mode")
+		case charging_datatype.REQ_SUBTYPE_DEBIT:
 			monetaryCost = sr.ConsumedUnits * unitCost
 			sua.ServiceRating.AllowedUnits = datatype.Unsigned32(0)
 			sua.ServiceRating.Price = monetaryCost
 		// price for the reserved units
-		case rate_datatype.REQ_SUBTYPE_RESERVE:
+		case charging_datatype.REQ_SUBTYPE_RESERVE:
 			sua.ServiceRating.AllowedUnits = sr.MonetaryQuota / unitCost
 			sua.ServiceRating.Price = sua.ServiceRating.AllowedUnits * unitCost
 		default:

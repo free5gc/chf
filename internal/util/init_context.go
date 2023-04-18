@@ -66,7 +66,7 @@ func InitchfContext(context *context.CHFContext) {
 		}
 	}
 	serviceList := configuration.ServiceList
-
+	context.RatingAddr = configuration.RateFuncAddress
 	context.RatingCfg = &sm.Settings{
 		OriginHost:       datatype.DiameterIdentity("client"),
 		OriginRealm:      datatype.DiameterIdentity("go-diameter"),
@@ -75,6 +75,14 @@ func InitchfContext(context *context.CHFContext) {
 		OriginStateID:    datatype.Unsigned32(time.Now().Unix()),
 		FirmwareRevision: 1,
 	}
-
+	context.AbmfAddr = configuration.AbmfAddress
+	context.AbmfCfg = &sm.Settings{
+		OriginHost:       datatype.DiameterIdentity("client"),
+		OriginRealm:      datatype.DiameterIdentity("go-diameter"),
+		VendorID:         13,
+		ProductName:      "go-diameter",
+		OriginStateID:    datatype.Unsigned32(time.Now().Unix()),
+		FirmwareRevision: 1,
+	}
 	context.InitNFService(serviceList, config.Info.Version)
 }

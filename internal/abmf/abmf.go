@@ -1,4 +1,4 @@
-package rating
+package abmf
 
 import (
 	"fmt"
@@ -15,11 +15,11 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 )
 
-func SendServiceUsageRequest(ue *chf_context.ChfUe, sur *charging_datatype.ServiceUsageRequest) (*charging_datatype.ServiceUsageResponse, error) {
+func SendAccountDebitRequest(ue *chf_context.ChfUe, ccr *charging_datatype.AccountDebitRequest) (*charging_datatype.AccountDebitResponse, error) {
 	self := chf_context.CHF_Self()
-	ue.RatingMux.Handle("SUA", HandleSUA(ue.RatingChan))
+	ue.AbmfMux.Handle("CCA", HandleCCA(ue.AcctChan))
 
-	conn, err := ue.RatingClient.DialNetwork("tcp", self.RatingAddr)
+	conn, err := ue.AbmfClient.DialNetwork("tcp", self.AbmfAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -29,13 +29,14 @@ func SendServiceUsageRequest(ue *chf_context.ChfUe, sur *charging_datatype.Servi
 		return nil, fmt.Errorf("peer metadata unavailable")
 	}
 
-	sur.DestinationRealm = datatype.DiameterIdentity(meta.OriginRealm)
-	sur.DestinationHost = datatype.DiameterIdentity(meta.OriginHost)
+	ccr.DestinationRealm = datatype.DiameterIdentity(meta.OriginRealm)
+	ccr.DestinationHost = datatype.DiameterIdentity(meta.OriginHost)
 
-	msg := diam.NewRequest(rate_code.ServiceUsageMessage, rate_code.Re_interface, dict.Default)
-	err = msg.Marshal(sur)
+	msg := diam.NewRequest(rate_code.ABMF_CreditControl, rate_code.Re_interface, dict.Default)
+
+	err = msg.Marshal(ccr)
 	if err != nil {
-		return nil, fmt.Errorf("Marshal SUR Failed: %s\n", err)
+		return nil, fmt.Errorf("Marshal CCR Failed: %s\n", err)
 	}
 
 	_, err = msg.WriteTo(conn)
@@ -45,20 +46,21 @@ func SendServiceUsageRequest(ue *chf_context.ChfUe, sur *charging_datatype.Servi
 	}
 
 	select {
-	case m := <-ue.RatingChan:
-		var sua charging_datatype.ServiceUsageResponse
-		if err := m.Unmarshal(&sua); err != nil {
+	case m := <-ue.AcctChan:
+		var cca charging_datatype.AccountDebitResponse
+		if err := m.Unmarshal(&cca); err != nil {
 			return nil, fmt.Errorf("Failed to parse message from %v", err)
 		}
-		return &sua, nil
+
+		return &cca, nil
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout: no rate answer received")
 	}
 }
 
-func HandleSUA(rgChan chan *diam.Message) diam.HandlerFunc {
+func HandleCCA(rgChan chan *diam.Message) diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
-		logger.RatingLog.Tracef("Received SUA from %s", c.RemoteAddr())
+		logger.RatingLog.Tracef("Received CCA from %s", c.RemoteAddr())
 
 		rgChan <- m
 	}

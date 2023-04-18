@@ -20,6 +20,7 @@ import (
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/convergedcharging"
 	"github.com/free5gc/chf/internal/util"
+	"github.com/free5gc/chf/pkg/abmf"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/rf"
 	"github.com/free5gc/util/httpwrapper"
@@ -161,6 +162,10 @@ func (chf *CHF) Start() {
 
 	wg.Add(1)
 	rf.OpenServer(&wg)
+
+	wg.Add(1)
+	abmf.OpenServer(&wg)
+
 	profile, err := consumer.BuildNFInstance(self)
 	if err != nil {
 		logger.InitLog.Error("Build CHF Profile Error")

@@ -26,7 +26,7 @@ func RechargePut(c *gin.Context) {
 
 	logger.RechargingLog.Warnf("UE[%s] Recharg for rating group %d", ueId, rg)
 
-	producer.NotifyRecharge(ueId, rg)
+	producer.NotifyRecharge(ueId, int32(rg))
 
 	c.JSON(http.StatusNoContent, gin.H{})
 }
