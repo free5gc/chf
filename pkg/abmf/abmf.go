@@ -37,7 +37,7 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 )
 
-const chargingDataColl = "chargingData"
+const chargingDatasColl = "chargingDatas"
 
 func OpenServer(wg *sync.WaitGroup) {
 	// Load our custom dictionary on top of the default one, which
@@ -117,7 +117,7 @@ func handleCCR() diam.HandlerFunc {
 
 		// Retrieve quota into mongoDB
 		filter := bson.M{"ueId": subscriberId, "ratingGroup": rg}
-		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
+		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDatasColl, filter)
 		if err != nil {
 			logger.AcctLog.Errorf("Get quota error: %+v", err)
 		}
@@ -140,7 +140,6 @@ func handleCCR() diam.HandlerFunc {
 				var finalUnitIndication *charging_datatype.FinalUnitIndication
 				requestQuota := int64(mscc.RequestedServiceUnit.CCTotalOctets)
 				if requestQuota > quota {
-					logger.AcctLog.Warnf("Last granted quota")
 					finalUnitIndication = &charging_datatype.FinalUnitIndication{
 						FinalUnitAction: charging_datatype.TERMINATE,
 					}
@@ -187,11 +186,11 @@ func handleCCR() diam.HandlerFunc {
 
 		}
 
-		logger.AcctLog.Infof("UE [%s], Rating group [%d], quota [%d]", rg, subscriberId, quota)
+		logger.AcctLog.Infof("UE [%s], Rating group [%d], quota [%d]", subscriberId, rg, quota)
 
 		chargingBsonM := make(bson.M)
 		chargingBsonM["quota"] = strconv.FormatInt(quota, 10)
-		if _, err := mongoapi.RestfulAPIPutOne(chargingDataColl, filter, chargingBsonM); err != nil {
+		if _, err := mongoapi.RestfulAPIPutOne(chargingDatasColl, filter, chargingBsonM); err != nil {
 			logger.AcctLog.Errorf("RestfulAPIPutOne err: %+v", err)
 		}
 

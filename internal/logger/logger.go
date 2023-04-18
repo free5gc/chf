@@ -25,7 +25,7 @@ var (
 	RechargingLog       *logrus.Entry
 	RatingLog           *logrus.Entry
 	AcctLog             *logrus.Entry
-	FtpLog              *logrus.Entry
+	CgfLog              *logrus.Entry
 
 	FtpServerLog golog.Logger
 )
@@ -53,10 +53,10 @@ func init() {
 	ChargingdataPostLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "ChargingdataPost"})
 	NotifyEventLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "NotifyEvent"})
 	RechargingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Recharging"})
-	FtpLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "FTP"})
+	CgfLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Cgf"})
 	RatingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Rating"})
 	AcctLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Acct"})
-	FtpServerLog = adapter.NewWrap(FtpLog.Logger).With("component", "CHF", "category", "FTP")
+	FtpServerLog = adapter.NewWrap(CgfLog.Logger).With("component", "CHF", "category", "FTP")
 }
 
 func LogFileHook(logNfPath string, log5gcPath string) error {

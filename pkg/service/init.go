@@ -14,8 +14,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 
+	"github.com/free5gc/chf/internal/cgf"
 	"github.com/free5gc/chf/internal/context"
-	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/convergedcharging"
@@ -158,7 +158,7 @@ func (chf *CHF) Start() {
 	wg := sync.WaitGroup{}
 
 	wg.Add(1)
-	ftp.OpenServer(&wg)
+	cgf.OpenServer(&wg)
 
 	wg.Add(1)
 	rf.OpenServer(&wg)

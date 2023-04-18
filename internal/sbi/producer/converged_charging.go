@@ -13,8 +13,8 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/free5gc/CDRUtil/cdrType"
 	"github.com/free5gc/chf/internal/abmf"
+	"github.com/free5gc/chf/internal/cgf"
 	chf_context "github.com/free5gc/chf/internal/context"
-	"github.com/free5gc/chf/internal/ftp"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
@@ -189,9 +189,9 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	}
 
 	// CDR Transfer
-	err = ftp.SendCDR(chargingData.SubscriberIdentifier)
+	err = cgf.SendCDR(chargingData.SubscriberIdentifier)
 	if err != nil {
-		logger.ChargingdataPostLog.Error("FTP err", err)
+		logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain %v", err)
 	}
 
 	logger.ChargingdataPostLog.Infof("Open CDR for UE %s", ueId)
@@ -264,9 +264,9 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 		return nil, problemDetails
 	}
 
-	err = ftp.SendCDR(chargingData.SubscriberIdentifier)
+	err = cgf.SendCDR(chargingData.SubscriberIdentifier)
 	if err != nil {
-		logger.ChargingdataPostLog.Error("FTP err", err)
+		logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain %v", err)
 	}
 
 	timeStamp := time.Now()
@@ -422,6 +422,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 		if offline {
 			continue
 		}
+		// Only online charging need to perform credit control
 
 		ccr := &charging_datatype.AccountDebitRequest{
 			SessionId:       datatype.UTF8String(strconv.Itoa(int(ue.AcctSessionId))),
@@ -502,6 +503,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 			ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
 
+			// Deduict the reserved quota from the account
 			if acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication != nil {
 				switch acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication.FinalUnitAction {
 				case charging_datatype.TERMINATE:
@@ -513,20 +515,19 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				}
 			}
 
-			// retrived tarrif
 			sur.ServiceRating = &charging_datatype.ServiceRating{
 				ServiceIdentifier: datatype.Unsigned32(rg),
 				MonetaryQuota:     datatype.Unsigned32(ue.ReservedQuota[rg]),
 				RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
 			}
 
+			// Retrieve and save the tarrif for pricing the next usage
 			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
 			if err != nil {
 				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
 				continue
 			}
 
-			// Save the tariff for pricing the next usage
 			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
 				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
 
@@ -543,6 +544,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				UplinkVolume:   int32(grantedUnit),
 			}
 
+			// The timer of VolumeLimit is remain in SMF
 			if ue.VolumeLimit != 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
 					models.Trigger{
@@ -564,14 +566,14 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				)
 			}
 
+			// The timer of QuotaValidityTime is remain in UPF
 			if ue.QuotaValidityTime != 0 {
 				unitInformation.ValidityTime = ue.QuotaValidityTime
 			}
 
 		case charging_datatype.REQ_SUBTYPE_DEBIT:
-			// final account control
 			logger.ChargingdataPostLog.Warnf("Debit mode, will not further grant unit")
-			// retrived tarrif
+			// retrived tarrif for final pricing
 			sur.ServiceRating = &charging_datatype.ServiceRating{
 				ServiceIdentifier: datatype.Unsigned32(rg),
 				ConsumedUnits:     datatype.Unsigned32(totalUsaedUnit),
@@ -595,8 +597,14 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 						CCTotalOctets: datatype.Unsigned64(reservedRemained),
 					},
 				}
+				// Typically, the reserved quota will be exhausted for the flow (or PDU session)
+				// However, for the case the flow quota  and PDU session's quota is both last granted quota
+				// and the PDU session's quota is larger than the flow's quota
+				// PDU session's quota should be refund and set to reserved mode in order to reserve the quota for other flow
+				ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
 			} else {
 				// The final consumed quota exceed the reserved quota
+				// Deduct the extra consumed quota from the user account
 				extraConsumed := int64(serviceUsageRsp.ServiceRating.Price) - ue.ReservedQuota[rg]
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
 				ccr.CcRequestType = charging_datatype.TERMINATION_REQUEST

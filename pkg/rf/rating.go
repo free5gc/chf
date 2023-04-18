@@ -37,7 +37,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-const chargingDataColl = "chargingData"
+const chargingDatasColl = "chargingDatas"
 
 func OpenServer(wg *sync.WaitGroup) {
 	// Load our custom dictionary on top of the default one, which
@@ -64,7 +64,7 @@ func OpenServer(wg *sync.WaitGroup) {
 	go printErrors(mux.ErrorReports())
 	go func() {
 		defer func() {
-			logger.FtpLog.Error("Rating Function server stopped")
+			logger.CgfLog.Error("Rating Function server stopped")
 			wg.Done()
 		}()
 
@@ -146,7 +146,7 @@ func handleSUR() diam.HandlerFunc {
 		// // Retrieve tarrif information from database
 
 		filter := bson.M{"ueId": subscriberId, "ratingGroup": rg}
-		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDataColl, filter)
+		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDatasColl, filter)
 		if err != nil {
 			logger.ChargingdataPostLog.Errorf("Get tarrif error: %+v", err)
 		}
