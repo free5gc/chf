@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	charging_datatype "github.com/free5gc/ChargingUtil/datatype"
+	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 
 	"github.com/fiorix/go-diameter/diam/datatype"
-	"github.com/free5gc/CDRUtil/cdrType"
+	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/cgf"
 	chf_context "github.com/free5gc/chf/internal/context"
@@ -47,7 +47,7 @@ func NotifyRecharge(ueId string, rg int32) {
 
 func SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
 	client := util.GetNchfChargingNotificationCallbackClient()
-	logger.NotifyEventLog.Warn("Send Charging Notification to SMF: uri: ", notifyUri)
+	logger.NotifyEventLog.Warn("Send Charging Notification  to SMF: uri: ", notifyUri)
 	httpResponse, err := client.DefaultCallbackApi.ChargingNotification(context.Background(), notifyUri, notifyRequest)
 	if err != nil {
 		if httpResponse != nil {

@@ -10,8 +10,8 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm/smpeer"
-	rate_code "github.com/free5gc/ChargingUtil/code"
-	charging_datatype "github.com/free5gc/ChargingUtil/datatype"
+	rate_code "github.com/free5gc/chf/ccs_diameter/code"
+	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/internal/logger"
 )
 

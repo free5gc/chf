@@ -25,7 +25,7 @@ import (
 
 	_ "net/http/pprof"
 
-	charging_datatype "github.com/free5gc/ChargingUtil/datatype"
+	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/util/mongoapi"
 	"go.mongodb.org/mongo-driver/bson"
 
@@ -33,7 +33,7 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm"
-	charging_dict "github.com/free5gc/ChargingUtil/dict"
+	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
 	"github.com/free5gc/chf/internal/logger"
 )
 

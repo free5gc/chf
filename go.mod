@@ -10,8 +10,6 @@ require (
 	github.com/fclairamb/ftpserverlib v0.21.0
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
-	github.com/free5gc/CDRUtil v0.0.0-00010101000000-000000000000
-	github.com/free5gc/ChargingUtil v0.0.0-00010101000000-000000000000
 	github.com/free5gc/openapi v1.0.6
 	github.com/free5gc/util v1.0.3
 	github.com/gin-contrib/cors v1.4.0
@@ -21,14 +19,10 @@ require (
 	github.com/jlaffaye/ftp v0.1.0
 	github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b
 	github.com/sirupsen/logrus v1.9.0
-	github.com/stretchr/testify v1.8.2 // indirect
+	github.com/stretchr/testify v1.8.2
 	github.com/urfave/cli v1.22.12
 	go.mongodb.org/mongo-driver v1.11.3
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 replace github.com/free5gc/openapi => /home/free5gc/openapi
-
-replace github.com/free5gc/ChargingUtil => /home/free5gc/ChargingUtil
-
-replace github.com/free5gc/CDRUtil => /home/free5gc/CDRUtil

@@ -9,8 +9,8 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm"
-	"github.com/free5gc/CDRUtil/cdrType"
-	charging_datatype "github.com/free5gc/ChargingUtil/datatype"
+	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/pkg/factory"
 
 	"github.com/juju/fslock"
