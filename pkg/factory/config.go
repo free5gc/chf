@@ -70,8 +70,9 @@ type Configuration struct {
 	VolumeLimitPDU      int32     `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
 	VolumeThresholdRate float32   `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
 	QuotaValidityTime   int32     `yaml:"quotaValidityTime,omitempty" valid:"optional"`
-	RateFuncAddress     string    `yaml:"rateFuncAddress,omitempty" valid:"required"`
-	AbmfAddress         string    `yaml:"abmfAddress,omitempty" valid:"required"`
+	RfDiameter          *Diameter `yaml:"rfDiameter,omitempty" valid:"required"`
+	AbmfDiameter        *Diameter `yaml:"abmfDiameter,omitempty" valid:"required"`
+	Cgf                 *Cgf      `yaml:"cgf,omitempty" valid:"required"`
 }
 
 func (c *Configuration) validate() (bool, error) {
@@ -122,6 +123,19 @@ func (s *Service) validate() (bool, error) {
 	return true, nil
 }
 
+type Diameter struct {
+	Protocol string `yaml:"protocol" valid:"required"`
+	HostIPv4 string `yaml:"hostIPv4,omitempty" valid:"required,host"`
+	Port     int    `yaml:"port,omitempty" valid:"required,port"`
+	Tls      *Tls   `yaml:"tls,omitempty" valid:"optional"`
+}
+
+type Cgf struct {
+	HostIPv4   string `yaml:"hostIPv4,omitempty" valid:"required,host"`
+	Port       int    `yaml:"port,omitempty" valid:"required,port"`
+	ListenPort int    `yaml:"listenPort,omitempty" valid:"required,port"`
+	Tls        *Tls   `yaml:"tls,omitempty" valid:"optional"`
+}
 type Sbi struct {
 	Scheme       string `yaml:"scheme" valid:"required,scheme"`
 	RegisterIPv4 string `yaml:"registerIPv4,omitempty" valid:"required,host"` // IP that is registered at NRF.

@@ -3,8 +3,9 @@ package cgf
 
 import (
 	"bytes"
-	"io/ioutil"
+	"encoding/json"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -12,40 +13,68 @@ import (
 	"github.com/fclairamb/ftpserver/server"
 	ftpserver "github.com/fclairamb/ftpserverlib"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/jlaffaye/ftp"
 )
 
-type FTPServer struct {
+type Cgf struct {
 	ftpServer *ftpserver.FtpServer
 	driver    *server.Server
 	conn      *ftp.ServerConn
+	addr      string
+	ftpConfig FtpConfig
 }
 
-var ftpServ *FTPServer
+type Access struct {
+	User   string            `json:"user"`
+	Pass   string            `json:"pass"`
+	Fs     string            `json:"fs"`
+	Params map[string]string `json:"params"`
+}
 
-func OpenServer(wg *sync.WaitGroup) *FTPServer {
+type FtpConfig struct {
+	Version       int      `json:"version"`
+	Accesses      []Access `json:"accesses"`
+	ListenAddress string   `json:"listen_address"`
+}
+
+var cgf *Cgf
+
+func OpenServer(wg *sync.WaitGroup) *Cgf {
 	// Arguments vars
-	var confFile string
-	var autoCreate bool
+	cgf = new(Cgf)
 
-	ftpServ = new(FTPServer)
+	cgfConfig := factory.ChfConfig.Configuration.Cgf
+	cgf.addr = cgfConfig.HostIPv4 + ":" + strconv.Itoa(cgfConfig.Port)
 
-	if confFile == "" {
-		confFile = "/tmp/ftpserver.json"
-		autoCreate = true
+	cgf.ftpConfig = FtpConfig{
+		Version: 1,
+		Accesses: []Access{
+			{
+				User: "admin",
+				Pass: "free5gc",
+				Fs:   "os",
+				Params: map[string]string{
+					"basePath": "/tmp",
+				},
+			},
+		},
+		ListenAddress: factory.ChfConfig.Configuration.Sbi.RegisterIPv4 + ":" + strconv.Itoa(cgfConfig.ListenPort),
 	}
 
-	if autoCreate {
-		if _, err := os.Stat(confFile); err != nil && os.IsNotExist(err) {
-			logger.CgfLog.Warn("No conf file, creating one", confFile)
+	file, err := os.Create("/tmp/config.json")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
 
-			if err := ioutil.WriteFile(confFile, confFileContent(), 0600); err != nil { //nolint: gomnd
-				logger.CgfLog.Warn("Couldn't create conf file", confFile)
-			}
-		}
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(cgf.ftpConfig); err != nil {
+		panic(err)
 	}
 
-	conf, errConfig := config.NewConfig(confFile, logger.FtpServerLog)
+	conf, errConfig := config.NewConfig("/tmp/config.json", logger.FtpServerLog)
 	if errConfig != nil {
 		logger.CgfLog.Error("Can't load conf", "Err", errConfig)
 
@@ -54,7 +83,7 @@ func OpenServer(wg *sync.WaitGroup) *FTPServer {
 
 	// Loading the driver
 	var errNewServer error
-	ftpServ.driver, errNewServer = server.NewServer(conf, logger.FtpServerLog)
+	cgf.driver, errNewServer = server.NewServer(conf, logger.FtpServerLog)
 
 	if errNewServer != nil {
 		logger.CgfLog.Error("Could not load the driver", "err", errNewServer)
@@ -63,45 +92,45 @@ func OpenServer(wg *sync.WaitGroup) *FTPServer {
 	}
 
 	// Instantiating the server by passing our driver implementation
-	ftpServ.ftpServer = ftpserver.NewFtpServer(ftpServ.driver)
+	cgf.ftpServer = ftpserver.NewFtpServer(cgf.driver)
 
 	// Setting up the ftpserver logger
-	ftpServ.ftpServer.Logger = logger.FtpServerLog
+	cgf.ftpServer.Logger = logger.FtpServerLog
 
-	go ftpServ.Serve(wg)
+	go cgf.Serve(wg)
 	logger.CgfLog.Info("FTP server Start")
 
-	return ftpServ
+	return cgf
 }
 
 func Login() error {
 	// FTP server is for CDR transfer
 	var c *ftp.ServerConn
 
-	c, err := ftp.Dial("127.0.0.1:2122", ftp.DialWithTimeout(5*time.Second))
+	c, err := ftp.Dial(cgf.addr, ftp.DialWithTimeout(5*time.Second))
 	if err != nil {
 		return err
 	}
 
-	err = c.Login("admin", "free5gc")
+	err = c.Login(cgf.ftpConfig.Accesses[0].User, cgf.ftpConfig.Accesses[0].Pass)
 	if err != nil {
 		logger.CgfLog.Warnf("Login FTP server Fail")
 		return err
 	}
 
 	logger.CgfLog.Info("Login FTP server")
-	ftpServ.conn = c
+	cgf.conn = c
 	return err
 }
 
 func SendCDR(supi string) error {
-	if ftpServ.conn == nil {
+	if cgf.conn == nil {
 		err := Login()
 
 		if err != nil {
 			return err
 		}
-		logger.ChargingdataPostLog.Infof("FTP Re-Login Success")
+		logger.CgfLog.Infof("FTP Re-Login Success")
 
 	}
 
@@ -112,12 +141,12 @@ func SendCDR(supi string) error {
 	}
 
 	cdrReader := bytes.NewReader(cdrByte)
-	ftpServ.conn.Stor(fileName, cdrReader)
+	cgf.conn.Stor(fileName, cdrReader)
 
 	return nil
 }
 
-func (f *FTPServer) Serve(wg *sync.WaitGroup) {
+func (f *Cgf) Serve(wg *sync.WaitGroup) {
 	defer func() {
 		logger.CgfLog.Error("FTP server stopped")
 		f.Stop()
@@ -138,29 +167,10 @@ func (f *FTPServer) Serve(wg *sync.WaitGroup) {
 	}
 }
 
-func (f *FTPServer) Stop() {
+func (f *Cgf) Stop() {
 	f.driver.Stop()
 
 	if err := f.ftpServer.Stop(); err != nil {
 		logger.CgfLog.Error("Problem stopping server", "Err", err)
 	}
-}
-
-func confFileContent() []byte {
-	str := `{
-  "version": 1,
-  "accesses": [
-    {
-      "user": "admin",
-      "pass": "free5gc",
-      "fs": "os",
-      "params": {
-        "basePath": "/tmp"
-      }
-    }
-  ],
-  "listen_address": "127.0.0.113:2121"
-}`
-
-	return []byte(str)
 }

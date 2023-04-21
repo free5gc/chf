@@ -33,6 +33,7 @@ import (
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/util/mongoapi"
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -68,7 +69,9 @@ func OpenServer(wg *sync.WaitGroup) {
 			wg.Done()
 		}()
 
-		err = listen(":3868", "", "", mux)
+		rfDiameter := factory.ChfConfig.Configuration.RfDiameter
+		addr := rfDiameter.HostIPv4 + ":" + strconv.Itoa(rfDiameter.Port)
+		err := diam.ListenAndServeTLS(addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key, mux, nil)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -126,15 +129,13 @@ func handleSUR() diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
 		var sur charging_datatype.ServiceUsageRequest
 		var monetaryCost datatype.Unsigned32
-
 		var subscriberId string
+
 		if err := m.Unmarshal(&sur); err != nil {
 			logger.RatingLog.Errorf("Failed to parse message from %s: %s\n%s",
 				c.RemoteAddr(), err, m)
 			return
 		}
-
-		logger.RatingLog.Infof("Received SUR from %s:", c.RemoteAddr())
 
 		sr := sur.ServiceRating
 		rg := uint32(sr.ServiceIdentifier)
@@ -182,7 +183,6 @@ func handleSUR() diam.HandlerFunc {
 		err = a.Marshal(&sua)
 		if err != nil {
 			logger.RatingLog.Errorf("Marshal SUA Err: %+v:", err)
-
 		}
 
 		_, err = a.WriteTo(c)

@@ -2,24 +2,26 @@ package rating
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	chf_context "github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/chf/pkg/factory"
 
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm/smpeer"
-	rate_code "github.com/free5gc/chf/ccs_diameter/code"
+	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/internal/logger"
 )
 
 func SendServiceUsageRequest(ue *chf_context.ChfUe, sur *charging_datatype.ServiceUsageRequest) (*charging_datatype.ServiceUsageResponse, error) {
-	self := chf_context.CHF_Self()
 	ue.RatingMux.Handle("SUA", HandleSUA(ue.RatingChan))
-
-	conn, err := ue.RatingClient.DialNetwork("tcp", self.RatingAddr)
+	rfDiameter := factory.ChfConfig.Configuration.RfDiameter
+	addr := rfDiameter.HostIPv4 + ":" + strconv.Itoa(rfDiameter.Port)
+	conn, err := ue.RatingClient.DialNetworkTLS(rfDiameter.Protocol, addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +34,7 @@ func SendServiceUsageRequest(ue *chf_context.ChfUe, sur *charging_datatype.Servi
 	sur.DestinationRealm = datatype.DiameterIdentity(meta.OriginRealm)
 	sur.DestinationHost = datatype.DiameterIdentity(meta.OriginHost)
 
-	msg := diam.NewRequest(rate_code.ServiceUsageMessage, rate_code.Re_interface, dict.Default)
+	msg := diam.NewRequest(charging_code.ServiceUsageMessage, charging_code.Re_interface, dict.Default)
 	err = msg.Marshal(sur)
 	if err != nil {
 		return nil, fmt.Errorf("Marshal SUR Failed: %s\n", err)

@@ -17,7 +17,6 @@ package abmf
 
 import (
 	"bytes"
-	"log"
 	"math"
 	"strconv"
 	"sync"
@@ -26,6 +25,7 @@ import (
 	_ "net/http/pprof"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/util/mongoapi"
 	"go.mongodb.org/mongo-driver/bson"
 
@@ -70,9 +70,11 @@ func OpenServer(wg *sync.WaitGroup) {
 			wg.Done()
 		}()
 
-		err := listen(":3869", "", "", mux)
+		abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
+		addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)
+		err := diam.ListenAndServeTLS(addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key, mux, nil)
 		if err != nil {
-			log.Fatal(err)
+			logger.AcctLog.Errorf("ABMF server fail to listen: %V", err)
 		}
 	}()
 }

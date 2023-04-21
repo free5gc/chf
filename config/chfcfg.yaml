@@ -21,14 +21,34 @@ configuration:
   quotaValidityTime: 10000
   volumeLimit: 50000
   volumeLimitPDU: 10000
-  VolumeThresholdRate: 0.8
-
+  volumeThresholdRate: 0.8
+  cgf:
+    hostIPv4: 127.0.0.1
+    port: 2122
+    listenPort: 2121
+    tls:
+      pem: config/TLS/chf.pem
+      key: config/TLS/chf.key
+  abmfDiameter:
+    protocol: tcp 
+    hostIPv4: 127.0.0.113
+    port: 3868
+    tls:
+      pem: config/TLS/chf.pem
+      key: config/TLS/chf.key
+  rfDiameter: 
+    protocol: tcp
+    hostIPv4: 127.0.0.113
+    port: 3869
+    tls:
+      pem: config/TLS/chf.pem # CHF TLS Certificate
+      key: config/TLS/chf.key # CHF TLS Private key
     # the kind of log output
   # debugLevel: how detailed to output, value: trace, debug, info, warn, error, fatal, panic
   # ReportCaller: enable the caller report or not, value: true or false
 logger:
   CHF:
-    debugLevel: info
+    debugLevel: trace
     ReportCaller: false
   PathUtil:
     debugLevel: info

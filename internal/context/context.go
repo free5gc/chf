@@ -38,11 +38,8 @@ type CHFContext struct {
 	NrfUri                    string
 	UePool                    sync.Map
 
-	RatingAddr string
-	RatingCfg  *sm.Settings
-
-	AbmfAddr string
-	AbmfCfg  *sm.Settings
+	RatingCfg *sm.Settings
+	AbmfCfg   *sm.Settings
 
 	RatingSessionIdGenerator  *idgenerator.IDGenerator
 	AccountSessionIdGenerator *idgenerator.IDGenerator

@@ -17,19 +17,15 @@ import (
 )
 
 type ChfUe struct {
-	Supi string
-
-	QuotaValidityTime   int32
-	VolumeLimit         int32
-	VolumeLimitPDU      int32
-	VolumeThresholdRate float32
-
-	NotifyUri string
-	// Rating
+	Supi         string
 	RatingGroups []int32
 
+	QuotaValidityTime    int32
+	VolumeLimit          int32
+	VolumeLimitPDU       int32
+	VolumeThresholdRate  float32
+	NotifyUri            string
 	RecordSequenceNumber int64
-	Cdr                  map[string]*cdrType.CHFRecord
 
 	// ABMF
 	ReservedQuota  map[int32]int64
@@ -38,8 +34,8 @@ type ChfUe struct {
 	AbmfClient     *sm.Client
 	AbmfMux        *sm.StateMachine
 	AcctChan       chan *diam.Message
+	AcctSessionId  uint32
 
-	AcctSessionId uint32
 	// Rating
 	RatingClient  *sm.Client
 	RatingMux     *sm.StateMachine
@@ -48,6 +44,7 @@ type ChfUe struct {
 	RateSessionId uint32
 
 	// lock
+	Cdr         map[string]*cdrType.CHFRecord
 	CdrFileLock fslock.Lock
 	CULock      sync.Mutex
 }
