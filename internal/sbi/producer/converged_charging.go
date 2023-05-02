@@ -291,6 +291,8 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
+	sessionChargingReservation(chargingData)
+
 	cdr := ue.Cdr[chargingSessionId]
 
 	err := UpdateCDR(cdr, chargingData)
