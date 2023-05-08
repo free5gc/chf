@@ -1,10 +1,6 @@
 package logger
 
 import (
-	"os"
-	"time"
-
-	formatter "github.com/antonfisher/nested-logrus-formatter"
 	golog "github.com/fclairamb/go-log"
 	adapter "github.com/fclairamb/go-log/logrus"
 	logger_util "github.com/free5gc/util/logger"
@@ -12,12 +8,12 @@ import (
 )
 
 var (
-	log                 *logrus.Logger
-	AppLog              *logrus.Entry
+	Log                 *logrus.Logger
+	NfLog               *logrus.Entry
+	MainLog             *logrus.Entry
 	InitLog             *logrus.Entry
 	CfgLog              *logrus.Entry
 	CtxLog              *logrus.Entry
-	UtilLog             *logrus.Entry
 	ConsumerLog         *logrus.Entry
 	GinLog              *logrus.Entry
 	ChargingdataPostLog *logrus.Entry
@@ -26,69 +22,29 @@ var (
 	RatingLog           *logrus.Entry
 	AcctLog             *logrus.Entry
 	CgfLog              *logrus.Entry
-
-	FtpServerLog golog.Logger
+	FtpServerLog        golog.Logger
 )
 
 func init() {
-	log = logrus.New()
-	log.SetReportCaller(false)
-
-	log.Formatter = &formatter.Formatter{
-		TimestampFormat: time.RFC3339,
-		TrimMessages:    true,
-		NoFieldsSpace:   true,
-		HideKeys:        true,
-		FieldsOrder:     []string{"component", "category"},
+	fieldsOrder := []string{
+		logger_util.FieldNF,
+		logger_util.FieldCategory,
 	}
 
-	AppLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "App"})
-	InitLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Init"})
-	CfgLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "CFG"})
-	UtilLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Util"})
-	ConsumerLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Consumer"})
-	CtxLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Context"})
-	ConsumerLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Consumer"})
-	GinLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "GIN"})
-	ChargingdataPostLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "ChargingdataPost"})
-	NotifyEventLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "NotifyEvent"})
-	RechargingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Recharging"})
-	CgfLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Cgf"})
-	RatingLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Rating"})
-	AcctLog = log.WithFields(logrus.Fields{"component": "CHF", "category": "Acct"})
+	Log = logger_util.New(fieldsOrder)
+
+	NfLog = Log.WithField(logger_util.FieldNF, "CHF")
+	MainLog = NfLog.WithField(logger_util.FieldCategory, "Main")
+	InitLog = NfLog.WithField(logger_util.FieldCategory, "Init")
+	CfgLog = NfLog.WithField(logger_util.FieldCategory, "CFG")
+	CtxLog = NfLog.WithField(logger_util.FieldCategory, "CTX")
+	ConsumerLog = NfLog.WithField(logger_util.FieldCategory, "Consumer")
+	GinLog = NfLog.WithField(logger_util.FieldCategory, "GIN")
+	ChargingdataPostLog = NfLog.WithField(logger_util.FieldCategory, "CharghingPost")
+	NotifyEventLog = NfLog.WithField(logger_util.FieldCategory, "NotifyEvent")
+	RechargingLog = NfLog.WithField(logger_util.FieldCategory, "Recharge")
+	CgfLog = NfLog.WithField(logger_util.FieldCategory, "CGF")
+	RatingLog = NfLog.WithField(logger_util.FieldCategory, "Rating")
+	AcctLog = NfLog.WithField(logger_util.FieldCategory, "Acct")
 	FtpServerLog = adapter.NewWrap(CgfLog.Logger).With("component", "CHF", "category", "FTP")
-}
-
-func LogFileHook(logNfPath string, log5gcPath string) error {
-	if fullPath, err := logger_util.CreateFree5gcLogFile(log5gcPath); err == nil {
-		if fullPath != "" {
-			free5gcLogHook, hookErr := logger_util.NewFileHook(fullPath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o666)
-			if hookErr != nil {
-				return hookErr
-			}
-			log.Hooks.Add(free5gcLogHook)
-		}
-	} else {
-		return err
-	}
-
-	if fullPath, err := logger_util.CreateNfLogFile(logNfPath, "chf.log"); err == nil {
-		selfLogHook, hookErr := logger_util.NewFileHook(fullPath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o666)
-		if hookErr != nil {
-			return hookErr
-		}
-		log.Hooks.Add(selfLogHook)
-	} else {
-		return err
-	}
-
-	return nil
-}
-
-func SetLogLevel(level logrus.Level) {
-	log.SetLevel(level)
-}
-
-func SetReportCaller(enable bool) {
-	log.SetReportCaller(enable)
 }

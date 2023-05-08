@@ -25,7 +25,7 @@ import (
 func NotifyRecharge(ueId string, rg int32) {
 	var reauthorizationDetails []models.ReauthorizationDetails
 
-	self := chf_context.CHF_Self()
+	self := chf_context.GetSelf()
 	ue, ok := self.ChfUeFindBySupi(ueId)
 	if !ok {
 		logger.NotifyEventLog.Errorf("Do not find charging data for UE: %s", ueId)
@@ -135,7 +135,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	var responseBody models.ChargingDataResponse
 	var chargingSessionId string
 
-	self := chf_context.CHF_Self()
+	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 
 	// Open CDR
@@ -198,7 +198,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 
 	// build response
 	logger.ChargingdataPostLog.Infof("NewChfUe %s", ueId)
-	locationURI := self.GetIPv4Uri() + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
+	locationURI := self.Url + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
 	timeStamp := time.Now()
 
 	responseBody.InvocationTimeStamp = &timeStamp
@@ -211,7 +211,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 	*models.ProblemDetails) {
 	var records []*cdrType.CHFRecord
 
-	self := chf_context.CHF_Self()
+	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
 	if !ok {
@@ -277,7 +277,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 }
 
 func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessionId string) *models.ProblemDetails {
-	self := chf_context.CHF_Self()
+	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
 	if !ok {
@@ -355,7 +355,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 	var partialRecord bool
 	var subscriberIdentifier *charging_datatype.SubscriptionId
 
-	self := chf_context.CHF_Self()
+	self := chf_context.GetSelf()
 	supi := chargingData.SubscriberIdentifier
 
 	ue, ok := self.ChfUeFindBySupi(supi)
@@ -407,11 +407,17 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				offline = false
 				for _, trigger := range chargingData.Triggers {
 					// Check if partial record is needed
-					if trigger.TriggerType == models.TriggerType_VOLUME_LIMIT &&
-						trigger.TriggerCategory == models.TriggerCategory_IMMEDIATE_REPORT {
+
+					switch t := trigger; {
+					case t == models.Trigger{
+						TriggerType:     models.TriggerType_VOLUME_LIMIT,
+						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT}:
 						partialRecord = true
-					}
-					if trigger.TriggerType == models.TriggerType_FINAL {
+					case t.TriggerType == models.TriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
+						partialRecord = true
+					case t.TriggerType == models.TriggerType_MANAGEMENT_INTERVENTION:
+						partialRecord = true
+					case t.TriggerType == models.TriggerType_FINAL:
 						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
 					}
 				}

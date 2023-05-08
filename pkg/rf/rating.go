@@ -44,6 +44,13 @@ func OpenServer(wg *sync.WaitGroup) {
 	// Load our custom dictionary on top of the default one, which
 	// always have the Base Protocol (RFC6733) and Credit Control
 	// Application (RFC4006).
+	mongodb := factory.ChfConfig.Configuration.Mongodb
+	// Connect to MongoDB
+	if err := mongoapi.SetMongoDB(mongodb.Name, mongodb.Url); err != nil {
+		logger.InitLog.Errorf("InitpcfContext err: %+v", err)
+		return
+	}
+
 	err := dict.Default.Load(bytes.NewReader([]byte(charging_dict.RateDictionary)))
 	if err != nil {
 		logger.RatingLog.Error(err)

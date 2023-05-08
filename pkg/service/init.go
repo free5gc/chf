@@ -1,10 +1,9 @@
 package service
 
 import (
-	"bufio"
 	"fmt"
+	"io/ioutil"
 	"os"
-	"os/exec"
 	"os/signal"
 	"runtime/debug"
 	"sync"
@@ -12,14 +11,12 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/sirupsen/logrus"
-	"github.com/urfave/cli"
 
 	"github.com/free5gc/chf/internal/cgf"
-	"github.com/free5gc/chf/internal/context"
+	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/convergedcharging"
-	"github.com/free5gc/chf/internal/util"
 	"github.com/free5gc/chf/pkg/abmf"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/rf"
@@ -27,104 +24,66 @@ import (
 	logger_util "github.com/free5gc/util/logger"
 )
 
-type CHF struct {
-	KeyLogPath string
+type ChfApp struct {
+	cfg    *factory.Config
+	chfCtx *chf_context.CHFContext
 }
 
-type (
-	// Commands information.
-	Commands struct {
-		config string
-	}
-)
+func NewApp(cfg *factory.Config) (*ChfApp, error) {
+	chf := &ChfApp{cfg: cfg}
+	chf.SetLogEnable(cfg.GetLogEnable())
+	chf.SetLogLevel(cfg.GetLogLevel())
+	chf.SetReportCaller(cfg.GetLogReportCaller())
 
-var commands Commands
-
-var cliCmd = []cli.Flag{
-	cli.StringFlag{
-		Name:  "config, c",
-		Usage: "Load configuration from `FILE`",
-	},
-	cli.StringFlag{
-		Name:  "log, l",
-		Usage: "Output NF log to `FILE`",
-	},
-	cli.StringFlag{
-		Name:  "log5gc, lc",
-		Usage: "Output free5gc log to `FILE`",
-	},
+	chf_context.Init()
+	chf.chfCtx = chf_context.GetSelf()
+	return chf, nil
 }
 
-func (*CHF) GetCliCmd() (flags []cli.Flag) {
-	return cliCmd
-}
-
-func (chf *CHF) Initialize(c *cli.Context) error {
-	commands = Commands{
-		config: c.String("config"),
-	}
-
-	if commands.config != "" {
-		if err := factory.InitConfigFactory(commands.config); err != nil {
-			return err
-		}
-	} else {
-		if err := factory.InitConfigFactory(util.ChfDefaultConfigPath); err != nil {
-			return err
-		}
-	}
-
-	if err := factory.CheckConfigVersion(); err != nil {
-		return err
-	}
-
-	if _, err := factory.ChfConfig.Validate(); err != nil {
-		return err
-	}
-
-	chf.setLogLevel()
-
-	return nil
-}
-
-func (chf *CHF) setLogLevel() {
-	if factory.ChfConfig.Logger == nil {
-		logger.InitLog.Warnln("CHF config without log level setting!!!")
+func (c *ChfApp) SetLogEnable(enable bool) {
+	logger.MainLog.Infof("Log enable is set to [%v]", enable)
+	if enable && logger.Log.Out == os.Stderr {
+		return
+	} else if !enable && logger.Log.Out == ioutil.Discard {
 		return
 	}
 
-	if factory.ChfConfig.Logger.CHF != nil {
-		if factory.ChfConfig.Logger.CHF.DebugLevel != "" {
-			if level, err := logrus.ParseLevel(factory.ChfConfig.Logger.CHF.DebugLevel); err != nil {
-				logger.InitLog.Warnf("CHF Log level [%s] is invalid, set to [info] level",
-					factory.ChfConfig.Logger.CHF.DebugLevel)
-				logger.SetLogLevel(logrus.InfoLevel)
-			} else {
-				logger.InitLog.Infof("CHF Log level is set to [%s] level", level)
-				logger.SetLogLevel(level)
-			}
-		} else {
-			logger.InitLog.Infoln("CHF Log level is default set to [info] level")
-			logger.SetLogLevel(logrus.InfoLevel)
-		}
-		logger.SetReportCaller(factory.ChfConfig.Logger.CHF.ReportCaller)
+	c.cfg.SetLogEnable(enable)
+	if enable {
+		logger.Log.SetOutput(os.Stderr)
+	} else {
+		logger.Log.SetOutput(ioutil.Discard)
+
 	}
 }
 
-func (chf *CHF) FilterCli(c *cli.Context) (args []string) {
-	for _, flag := range chf.GetCliCmd() {
-		name := flag.GetName()
-		value := fmt.Sprint(c.Generic(name))
-		if value == "" {
-			continue
-		}
-
-		args = append(args, "--"+name, value)
+func (c *ChfApp) SetLogLevel(level string) {
+	lvl, err := logrus.ParseLevel(level)
+	if err != nil {
+		logger.MainLog.Warnf("Log level [%s] is invalid", level)
+		return
 	}
-	return args
+
+	logger.MainLog.Infof("Log level is set to [%s]", level)
+	if lvl == logger.Log.GetLevel() {
+		return
+	}
+
+	c.cfg.SetLogLevel(level)
+	logger.Log.SetLevel(lvl)
 }
 
-func (chf *CHF) Start() {
+func (a *ChfApp) SetReportCaller(reportCaller bool) {
+	logger.MainLog.Infof("Report Caller is set to [%v]", reportCaller)
+	if reportCaller == logger.Log.ReportCaller {
+		return
+	}
+
+	a.cfg.SetLogReportCaller(reportCaller)
+	logger.Log.SetReportCaller(reportCaller)
+}
+
+func (c *ChfApp) Start(tlsKeyLogPath string) {
 	logger.InitLog.Infoln("Server started")
 	router := logger_util.NewGinWithLogrus(logger.GinLog)
 
@@ -142,18 +101,15 @@ func (chf *CHF) Start() {
 		MaxAge:           86400,
 	}))
 
-	pemPath := util.ChfDefaultPemPath
-	keyPath := util.ChfDefaultKeyPath
+	pemPath := factory.ChfDefaultTLSPemPath
+	keyPath := factory.ChfDefaultTLSKeyPath
 	sbi := factory.ChfConfig.Configuration.Sbi
 	if sbi.Tls != nil {
 		pemPath = sbi.Tls.Pem
 		keyPath = sbi.Tls.Key
 	}
 
-	self := context.CHF_Self()
-	util.InitchfContext(self)
-
-	addr := fmt.Sprintf("%s:%d", self.BindingIPv4, self.SBIPort)
+	self := c.chfCtx
 
 	wg := sync.WaitGroup{}
 
@@ -165,7 +121,7 @@ func (chf *CHF) Start() {
 
 	wg.Add(1)
 	abmf.OpenServer(&wg)
-
+	// Register to NRF
 	profile, err := consumer.BuildNFInstance(self)
 	if err != nil {
 		logger.InitLog.Error("Build CHF Profile Error")
@@ -174,13 +130,11 @@ func (chf *CHF) Start() {
 	if err != nil {
 		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
 	}
-	if err != nil {
-		logger.InitLog.Errorf("CHF register to Webcosole Error[%s]", err.Error())
-	}
+
+	addr := fmt.Sprintf("%s:%d", self.BindingIPv4, self.SBIPort)
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
-
 	go func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -190,11 +144,11 @@ func (chf *CHF) Start() {
 		}()
 
 		<-signalChannel
-		chf.Terminate()
+		c.Terminate()
 		os.Exit(0)
 	}()
 
-	server, err := httpwrapper.NewHttp2Server(addr, chf.KeyLogPath, router)
+	server, err := httpwrapper.NewHttp2Server(addr, tlsKeyLogPath, router)
 	if server == nil {
 		logger.InitLog.Errorf("Initialize HTTP server failed: %+v", err)
 		return
@@ -216,75 +170,7 @@ func (chf *CHF) Start() {
 	}
 }
 
-func (chf *CHF) Exec(c *cli.Context) error {
-	logger.InitLog.Traceln("args:", c.String("chfcfg"))
-	args := chf.FilterCli(c)
-	logger.InitLog.Traceln("filter: ", args)
-	command := exec.Command("./chf", args...)
-
-	stdout, err := command.StdoutPipe()
-	if err != nil {
-		logger.InitLog.Fatalln(err)
-	}
-	wg := sync.WaitGroup{}
-	wg.Add(3)
-	go func() {
-		defer func() {
-			if p := recover(); p != nil {
-				// Print stack for panic to log. Fatalf() will let program exit.
-				logger.InitLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-			}
-		}()
-
-		in := bufio.NewScanner(stdout)
-		for in.Scan() {
-			fmt.Println(in.Text())
-		}
-		wg.Done()
-	}()
-
-	stderr, err := command.StderrPipe()
-	if err != nil {
-		logger.InitLog.Fatalln(err)
-	}
-	go func() {
-		defer func() {
-			if p := recover(); p != nil {
-				// Print stack for panic to log. Fatalf() will let program exit.
-				logger.InitLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-			}
-		}()
-
-		in := bufio.NewScanner(stderr)
-		fmt.Println("CHF log start")
-		for in.Scan() {
-			fmt.Println(in.Text())
-		}
-		wg.Done()
-	}()
-
-	go func() {
-		defer func() {
-			if p := recover(); p != nil {
-				// Print stack for panic to log. Fatalf() will let program exit.
-				logger.InitLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-			}
-		}()
-
-		fmt.Println("CHF start")
-		if err = command.Start(); err != nil {
-			fmt.Printf("command.Start() error: %v", err)
-		}
-		fmt.Println("CHF end")
-		wg.Done()
-	}()
-
-	wg.Wait()
-
-	return err
-}
-
-func (chf *CHF) Terminate() {
+func (c *ChfApp) Terminate() {
 	logger.InitLog.Infof("Terminating CHF...")
 	// deregister with NRF
 	problemDetails, err := consumer.SendDeregisterNFInstance()

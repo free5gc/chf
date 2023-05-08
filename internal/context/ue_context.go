@@ -78,7 +78,7 @@ func (ue *ChfUe) init() {
 	ue.AcctChan = make(chan *diam.Message)
 	ue.RatingType = make(map[int32]charging_datatype.RequestSubType)
 	// Create the state machine (it's a diam.ServeMux) and client.
-	ue.RatingMux = sm.New(chfCtx.RatingCfg)
+	ue.RatingMux = sm.New(chfContext.RatingCfg)
 	ue.RatingClient = &sm.Client{
 		Dict:               dict.Default,
 		Handler:            ue.RatingMux,
@@ -92,7 +92,7 @@ func (ue *ChfUe) init() {
 		},
 	}
 
-	ue.AbmfMux = sm.New(chfCtx.AbmfCfg)
+	ue.AbmfMux = sm.New(chfContext.AbmfCfg)
 	ue.AbmfClient = &sm.Client{
 		Dict:               dict.Default,
 		Handler:            ue.AbmfMux,

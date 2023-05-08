@@ -45,6 +45,13 @@ func OpenServer(wg *sync.WaitGroup) {
 	// Application (RFC4006).
 	logger.AcctLog.Infof("Open Account Balance Management Server")
 
+	mongodb := factory.ChfConfig.Configuration.Mongodb
+	// Connect to MongoDB
+	if err := mongoapi.SetMongoDB(mongodb.Name, mongodb.Url); err != nil {
+		logger.InitLog.Errorf("InitpcfContext err: %+v", err)
+		return
+	}
+
 	err := dict.Default.Load(bytes.NewReader([]byte(charging_dict.AbmfDictionary)))
 	if err != nil {
 		logger.RatingLog.Error(err)

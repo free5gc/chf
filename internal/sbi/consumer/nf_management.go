@@ -14,16 +14,18 @@ import (
 	"github.com/free5gc/openapi/models"
 )
 
-func BuildNFInstance(context *chf_context.CHFContext) (profile models.NfProfile, err error) {
-	profile.NfInstanceId = context.NfId
+func BuildNFInstance(chfContext *chf_context.CHFContext) (profile models.NfProfile, err error) {
+	profile.NfInstanceId = chfContext.NfId
 	profile.NfType = models.NfType_CHF
 	profile.NfStatus = models.NfStatus_REGISTERED
-	profile.Ipv4Addresses = append(profile.Ipv4Addresses, context.RegisterIPv4)
-	service := []models.NfService{}
-	for _, nfService := range context.NfService {
-		service = append(service, nfService)
+	profile.Ipv4Addresses = append(profile.Ipv4Addresses, chfContext.RegisterIPv4)
+	services := []models.NfService{}
+	for _, nfService := range chfContext.NfService {
+		services = append(services, nfService)
 	}
-	profile.NfServices = &service
+	if len(services) > 0 {
+		profile.NfServices = &services
+	}
 	profile.ChfInfo = &models.ChfInfo{
 		// Todo
 		// SupiRanges: &[]models.SupiRange{
@@ -50,8 +52,7 @@ func SendRegisterNFInstance(nrfUri, nfInstanceId string, profile models.NfProfil
 	for {
 		_, res, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(context.TODO(), nfInstanceId, profile)
 		if err != nil || res == nil {
-			// TODO : add log
-			fmt.Println(fmt.Errorf("CHF register to NRF Error[%v]", err.Error()))
+			logger.ConsumerLog.Errorf("CHF register to NRF Error[%v]", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -71,6 +72,7 @@ func SendRegisterNFInstance(nrfUri, nfInstanceId string, profile models.NfProfil
 			retrieveNfInstanceID = resourceUri[strings.LastIndex(resourceUri, "/")+1:]
 			break
 		} else {
+			fmt.Println(fmt.Errorf("handler returned wrong status code %d", status))
 			fmt.Println("NRF return wrong status code", status)
 		}
 	}
@@ -80,7 +82,7 @@ func SendRegisterNFInstance(nrfUri, nfInstanceId string, profile models.NfProfil
 func SendDeregisterNFInstance() (problemDetails *models.ProblemDetails, err error) {
 	logger.ConsumerLog.Infof("Send Deregister NFInstance")
 
-	chfSelf := chf_context.CHF_Self()
+	chfSelf := chf_context.GetSelf()
 	// Set client and set url
 	configuration := Nnrf_NFManagement.NewConfiguration()
 	configuration.SetBasePath(chfSelf.NrfUri)

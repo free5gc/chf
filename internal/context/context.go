@@ -2,32 +2,26 @@ package context
 
 import (
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/idgenerator"
 )
 
-var chfCtx *CHFContext
+var chfContext CHFContext
 
-func init() {
-	chfCtx = new(CHFContext)
-	chfCtx.Name = "chf"
-	chfCtx.UriScheme = models.UriScheme_HTTPS
-	chfCtx.NfService = make(map[models.ServiceName]models.NfService)
-	chfCtx.RatingSessionIdGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
-	chfCtx.AccountSessionIdGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
+func Init() {
+
+	InitChfContext(&chfContext)
 }
 
 type CHFContext struct {
 	NfId                      string
 	Name                      string
+	Url                       string
 	UriScheme                 models.UriScheme
 	BindingIPv4               string
 	RegisterIPv4              string
@@ -43,45 +37,6 @@ type CHFContext struct {
 
 	RatingSessionIdGenerator  *idgenerator.IDGenerator
 	AccountSessionIdGenerator *idgenerator.IDGenerator
-}
-
-// Create new CHF context
-func CHF_Self() *CHFContext {
-	return chfCtx
-}
-
-func (c *CHFContext) GetIPv4Uri() string {
-	return fmt.Sprintf("%s://%s:%d", c.UriScheme, c.RegisterIPv4, c.SBIPort)
-}
-
-// Init NfService with supported service list ,and version of services
-func (c *CHFContext) InitNFService(serviceList []factory.Service, version string) {
-	tmpVersion := strings.Split(version, ".")
-	versionUri := "v" + tmpVersion[0]
-	for index, service := range serviceList {
-		name := models.ServiceName(service.ServiceName)
-		c.NfService[name] = models.NfService{
-			ServiceInstanceId: strconv.Itoa(index),
-			ServiceName:       name,
-			Versions: &[]models.NfServiceVersion{
-				{
-					ApiFullVersion:  version,
-					ApiVersionInUri: versionUri,
-				},
-			},
-			Scheme:          c.UriScheme,
-			NfServiceStatus: models.NfServiceStatus_REGISTERED,
-			ApiPrefix:       c.GetIPv4Uri(),
-			IpEndPoints: &[]models.IpEndPoint{
-				{
-					Ipv4Address: c.RegisterIPv4,
-					Transport:   models.TransportProtocol_TCP,
-					Port:        int32(c.SBIPort),
-				},
-			},
-			SupportedFeatures: service.SuppFeat,
-		}
-	}
 }
 
 func (context *CHFContext) AddChfUeToUePool(ue *ChfUe, supi string) {
@@ -119,15 +74,23 @@ func (context *CHFContext) ChfUeFindBySupi(supi string) (*ChfUe, bool) {
 }
 
 func GenerateRatingSessionId() uint32 {
-	if id, err := chfCtx.RatingSessionIdGenerator.Allocate(); err == nil {
+	if id, err := chfContext.RatingSessionIdGenerator.Allocate(); err == nil {
 		return uint32(id)
 	}
 	return 0
 }
 
 func GenerateAccountSessionId() uint32 {
-	if id, err := chfCtx.AccountSessionIdGenerator.Allocate(); err == nil {
+	if id, err := chfContext.AccountSessionIdGenerator.Allocate(); err == nil {
 		return uint32(id)
 	}
 	return 0
+}
+
+func GetSelf() *CHFContext {
+	return &chfContext
+}
+
+func (c *CHFContext) GetSelfID() string {
+	return c.NfId
 }

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/gin-gonic/gin"
 
 	"github.com/free5gc/chf/internal/logger"
@@ -43,7 +44,7 @@ func NewRouter() *gin.Engine {
 }
 
 func AddService(engine *gin.Engine) *gin.RouterGroup {
-	group := engine.Group("/nchf-convergedcharging/v3")
+	group := engine.Group(factory.ConvergedChargingResUriPrefix)
 
 	for _, route := range routes {
 		switch route.Method {

@@ -18,7 +18,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, ses
 	var chfCdr cdrType.ChargingRecord
 	logger.ChargingdataPostLog.Tracef("Open CDR")
 
-	self := chf_context.CHF_Self()
+	self := chf_context.GetSelf()
 
 	// Record Sequence Number(Conditional IE): Partial record sequence number, only present in case of partial records.
 	// Partial CDR: Fragments of CDR, for long session charging
