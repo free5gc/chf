@@ -391,7 +391,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 	for unitUsageNum, unitUsage := range chargingData.MultipleUnitUsage {
 		var totalUsaedUnit uint32
 		var finalUnitIndication models.FinalUnitIndication
-		offline := true
+		creditControl := false
 
 		rg := unitUsage.RatingGroup
 		if !ue.FindRatingGroup(rg) {
@@ -399,12 +399,19 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
 		}
 
+		if unitUsage.RequestedUnit != nil {
+			creditControl = true
+		}
+
 		for _, useduint := range unitUsage.UsedUnitContainer {
 			switch useduint.QuotaManagementIndicator {
 			case models.QuotaManagementIndicator_OFFLINE_CHARGING:
 				continue
 			case models.QuotaManagementIndicator_ONLINE_CHARGING:
-				offline = false
+				if useduint.TotalVolume != 0 {
+					creditControl = true
+				}
+
 				for _, trigger := range chargingData.Triggers {
 					// Check if partial record is needed
 
@@ -427,10 +434,11 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				logger.ChargingdataPostLog.Errorf("Current do not support QUOTA MANAGEMENT SUSPENDED")
 			}
 		}
-		if offline {
+		if !creditControl {
+			logger.ChargingdataPostLog.Tracef("Credit Control are not requires")
 			continue
 		}
-		// Only online charging need to perform credit control
+		// Only online charging with request unit or used unit need to perform credit control
 
 		ccr := &charging_datatype.AccountDebitRequest{
 			SessionId:       datatype.UTF8String(strconv.Itoa(int(ue.AcctSessionId))),
@@ -473,22 +481,11 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
 				logger.ChargingdataPostLog.Tracef("UsedUnit %v UnitCost: %v", totalUsaedUnit, ue.UnitCost[rg])
 
-				prevReserved := ue.ReservedQuota[rg]
+				requestedQuota := uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg]
 				usedQuota := int64(totalUsaedUnit * ue.UnitCost[rg])
 				ue.ReservedQuota[rg] -= usedQuota
 
-				insufficient := usedQuota - prevReserved
-				if insufficient > 0 {
-					// make sure that the next reserved quota is bigger then the next used quota
-					reserveQuota := prevReserved + insufficient*3
-					ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-						RatingGroup: datatype.Unsigned32(rg),
-						// Before reserve, first deduct the insufficient from the quota
-						RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-							CCTotalOctets: datatype.Unsigned64(reserveQuota),
-						},
-					}
-				} else {
+				if ue.ReservedQuota[rg] > 0 {
 					// If the reserved quota is bigger then the used quota,
 					// replenish the used quota to the ReservedQuota
 					// so that ReservedQuota remains the same
@@ -500,6 +497,16 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 					}
 
 					logger.ChargingdataPostLog.Tracef("still remain reserved quota, replenish used quota: %v", usedQuota)
+				} else {
+					// make sure that the execeed unit usage will be deduct to the account
+					reserveQuota := requestedQuota + uint32(-1*ue.ReservedQuota[rg])
+					ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+						RatingGroup: datatype.Unsigned32(rg),
+						// Before reserve, first deduct the insufficient from the quota
+						RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
+							CCTotalOctets: datatype.Unsigned64(reserveQuota),
+						},
+					}
 				}
 			}
 
@@ -539,18 +546,39 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
 				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
 
-			grantedUnit := uint32(serviceUsageRsp.ServiceRating.AllowedUnits)
-			logger.ChargingdataPostLog.Tracef("granted Unit: %d", grantedUnit)
+			// Even if the reserved quota allows more unit compare to the request unit to be reserved,
+			// we still return the request unit back to smf
+			var grantedUnit uint32
+			if uint32(serviceUsageRsp.ServiceRating.AllowedUnits) > uint32(unitUsage.RequestedUnit.TotalVolume) {
+				grantedUnit = uint32(unitUsage.RequestedUnit.TotalVolume)
+			} else {
+				grantedUnit = uint32(serviceUsageRsp.ServiceRating.AllowedUnits)
+			}
 
 			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
+				unitInformation.Triggers = append(unitInformation.Triggers,
+					models.Trigger{
+						TriggerType:     models.TriggerType_QUOTA_THRESHOLD,
+						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					},
+				)
+
 				unitInformation.VolumeQuotaThreshold = int32(float32(grantedUnit) * ue.VolumeThresholdRate)
 			}
+
+			unitInformation.Triggers = append(unitInformation.Triggers,
+				models.Trigger{
+					TriggerType:     models.TriggerType_QUOTA_EXHAUSTED,
+					TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+				},
+			)
 
 			unitInformation.GrantedUnit = &models.GrantedUnit{
 				TotalVolume:    int32(grantedUnit),
 				DownlinkVolume: int32(grantedUnit),
 				UplinkVolume:   int32(grantedUnit),
 			}
+			logger.ChargingdataPostLog.Tracef("granted Unit: %d", unitInformation.GrantedUnit.TotalVolume)
 
 			// The timer of VolumeLimit is remain in SMF
 			if ue.VolumeLimit != 0 {
@@ -576,6 +604,12 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 			// The timer of QuotaValidityTime is remain in UPF
 			if ue.QuotaValidityTime != 0 {
+				unitInformation.Triggers = append(unitInformation.Triggers,
+					models.Trigger{
+						TriggerType:     models.TriggerType_VALIDITY_TIME,
+						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					},
+				)
 				unitInformation.ValidityTime = ue.QuotaValidityTime
 			}
 
@@ -630,6 +664,18 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				continue
 			}
 			ue.ReservedQuota[rg] = 0
+
+			unitInformation.Triggers = append(unitInformation.Triggers,
+				models.Trigger{
+					TriggerType:     models.TriggerType_QUOTA_EXHAUSTED,
+					TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+				},
+			)
+			unitInformation.GrantedUnit = &models.GrantedUnit{
+				TotalVolume:    int32(0),
+				DownlinkVolume: int32(0),
+				UplinkVolume:   int32(0),
+			}
 		}
 		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
 
