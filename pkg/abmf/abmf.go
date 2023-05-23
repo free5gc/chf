@@ -37,7 +37,7 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 )
 
-const chargingDatasColl = "chargingDatas"
+const chargingDatasColl = "policyData.ues.chargingData"
 
 func OpenServer(wg *sync.WaitGroup) {
 	// Load our custom dictionary on top of the default one, which
