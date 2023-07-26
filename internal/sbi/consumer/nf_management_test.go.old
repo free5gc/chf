@@ -1,0 +1,50 @@
+package consumer_test
+
+import (
+	"github.com/free5gc/openapi/Nnrf_NFDiscovery"
+	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/chf/consumer"
+	"github.com/free5gc/chf/factory"
+	chf_service "github.com/free5gc/chf/service"
+	"github.com/free5gc/util/mongoapi"
+	"flag"
+	nrf_service "free5gc/src/nrf/service"
+	"testing"
+	"time"
+
+	"github.com/antihax/optional"
+	"github.com/urfave/cli"
+	"go.mongodb.org/mongo-driver/bson"
+)
+
+var flags flag.FlagSet
+var c = cli.NewContext(nil, &flags, nil)
+
+func nrfInit() {
+	nrf := &nrf_service.NRF{}
+	nrf.Initialize(c)
+	go nrf.Start()
+	time.Sleep(100 * time.Millisecond)
+}
+func TestRegisterNFInstance(t *testing.T) {
+	// init NRF
+	nrfInit()
+	// Clear DB
+	mongoapi.RestfulAPIDeleteMany("NfProfile", bson.M{})
+	time.Sleep(50 * time.Millisecond)
+	// Init CHF and register to NRF
+	chf := chf_service.CHF{}
+	chf.Initialize(c)
+	go chf.Start()
+	time.Sleep(50 * time.Millisecond)
+	// Send NF Discovery to discover CHF
+	param := Nnrf_NFDiscovery.SearchNFInstancesParamOpts{
+		ServiceNames: optional.NewInterface([]models.ServiceName{models.ServiceName_NCHF_AM_POLICY_CONTROL, models.ServiceName_NCHF_BDTPOLICYCONTROL, models.ServiceName_NCHF_POLICYAUTHORIZATION, models.ServiceName_NCHF_SMPOLICYCONTROL, models.ServiceName_NCHF_UE_POLICY_CONTROL}),
+	}
+	result, err := consumer.SendSearchNFInstances(factory.ChfConfig.Configuration.NrfUri, models.NfType_CHF, models.NfType_UDR, param)
+	if err != nil {
+		t.Error(err.Error())
+	} else if result.NfInstances == nil {
+		t.Error("NF Instances is nil")
+	}
+}
