@@ -9,8 +9,8 @@ require (
 	github.com/fclairamb/ftpserverlib v0.21.0
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
-	github.com/free5gc/openapi v1.0.6
-	github.com/free5gc/util v1.0.5-0.20230303071613-d4801614f71b
+	github.com/free5gc/openapi v1.0.7-0.20230802173229-2b3ded4db293
+	github.com/free5gc/util v1.0.5-0.20230511064842-2e120956883b
 	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-gonic/gin v1.9.0
 	github.com/google/uuid v1.3.0
@@ -98,5 +98,3 @@ require (
 	gopkg.in/h2non/gock.v1 v1.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/free5gc/openapi => /home/free5gc/openapi
