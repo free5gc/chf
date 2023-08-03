@@ -21,7 +21,7 @@ func RechargePut(c *gin.Context) {
 	rgStr := ueIdRatingGroup[1]
 	rg, err := strconv.Atoi(rgStr)
 	if err != nil {
-		logger.RechargingLog.Error("UE[%s] fail to recharge for rating group %s", ueId, rgStr)
+		logger.RechargingLog.Errorf("UE[%s] fail to recharge for rating group %s", ueId, rgStr)
 	}
 
 	logger.RechargingLog.Warnf("UE[%s] Recharg for rating group %d", ueId, rg)

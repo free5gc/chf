@@ -68,14 +68,33 @@ func parseInt64(bytes []byte) (r int64, e error) {
 		return
 	}
 
+	minus := false
+	if uint(bytes[0]) > 127 {
+		minus = true
+	}
+
+	for i := 0; i < 8-len(bytes); i++ {
+		extend_byte := byte(0)
+		if minus {
+			extend_byte = byte(255)
+		}
+		bytes = append([]byte{extend_byte}, bytes...)
+	}
+
+	if minus {
+		for i := range bytes {
+			bytes[i] = ^bytes[i]
+		}
+	}
+
 	for _, b := range bytes {
 		r <<= 8
 		r |= int64(b)
-		// fmt.Println("r", r, "int64(b)", int64(b))
 	}
 
-	// r <<= 64 - len(bytes)*8
-	// r >>= 64 - len(bytes)*8
+	if minus {
+		r = -r - 1
+	}
 
 	return
 }
@@ -89,7 +108,6 @@ func parseBool(b byte) (bool, error) {
 // in the given Value. TODO : ObjectIdenfier
 func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 	fieldType := v.Type()
-	// fmt.Println(fieldType)
 
 	// If we have run out of data return error.
 	if v.Kind() == reflect.Ptr {
