@@ -95,11 +95,11 @@ func printErrors(ec <-chan *diam.ErrorReport) {
 func listen(addr, cert, key string, handler diam.Handler) error {
 	// Start listening for connections.
 	if len(cert) > 0 && len(key) > 0 {
-		logger.AcctLog.Infof("Starting secure diameter server on", addr)
+		logger.AcctLog.Infof("Starting secure diameter server on %s", addr)
 		return diam.ListenAndServeTLS(addr, cert, key, handler, nil)
 	}
 
-	logger.AcctLog.Infof("Starting diameter server on", addr)
+	logger.AcctLog.Infof("Starting diameter server on %s", addr)
 	return diam.ListenAndServe(addr, handler, nil)
 }
 
