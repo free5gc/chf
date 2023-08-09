@@ -433,7 +433,7 @@ func TestUnmarshal(t *testing.T) {
 
 func TestParseInt64(t *testing.T) {
 	testCases := [][]byte{}
-	origInts := []int{0, 1, 127, 128, 32767, -128, -129, -32768}
+	origInts := []int64{0, 1, 127, 128, 32767, -128, -129, -32768}
 
 	for _, origInt := range origInts {
 		buf := new(bytes.Buffer)
@@ -452,21 +452,11 @@ func TestParseInt64(t *testing.T) {
 		testCases = append(testCases, buf.Bytes())
 	}
 
-	ans := []int64{
-		0, 0, 0,
-		1, 1, 1,
-		127, 127, 127,
-		128, 128, 128,
-		32767, 32767, 32767,
-		-128, -128, -128,
-		-129, -129, -129,
-		-32768, -32768, -32768,
-	}
 	for i, tc := range testCases {
 		t.Run(string(tc), func(t *testing.T) {
 			r, err := parseInt64(tc)
 			require.NoError(t, err)
-			require.Equal(t, ans[i], r)
+			require.Equal(t, origInts[i/3], r)
 		})
 	}
 }
