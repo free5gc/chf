@@ -1,6 +1,8 @@
 package asn
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"reflect"
 	"testing"
@@ -425,6 +427,36 @@ func TestUnmarshal(t *testing.T) {
 			require.NoError(t, err)
 			// require.Equal(t, tc.out, val)
 			require.True(t, reflect.DeepEqual(tc.out, val))
+		})
+	}
+}
+
+func TestParseInt64(t *testing.T) {
+	testCases := [][]byte{}
+	origInts := []int64{0, 1, 127, 128, 32767, -128, -129, -32768}
+
+	for _, origInt := range origInts {
+		buf := new(bytes.Buffer)
+		err := binary.Write(buf, binary.BigEndian, int64(origInt))
+		require.NoError(t, err)
+		testCases = append(testCases, buf.Bytes())
+
+		buf = new(bytes.Buffer)
+		err = binary.Write(buf, binary.BigEndian, int32(origInt))
+		require.NoError(t, err)
+		testCases = append(testCases, buf.Bytes())
+
+		buf = new(bytes.Buffer)
+		err = binary.Write(buf, binary.BigEndian, int16(origInt))
+		require.NoError(t, err)
+		testCases = append(testCases, buf.Bytes())
+	}
+
+	for i, tc := range testCases {
+		t.Run(string(tc), func(t *testing.T) {
+			r, err := parseInt64(tc)
+			require.NoError(t, err)
+			require.Equal(t, origInts[i/3], r)
 		})
 	}
 }
