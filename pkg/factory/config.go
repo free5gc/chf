@@ -16,8 +16,8 @@ import (
 
 const (
 	ChfDefaultTLSKeyLogPath       = "./log/chfsslkey.log"
-	ChfDefaultTLSPemPath          = "./cert/TLS/chf.pem"
-	ChfDefaultTLSKeyPath          = "./cert/TLS/chf.key"
+	ChfDefaultTLSPemPath          = "./cert/chf.pem"
+	ChfDefaultTLSKeyPath          = "./cert/chf.key"
 	ChfDefaultConfigPath          = "./config/chfcfg.yaml"
 	ChfSbiDefaultIPv4             = "127.0.0.113"
 	ChfSbiDefaultPort             = 8000

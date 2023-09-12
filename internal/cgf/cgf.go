@@ -114,11 +114,11 @@ func Login() error {
 
 	err = c.Login(cgf.ftpConfig.Accesses[0].User, cgf.ftpConfig.Accesses[0].Pass)
 	if err != nil {
-		logger.CgfLog.Warnf("Login FTP server Fail")
+		logger.CgfLog.Warnf("Login FTP server fail")
 		return err
 	}
 
-	logger.CgfLog.Info("Login FTP server")
+	logger.CgfLog.Info("Login FTP server succeed")
 	cgf.conn = c
 	return err
 }
@@ -146,6 +146,9 @@ func SendCDR(supi string) error {
 	return nil
 }
 
+const FTP_LOGIN_RETRY_NUMBER = 3
+const FTP_LOGIN_RETRY_WAITING_TIME = 1 * time.Second // second
+
 func (f *Cgf) Serve(wg *sync.WaitGroup) {
 	defer func() {
 		logger.CgfLog.Error("FTP server stopped")
@@ -153,8 +156,17 @@ func (f *Cgf) Serve(wg *sync.WaitGroup) {
 		wg.Done()
 	}()
 
-	if err := Login(); err != nil {
-		logger.CgfLog.Error("Login to Webconsole FTP fail", "err", err)
+	for i := 0; i < FTP_LOGIN_RETRY_NUMBER; i++ {
+		if err := Login(); err != nil {
+			if i < FTP_LOGIN_RETRY_NUMBER {
+				logger.CgfLog.Warnf("Login to Webconsole FTP fail: %s, retrying [%d]\n", err, i+1)
+			} else {
+				logger.CgfLog.Errorln("Login to Webconsole FTP fail ", err)
+			}
+			time.Sleep(FTP_LOGIN_RETRY_WAITING_TIME)
+		} else {
+			break
+		}
 	}
 
 	if err := f.ftpServer.ListenAndServe(); err != nil {
