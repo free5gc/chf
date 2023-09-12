@@ -2,7 +2,7 @@ package util
 
 const (
 	ChfDefaultKeyLogPath = "./log/chfsslkey.log"
-	ChfDefaultPemPath    = "./config/TLS/chf.pem"
-	ChfDefaultKeyPath    = "./config/TLS/chf.key"
+	ChfDefaultPemPath    = "./cert/chf.pem"
+	ChfDefaultKeyPath    = "./cert/chf.key"
 	ChfDefaultConfigPath = "./config/chfcfg.yaml"
 )
