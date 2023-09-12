@@ -146,6 +146,9 @@ func SendCDR(supi string) error {
 	return nil
 }
 
+const FTP_LOGIN_RETRY_NUMBER = 3
+const FTP_LOGIN_RETRY_WAITING_TIME = 1 * time.Second // second
+
 func (f *Cgf) Serve(wg *sync.WaitGroup) {
 	defer func() {
 		logger.CgfLog.Error("FTP server stopped")
@@ -153,14 +156,14 @@ func (f *Cgf) Serve(wg *sync.WaitGroup) {
 		wg.Done()
 	}()
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < FTP_LOGIN_RETRY_NUMBER; i++ {
 		if err := Login(); err != nil {
-			if i < 3 {
+			if i < FTP_LOGIN_RETRY_NUMBER {
 				logger.CgfLog.Warnf("Login to Webconsole FTP fail: %s, retrying [%d]\n", err, i+1)
 			} else {
 				logger.CgfLog.Errorln("Login to Webconsole FTP fail ", err)
 			}
-			time.Sleep(1 * time.Second)
+			time.Sleep(FTP_LOGIN_RETRY_WAITING_TIME)
 		} else {
 			break
 		}
