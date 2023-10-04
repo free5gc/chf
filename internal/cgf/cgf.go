@@ -156,12 +156,13 @@ func (f *Cgf) Serve(wg *sync.WaitGroup) {
 		wg.Done()
 	}()
 
-	for i := 0; i < FTP_LOGIN_RETRY_NUMBER; i++ {
+	for i := 0; ; i++ {
 		if err := Login(); err != nil {
 			if i < FTP_LOGIN_RETRY_NUMBER {
 				logger.CgfLog.Warnf("Login to Webconsole FTP fail: %s, retrying [%d]\n", err, i+1)
 			} else {
 				logger.CgfLog.Errorln("Login to Webconsole FTP fail ", err)
+				return
 			}
 			time.Sleep(FTP_LOGIN_RETRY_WAITING_TIME)
 		} else {
