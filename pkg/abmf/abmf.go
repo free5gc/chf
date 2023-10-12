@@ -127,8 +127,10 @@ func handleCCR() diam.HandlerFunc {
 		// Retrieve quota into mongoDB
 		filter := bson.M{"ueId": subscriberId, "ratingGroup": rg}
 		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDatasColl, filter)
-		if err != nil {
-			logger.AcctLog.Errorf("Get quota error: %+v", err)
+
+		if chargingInterface == nil {
+			logger.AcctLog.Errorf("chargingInterface is nil, err: %v", err)
+			return
 		}
 
 		quotaStr := chargingInterface["quota"].(string)
