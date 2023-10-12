@@ -40,7 +40,7 @@ func init() {
 	CtxLog = NfLog.WithField(logger_util.FieldCategory, "CTX")
 	ConsumerLog = NfLog.WithField(logger_util.FieldCategory, "Consumer")
 	GinLog = NfLog.WithField(logger_util.FieldCategory, "GIN")
-	ChargingdataPostLog = NfLog.WithField(logger_util.FieldCategory, "CharghingPost")
+	ChargingdataPostLog = NfLog.WithField(logger_util.FieldCategory, "ChargingPost")
 	NotifyEventLog = NfLog.WithField(logger_util.FieldCategory, "NotifyEvent")
 	RechargingLog = NfLog.WithField(logger_util.FieldCategory, "Recharge")
 	CgfLog = NfLog.WithField(logger_util.FieldCategory, "CGF")
