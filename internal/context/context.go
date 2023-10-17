@@ -49,6 +49,7 @@ func (context *CHFContext) AddChfUeToUePool(ue *ChfUe, supi string) {
 
 // Allocate CHF Ue with supi and add to chf Context and returns allocated ue
 func (context *CHFContext) NewCHFUe(supi string) (*ChfUe, error) {
+	logger.ChargingdataPostLog.Infof("NewCHFUe: %s", supi)
 	if ue, ok := context.ChfUeFindBySupi(supi); ok {
 		return ue, nil
 	}

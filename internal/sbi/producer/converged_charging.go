@@ -192,7 +192,6 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	logger.ChargingdataPostLog.Infof("Open CDR for UE %s", ueId)
 
 	// build response
-	logger.ChargingdataPostLog.Infof("NewChfUe %s", ueId)
 	locationURI := self.Url + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
 	timeStamp := time.Now()
 
