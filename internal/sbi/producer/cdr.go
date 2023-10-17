@@ -52,7 +52,7 @@ func OpenCDR(chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, ses
 	}
 
 	// 32.298 5.1.5.1.5 Local Record Sequence Number
-	// TODO determine local record sequnece number
+	// TODO determine Local Record Sequenece Number
 	self.LocalRecordSequenceNumber++
 	chfCdr.LocalRecordSequenceNumber = &cdrType.LocalSequenceNumber{
 		Value: int64(self.LocalRecordSequenceNumber),
@@ -242,6 +242,7 @@ func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 }
 
 func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
+	logger.ChargingdataPostLog.Infof("dump CDR File")
 	var cdrfile cdrFile.CDRFile
 	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
 	cdrfile.Hdr.LengthOfPrivateExtension = 0

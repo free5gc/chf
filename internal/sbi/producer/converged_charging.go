@@ -132,6 +132,7 @@ func HandleChargingdataRelease(request *httpwrapper.Request) *httpwrapper.Respon
 
 func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.ChargingDataResponse,
 	string, *models.ProblemDetails) {
+	logger.ChargingdataPostLog.Infoln("Create Charging Data")
 	var responseBody models.ChargingDataResponse
 	var chargingSessionId string
 
@@ -140,7 +141,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 
 	// Open CDR
 	// ChargingDataRef(charging session id):
-	// A unique identifier for a charging data resource in a PLMN
+	// An unique identifier for a charging data resource in a PLMN
 	// TODO determine charging session id(string type) supi+consumerid+localseq?
 	ue, err := self.NewCHFUe(ueId)
 	if err != nil {
@@ -188,12 +189,6 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 		}
 	}
 
-	// CDR Transfer
-	err = cgf.SendCDR(chargingData.SubscriberIdentifier)
-	if err != nil {
-		logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain %v", err)
-	}
-
 	logger.ChargingdataPostLog.Infof("Open CDR for UE %s", ueId)
 
 	// build response
@@ -209,6 +204,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 
 func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSessionId string) (*models.ChargingDataResponse,
 	*models.ProblemDetails) {
+	logger.ChargingdataPostLog.Infoln("Update Charging Data")
 	var records []*cdrType.CHFRecord
 
 	self := chf_context.GetSelf()
@@ -266,7 +262,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 
 	err = cgf.SendCDR(chargingData.SubscriberIdentifier)
 	if err != nil {
-		logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain %v", err)
+		logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain: %v", err)
 	}
 
 	timeStamp := time.Now()
