@@ -157,9 +157,9 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 
 	ue.NotifyUri = chargingData.NotifyUri
 
-	consumerId := chargingData.NfConsumerIdentification.NFName
+	consumerNfName := chargingData.NfConsumerIdentification.NFName
 	if !chargingData.OneTimeEvent {
-		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
+		chargingSessionId = ueId + consumerNfName + strconv.Itoa(int(self.LocalRecordSequenceNumber))
 	}
 	cdr, err := OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
