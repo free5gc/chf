@@ -170,7 +170,7 @@ func (b bitStringEncoder) Encode(dst []byte) {
 }
 
 // NOTE: for managementextension field
-type oidEncoder ObjectIdentifier
+// type oidEncoder ObjectIdentifier		// Commenting as unused
 
 func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 	if !v.IsValid() {
@@ -219,7 +219,7 @@ func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 			tag.class = ClassUniversal
 			tag.constructed = false
 			tag.tagNumber = TagBoolean
-			if v.Bool() == true {
+			if v.Bool() {
 				berType.value = byteEncoder(0xff)
 			} else {
 				berType.value = byteEncoder(0)
@@ -295,7 +295,7 @@ func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 					var err error
 					s[i], err = makeField(val.Field(i), tempParams)
 					if err != nil {
-						fmt.Errorf("iterate subtype error")
+						return nil, fmt.Errorf("iterate subtype error")
 					}
 
 					berType.value = structEncoder(s)
@@ -316,7 +316,7 @@ func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 			for i := 0; i < v.Len(); i++ {
 				s[i], err = makeField(val.Index(i), tempParams)
 				if err != nil {
-					fmt.Errorf("iterate subtype error")
+					return nil, fmt.Errorf("iterate subtype error")
 				}
 			}
 

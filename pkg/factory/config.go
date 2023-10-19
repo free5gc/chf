@@ -147,15 +147,16 @@ type Mongodb struct {
 	Url  string `yaml:"url" valid:"required"`
 }
 
-func (m *Mongodb) validate() (bool, error) {
-	pattern := `[-a-zA-Z0-9@:%._\+~#=]{1,256}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)`
-	if result := govalidator.StringMatches(m.Url, pattern); !result {
-		err := fmt.Errorf("Invalid Url: %s", m.Url)
-		return result, err
-	}
-	result, err := govalidator.ValidateStruct(m)
-	return result, err
-}
+// Commenting the unused function
+// func (m *Mongodb) validate() (bool, error) {
+// 	pattern := `[-a-zA-Z0-9@:%._\+~#=]{1,256}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)`
+// 	if result := govalidator.StringMatches(m.Url, pattern); !result {
+// 		err := fmt.Errorf("Invalid Url: %s", m.Url)
+// 		return result, err
+// 	}
+// 	result, err := govalidator.ValidateStruct(m)
+// 	return result, err
+// }
 
 func appendInvalid(err error) error {
 	var errs govalidator.Errors
