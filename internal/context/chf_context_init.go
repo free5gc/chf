@@ -28,6 +28,9 @@ func InitChfContext(context *CHFContext) {
 	context.NfId = uuid.New().String()
 	context.Name = "CHF"
 	context.NrfUri = configuration.NrfUri
+	if configuration.NrfCerPem != "" {
+		context.NrfCerPem = configuration.NrfCerPem
+	}
 	context.UriScheme = models.UriScheme(configuration.Sbi.Scheme)
 	context.RatingSessionIdGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
 	context.AccountSessionIdGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
