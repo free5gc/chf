@@ -40,6 +40,7 @@ func parseTagAndLength(bytes []byte) (r tagAndLen, off int, e error) {
 		// fmt.Println("len", len)
 		if len > 3 {
 			e = fmt.Errorf("length is too large")
+			return
 		}
 		off++
 		var val int64

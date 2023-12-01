@@ -91,16 +91,17 @@ func printErrors(ec <-chan *diam.ErrorReport) {
 	}
 }
 
-func listen(addr, cert, key string, handler diam.Handler) error {
-	// Start listening for connections.
-	if len(cert) > 0 && len(key) > 0 {
-		logger.RatingLog.Infof("Starting secure diameter server on %s", addr)
-		return diam.ListenAndServeTLS(addr, cert, key, handler, nil)
-	}
+// Commenting the unused function
+// func listen(addr, cert, key string, handler diam.Handler) error {
+// 	// Start listening for connections.
+// 	if len(cert) > 0 && len(key) > 0 {
+// 		logger.RatingLog.Infof("Starting secure diameter server on %s", addr)
+// 		return diam.ListenAndServeTLS(addr, cert, key, handler, nil)
+// 	}
 
-	logger.RatingLog.Infof("Starting diameter server on %s", addr)
-	return diam.ListenAndServe(addr, handler, nil)
-}
+// 	logger.RatingLog.Infof("Starting diameter server on %s", addr)
+// 	return diam.ListenAndServe(addr, handler, nil)
+// }
 
 func buildTaffif(unitCostStr string) *charging_datatype.MonetaryTariff {
 	// unitCost
