@@ -422,7 +422,6 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 				for _, trigger := range chargingData.Triggers {
 					// Check if partial record is needed
-
 					partialRecord = true
 					switch t := trigger; {
 					case t == models.Trigger{
@@ -468,56 +467,37 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 		switch ue.RatingType[rg] {
 		case charging_datatype.REQ_SUBTYPE_RESERVE:
-			reserveQuota := true
-			if ue.ReservedQuota[rg] == 0 {
+			NeedReserveQuota := true
+			var reserveQuota uint64
+			logger.AcctLog.Warnln("requested Quota:", uint32(unitUsage.RequestedUnit.TotalVolume)*ue.UnitCost[rg])
+			{
 				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
-				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-					RatingGroup: datatype.Unsigned32(rg),
-					RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-						CCTotalOctets: datatype.Unsigned64(unitUsage.RequestedUnit.TotalVolume * 10),
-					},
-				}
-			} else {
-				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
-				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
-				logger.ChargingdataPostLog.Tracef("UsedUnit %v UnitCost: %v", totalUsedUnit, ue.UnitCost[rg])
+				logger.ChargingdataPostLog.Warnf("UsedUnit %v UnitCost: %v", totalUsedUnit, ue.UnitCost[rg])
 
 				requestedQuota := uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg]
 				usedQuota := int64(totalUsedUnit * ue.UnitCost[rg])
-				ue.ReservedQuota[rg] -= usedQuota
-				if ue.ReservedQuota[rg] > int64(requestedQuota) {
-					// If the reserved quota is bigger then the used quot and the requested quota,
-					// directly granted the requested Quota from the reserved qouta
-					ue.ReservedQuota[rg] -= int64(requestedQuota)
-					reserveQuota = false
-				} else {
-					if ue.ReservedQuota[rg] > 0 {
-						// If the reserved quota is bigger then the used quota,
-						// replenish the used quota to the ReservedQuota
-						// so that ReservedQuota remains the same
-						ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-							RatingGroup: datatype.Unsigned32(rg),
-							RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-								CCTotalOctets: datatype.Unsigned64(usedQuota),
-							},
-						}
+				ue.ReservedQuota[rg] -= (usedQuota + int64(requestedQuota))
 
-						logger.ChargingdataPostLog.Tracef("still remain reserved quota, replenish used quota: %v", usedQuota)
-					} else {
-						// make sure that the execeed unit usage will be deduct to the account
-						reserveQuota := requestedQuota + uint32(-1*ue.ReservedQuota[rg])
-						ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-							RatingGroup: datatype.Unsigned32(rg),
-							// Before reserve, first deduct the insufficient from the quota
-							RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-								CCTotalOctets: datatype.Unsigned64(reserveQuota),
-							},
-						}
+				logger.AcctLog.Warnln("usedQuota:", usedQuota)
+				logger.AcctLog.Warnln("requestedQuota:", requestedQuota)
+				logger.AcctLog.Warnln("reservedQuota:", ue.ReservedQuota[rg])
+
+				if ue.ReservedQuota[rg] > 0 {
+					NeedReserveQuota = false
+				} else {
+					NeedReserveQuota = true
+					reserveQuota = -uint64(ue.ReservedQuota[rg]) + 1535
+
+					ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+						RatingGroup: datatype.Unsigned32(rg),
+						RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
+							CCTotalOctets: datatype.Unsigned64(reserveQuota),
+						},
 					}
 				}
 			}
-			if reserveQuota {
+			if NeedReserveQuota {
 				acctDebitRsp, err := abmf.SendAccountDebitRequest(ue, ccr)
 				if err != nil {
 					logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
@@ -527,7 +507,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
 				logger.ChargingdataPostLog.Tracef("ue.ReservedQuota[rg] : %+v", ue.ReservedQuota[rg])
 
-				// Deduict the reserved quota from the account
+				// Deduct the reserved quota from the account
 				if acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication != nil {
 					switch acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication.FinalUnitAction {
 					case charging_datatype.TERMINATE:
