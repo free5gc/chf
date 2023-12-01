@@ -469,34 +469,35 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 		case charging_datatype.REQ_SUBTYPE_RESERVE:
 			NeedReserveQuota := true
 			var reserveQuota uint64
-			logger.AcctLog.Warnln("requested Quota:", uint32(unitUsage.RequestedUnit.TotalVolume)*ue.UnitCost[rg])
-			{
-				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
-				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
-				logger.ChargingdataPostLog.Warnf("UsedUnit %v UnitCost: %v", totalUsedUnit, ue.UnitCost[rg])
+			var requestedQuota uint64
 
-				requestedQuota := uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg]
-				usedQuota := int64(totalUsedUnit * ue.UnitCost[rg])
-				ue.ReservedQuota[rg] -= (usedQuota + int64(requestedQuota))
+			ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
+			ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
+			logger.ChargingdataPostLog.Warnf("UsedUnit %v UnitCost: %v", totalUsedUnit, ue.UnitCost[rg])
 
-				logger.AcctLog.Warnln("usedQuota:", usedQuota)
-				logger.AcctLog.Warnln("requestedQuota:", requestedQuota)
-				logger.AcctLog.Warnln("reservedQuota:", ue.ReservedQuota[rg])
+			if ue.UnitCost[rg] == 0 {
+				requestedQuota = uint64(unitUsage.RequestedUnit.TotalVolume) * 10 // hard-code
+			} else {
+				requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
+			}
 
-				if ue.ReservedQuota[rg] > 0 {
-					NeedReserveQuota = false
-				} else {
-					NeedReserveQuota = true
-					reserveQuota = -uint64(ue.ReservedQuota[rg]) + 1535
+			usedQuota := int64(totalUsedUnit * ue.UnitCost[rg])
+			ue.ReservedQuota[rg] -= (usedQuota + int64(requestedQuota))
 
-					ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-						RatingGroup: datatype.Unsigned32(rg),
-						RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-							CCTotalOctets: datatype.Unsigned64(reserveQuota),
-						},
-					}
+			if ue.ReservedQuota[rg] > 0 {
+				NeedReserveQuota = false
+			} else {
+				NeedReserveQuota = true
+				reserveQuota = -uint64(ue.ReservedQuota[rg])
+				logger.AcctLog.Warnln("reserveQuota:", reserveQuota)
+				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+					RatingGroup: datatype.Unsigned32(rg),
+					RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
+						CCTotalOctets: datatype.Unsigned64(reserveQuota),
+					},
 				}
 			}
+
 			if NeedReserveQuota {
 				acctDebitRsp, err := abmf.SendAccountDebitRequest(ue, ccr)
 				if err != nil {
@@ -505,7 +506,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				}
 
 				ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
-				logger.ChargingdataPostLog.Tracef("ue.ReservedQuota[rg] : %+v", ue.ReservedQuota[rg])
+				logger.ChargingdataPostLog.Warnf("ue.ReservedQuota[rg] : %+v", ue.ReservedQuota[rg])
 
 				// Deduct the reserved quota from the account
 				if acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication != nil {
@@ -522,7 +523,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 			sur.ServiceRating = &charging_datatype.ServiceRating{
 				ServiceIdentifier: datatype.Unsigned32(rg),
-				MonetaryQuota:     datatype.Unsigned32(ue.ReservedQuota[rg]),
+				MonetaryQuota:     datatype.Unsigned32(requestedQuota),
 				RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
 			}
 
@@ -536,9 +537,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
 				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
 
-			// Even if the reserved quota allows more unit compare to the request unit to be reserved,
-			// we still return the request unit back to smf
 			var grantedUnit uint32
+
 			if uint32(serviceUsageRsp.ServiceRating.AllowedUnits) > uint32(unitUsage.RequestedUnit.TotalVolume) {
 				grantedUnit = uint32(unitUsage.RequestedUnit.TotalVolume)
 			} else {
