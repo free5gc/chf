@@ -57,6 +57,7 @@ type Configuration struct {
 	Mongodb             *Mongodb  `yaml:"mongodb" valid:"required"`
 	VolumeLimit         int32     `yaml:"volumeLimit,omitempty" valid:"optional"`
 	VolumeLimitPDU      int32     `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
+	ReserveQuotaRatio   int32     `yaml:"reserveQuotaRatio,omitempty" valid:"optional"`
 	VolumeThresholdRate float32   `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
 	QuotaValidityTime   int32     `yaml:"quotaValidityTime,omitempty" valid:"optional"`
 	RfDiameter          *Diameter `yaml:"rfDiameter,omitempty" valid:"required"`
