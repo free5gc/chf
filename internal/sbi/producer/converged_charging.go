@@ -539,7 +539,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			}
 
 			// Retrieve and save the tarrif for pricing the next usage
-			serviceUsageRsp, err = rating.SendServiceUsageRequest(ue, sur)
+			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
 			if err != nil {
 				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
 				continue
