@@ -475,35 +475,30 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 		switch ue.RatingType[rg] {
 		case charging_datatype.REQ_SUBTYPE_RESERVE:
-			NeedReserveQuota := true
 			var reserveQuota uint64
 			var requestedQuota uint64
+			// This block is to request unit cost
+			{
+				sur.ServiceRating = &charging_datatype.ServiceRating{
+					ServiceIdentifier: datatype.Unsigned32(rg),
+					MonetaryQuota:     datatype.Unsigned32(0), // dummy
+					RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
+				}
 
-			sur.ServiceRating = &charging_datatype.ServiceRating{ // only for request unit cost
-				ServiceIdentifier: datatype.Unsigned32(rg),
-				MonetaryQuota:     datatype.Unsigned32(0),
-				RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
+				serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+				if err != nil {
+					logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
+					continue
+				}
+
+				ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
+					uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
 			}
-
-			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
-			if err != nil {
-				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
-				continue
-			}
-
-			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
-				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
 
 			usedQuota := uint64(totalUsedUnit * ue.UnitCost[rg])
-
 			requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
-
-			ue.ReservedQuota[rg] -= int64(requestedQuota)
-
-			// if usedQuota < requestedQuota, it means that we remain the quota from last time
-			ue.ReservedQuota[rg] += (int64(requestedQuota) - int64(usedQuota))
-
-			NeedReserveQuota = !(ue.ReservedQuota[rg] > 0)
+			ue.ReservedQuota[rg] -= int64(usedQuota)
+			NeedReserveQuota := !(ue.ReservedQuota[rg] > 0)
 
 			if NeedReserveQuota {
 				reserveQuota = -uint64(ue.ReservedQuota[rg]) + 3*requestedQuota
