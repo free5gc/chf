@@ -1,6 +1,6 @@
 module github.com/free5gc/chf
 
-go 1.17
+go 1.18
 
 require (
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
@@ -23,6 +23,8 @@ require (
 	go.mongodb.org/mongo-driver v1.11.3
 	gopkg.in/yaml.v2 v2.4.0
 )
+
+require golang.org/x/exp v0.0.0-20231127185646-65229373498e
 
 require (
 	cloud.google.com/go/compute v1.14.0 // indirect

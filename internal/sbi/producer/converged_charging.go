@@ -9,6 +9,7 @@ import (
 	"time"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"golang.org/x/exp/constraints"
 
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
@@ -21,6 +22,13 @@ import (
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
 )
+
+func min[T constraints.Ordered](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 func NotifyRecharge(ueId string, rg int32) {
 	var reauthorizationDetails []models.ReauthorizationDetails
@@ -491,16 +499,14 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
 
 			ue.ReservedQuota[rg] -= int64(requestedQuota)
+
+			// if usedQuota < requestedQuota, it means that we remain the quota from last time
 			ue.ReservedQuota[rg] += (int64(requestedQuota) - int64(usedQuota))
 
-			if ue.ReservedQuota[rg] > 0 {
-				NeedReserveQuota = false
-			} else {
-				NeedReserveQuota = true
-			}
+			NeedReserveQuota = !(ue.ReservedQuota[rg] > 0)
 
 			if NeedReserveQuota {
-				reserveQuota = -uint64(ue.ReservedQuota[rg]) + 5*(requestedQuota)
+				reserveQuota = -uint64(ue.ReservedQuota[rg]) + 3*requestedQuota
 				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
 				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
@@ -547,13 +553,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
 				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
 
-			var grantedUnit uint32
-
-			if uint32(serviceUsageRsp.ServiceRating.AllowedUnits) > uint32(unitUsage.RequestedUnit.TotalVolume) {
-				grantedUnit = uint32(unitUsage.RequestedUnit.TotalVolume)
-			} else {
-				grantedUnit = uint32(serviceUsageRsp.ServiceRating.AllowedUnits)
-			}
+			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), uint32(unitUsage.RequestedUnit.TotalVolume))
 
 			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
 				unitInformation.Triggers = append(unitInformation.Triggers,
