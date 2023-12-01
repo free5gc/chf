@@ -471,34 +471,45 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			var reserveQuota uint64
 			var requestedQuota uint64
 
-			ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
-			ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
-			logger.ChargingdataPostLog.Warnf("UsedUnit %v UnitCost: %v", totalUsedUnit, ue.UnitCost[rg])
-
-			if ue.UnitCost[rg] == 0 {
-				requestedQuota = uint64(unitUsage.RequestedUnit.TotalVolume) * 10 // hard-code
-			} else {
-				requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
+			sur.ServiceRating = &charging_datatype.ServiceRating{ // only for request unit cost
+				ServiceIdentifier: datatype.Unsigned32(rg),
+				MonetaryQuota:     datatype.Unsigned32(0),
+				RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
 			}
 
-			usedQuota := int64(totalUsedUnit * ue.UnitCost[rg])
-			ue.ReservedQuota[rg] -= (usedQuota + int64(requestedQuota))
+			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+			if err != nil {
+				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
+				continue
+			}
+
+			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
+				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+
+			usedQuota := uint64(totalUsedUnit * ue.UnitCost[rg])
+
+			requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
+
+			ue.ReservedQuota[rg] -= int64(requestedQuota)
+			ue.ReservedQuota[rg] += (int64(requestedQuota) - int64(usedQuota))
 
 			if ue.ReservedQuota[rg] > 0 {
 				NeedReserveQuota = false
 			} else {
 				NeedReserveQuota = true
-				reserveQuota = -uint64(ue.ReservedQuota[rg])
-				logger.AcctLog.Warnln("reserveQuota:", reserveQuota)
+			}
+
+			if NeedReserveQuota {
+				reserveQuota = -uint64(ue.ReservedQuota[rg]) + 5*(requestedQuota)
+				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
+				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
 				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
 					RatingGroup: datatype.Unsigned32(rg),
 					RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
 						CCTotalOctets: datatype.Unsigned64(reserveQuota),
 					},
 				}
-			}
 
-			if NeedReserveQuota {
 				acctDebitRsp, err := abmf.SendAccountDebitRequest(ue, ccr)
 				if err != nil {
 					logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
@@ -506,13 +517,12 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				}
 
 				ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
-				logger.ChargingdataPostLog.Warnf("ue.ReservedQuota[rg] : %+v", ue.ReservedQuota[rg])
 
 				// Deduct the reserved quota from the account
 				if acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication != nil {
 					switch acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication.FinalUnitAction {
 					case charging_datatype.TERMINATE:
-						logger.ChargingdataPostLog.Warnf("Last granted quota")
+						logger.ChargingdataPostLog.Tracef("Last granted quota")
 						finalUnitIndication = models.FinalUnitIndication{
 							FinalUnitAction: models.FinalUnitAction_TERMINATE,
 						}
@@ -528,7 +538,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			}
 
 			// Retrieve and save the tarrif for pricing the next usage
-			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+			serviceUsageRsp, err = rating.SendServiceUsageRequest(ue, sur)
 			if err != nil {
 				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
 				continue
