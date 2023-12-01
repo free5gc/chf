@@ -389,7 +389,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 	}
 
 	for unitUsageNum, unitUsage := range chargingData.MultipleUnitUsage {
-		var totalUsaedUnit uint32
+		var totalUsedUnit uint32
 		var finalUnitIndication models.FinalUnitIndication
 		creditControl := false
 
@@ -405,8 +405,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			RatingGroup:         rg,
 		}
 
-		for _, useduint := range unitUsage.UsedUnitContainer {
-			switch useduint.QuotaManagementIndicator {
+		for _, usedUnit := range unitUsage.UsedUnitContainer {
+			switch usedUnit.QuotaManagementIndicator {
 			case models.QuotaManagementIndicator_OFFLINE_CHARGING:
 				unitInformation.Triggers = append(unitInformation.Triggers,
 					models.Trigger{
@@ -423,21 +423,20 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				for _, trigger := range chargingData.Triggers {
 					// Check if partial record is needed
 
+					partialRecord = true
 					switch t := trigger; {
 					case t == models.Trigger{
 						TriggerType:     models.TriggerType_VOLUME_LIMIT,
 						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT}:
-						partialRecord = true
 					case t.TriggerType == models.TriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
-						partialRecord = true
 					case t.TriggerType == models.TriggerType_MANAGEMENT_INTERVENTION:
-						partialRecord = true
 					case t.TriggerType == models.TriggerType_FINAL:
 						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
+						partialRecord = false
 					}
 				}
 				// calculate total used unit
-				totalUsaedUnit += uint32(useduint.TotalVolume)
+				totalUsedUnit += uint32(usedUnit.TotalVolume)
 			case models.QuotaManagementIndicator_QUOTA_MANAGEMENT_SUSPENDED:
 				logger.ChargingdataPostLog.Errorf("Current do not support QUOTA MANAGEMENT SUSPENDED")
 			}
@@ -482,10 +481,10 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			} else {
 				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
-				logger.ChargingdataPostLog.Tracef("UsedUnit %v UnitCost: %v", totalUsaedUnit, ue.UnitCost[rg])
+				logger.ChargingdataPostLog.Tracef("UsedUnit %v UnitCost: %v", totalUsedUnit, ue.UnitCost[rg])
 
 				requestedQuota := uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg]
-				usedQuota := int64(totalUsaedUnit * ue.UnitCost[rg])
+				usedQuota := int64(totalUsedUnit * ue.UnitCost[rg])
 				ue.ReservedQuota[rg] -= usedQuota
 				if ue.ReservedQuota[rg] > int64(requestedQuota) {
 					// If the reserved quota is bigger then the used quot and the requested quota,
@@ -629,7 +628,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			// retrived tarrif for final pricing
 			sur.ServiceRating = &charging_datatype.ServiceRating{
 				ServiceIdentifier: datatype.Unsigned32(rg),
-				ConsumedUnits:     datatype.Unsigned32(totalUsaedUnit),
+				ConsumedUnits:     datatype.Unsigned32(totalUsedUnit),
 				RequestSubType:    charging_datatype.REQ_SUBTYPE_DEBIT,
 			}
 
