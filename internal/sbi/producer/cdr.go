@@ -177,6 +177,9 @@ func OpenCDR(chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, ses
 					Value: []byte(pduSessionInfo.PduSessionInformation.NetworkSlicingInfo.SNSSAI.Sd),
 				},
 			},
+			DataNetworkNameIdentifier: &cdrType.DataNetworkNameIdentifier{
+				Value: asn.IA5String(pduSessionInfo.PduSessionInformation.DnnId),
+			},
 		}
 	}
 
