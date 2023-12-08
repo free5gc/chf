@@ -223,7 +223,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
 	if !ok {
-		logger.ChargingdataPostLog.Errorf("Do not find  CHFUe[%s] error", ueId)
+		logger.ChargingdataPostLog.Errorf("CHFUe[%s] not found", ueId)
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
@@ -357,6 +357,29 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	return responseBody, partialRecord
 }
 
+func getUnitCost(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.ServiceUsageRequest) uint32 {
+	if sur == nil {
+		logger.ChargingdataPostLog.Errorln("ServiceUsageRequest is nil, set unitCost to 1")
+		return 1
+	}
+
+	sur.ServiceRating = &charging_datatype.ServiceRating{
+		ServiceIdentifier: datatype.Unsigned32(rg),
+		MonetaryQuota:     datatype.Unsigned32(0), // dummy
+		RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
+	}
+
+	serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+	if err != nil {
+		logger.ChargingdataPostLog.Errorf("err: %+v", err)
+		logger.ChargingdataPostLog.Errorln("cannot get unitCost by SendServiceUsageRequest, set unitCost to 1")
+		return 1
+	}
+
+	return uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
+		uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+}
+
 // 32.296 6.2.2.3.1: Service usage request method with reservation
 func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]models.MultipleUnitInformation, bool) {
 	var multipleUnitInformation []models.MultipleUnitInformation
@@ -475,25 +498,9 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 		switch ue.RatingType[rg] {
 		case charging_datatype.REQ_SUBTYPE_RESERVE:
-			var reserveQuota uint64
 			var requestedQuota uint64
-			// This block is to request unit cost
-			{
-				sur.ServiceRating = &charging_datatype.ServiceRating{
-					ServiceIdentifier: datatype.Unsigned32(rg),
-					MonetaryQuota:     datatype.Unsigned32(0), // dummy
-					RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
-				}
 
-				serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
-				if err != nil {
-					logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
-					continue
-				}
-
-				ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
-					uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
-			}
+			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
 
 			usedQuota := uint64(totalUsedUnit * ue.UnitCost[rg])
 			requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
@@ -501,7 +508,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			NeedReserveQuota := !(ue.ReservedQuota[rg] > 0)
 
 			if NeedReserveQuota {
-				reserveQuota = -uint64(ue.ReservedQuota[rg]) + 3*requestedQuota
+				reserveQuota := -uint64(ue.ReservedQuota[rg]) + requestedQuota
 				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
 				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
@@ -545,8 +552,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				continue
 			}
 
-			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
-				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
 
 			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), uint32(unitUsage.RequestedUnit.TotalVolume))
 

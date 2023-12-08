@@ -22,7 +22,7 @@ func SendAccountDebitRequest(ue *chf_context.ChfUe, ccr *charging_datatype.Accou
 	abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
 	addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)
 	conn, err := ue.AbmfClient.DialNetworkTLS(abmfDiameter.Protocol, addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key)
-	// conn, err := ue.AbmfClient.DialNetwork(abmfDiameter.Protocol, addr)
+
 	if err != nil {
 		return nil, err
 	}

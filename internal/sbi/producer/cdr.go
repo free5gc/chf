@@ -169,8 +169,18 @@ func OpenCDR(chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, ses
 			PDUSessionId: cdrType.PDUSessionId{
 				Value: int64(pduSessionInfo.PduSessionInformation.PduSessionID),
 			},
+			NetworkSliceInstanceID: &cdrType.SingleNSSAI{
+				SST: cdrType.SliceServiceType{
+					Value: int64(pduSessionInfo.PduSessionInformation.NetworkSlicingInfo.SNSSAI.Sst),
+				},
+				SD: &cdrType.SliceDifferentiator{
+					Value: []byte(pduSessionInfo.PduSessionInformation.NetworkSlicingInfo.SNSSAI.Sd),
+				},
+			},
 		}
 	}
+
+	chfCdr.ChargingID.Value = int64(chargingData.ChargingId)
 
 	cdr := cdrType.CHFRecord{
 		Present:                1,
@@ -184,23 +194,16 @@ func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataReques
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
 
-	if len(chargingData.MultipleUnitUsage) != 0 {
+	if chargingData.MultipleUnitUsage != nil && len(chargingData.MultipleUnitUsage) != 0 {
 		// NOTE: quota info needn't be encoded to cdr, refer 32.291 Ch7.1
 		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
 		chfCdr.ListOfMultipleUnitUsage = append(chfCdr.ListOfMultipleUnitUsage, cdrMultiUnitUsage...)
 	}
 
-	if len(chargingData.Triggers) != 0 {
+	if chargingData.Triggers != nil && len(chargingData.Triggers) != 0 {
 		triggers := cdrConvert.TriggersToCdr(chargingData.Triggers)
 		chfCdr.Triggers = append(chfCdr.Triggers, triggers...)
 	}
-
-	// chfCdrstring, err := json.Marshal(chfCdr)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return nil
-	// }
-	// // logger.ChargingdataPostLog.Infof("chfCdr: %+v", string(chfCdrstring))
 
 	return nil
 }
