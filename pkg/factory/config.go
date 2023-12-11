@@ -23,6 +23,7 @@ const (
 	ChfSbiDefaultPort             = 8000
 	ChfSbiDefaultScheme           = "https"
 	ChfDefaultNrfUri              = "https://127.0.0.10:8000"
+	CgfDefaultCdrFilePath         = "/tmp"
 	ConvergedChargingResUriPrefix = "/nchf-convergedcharging/v3"
 )
 
@@ -106,10 +107,11 @@ type Diameter struct {
 }
 
 type Cgf struct {
-	HostIPv4   string `yaml:"hostIPv4,omitempty" valid:"required,host"`
-	Port       int    `yaml:"port,omitempty" valid:"required,port"`
-	ListenPort int    `yaml:"listenPort,omitempty" valid:"required,port"`
-	Tls        *Tls   `yaml:"tls,omitempty" valid:"optional"`
+	HostIPv4    string `yaml:"hostIPv4,omitempty" valid:"required,host"`
+	Port        int    `yaml:"port,omitempty" valid:"required,port"`
+	ListenPort  int    `yaml:"listenPort,omitempty" valid:"required,port"`
+	Tls         *Tls   `yaml:"tls,omitempty" valid:"optional"`
+	CdrFilePath string `yaml:"cdrFilePath,omitempty" valid:"optional"`
 }
 type Sbi struct {
 	Scheme       string `yaml:"scheme" valid:"required,scheme"`
