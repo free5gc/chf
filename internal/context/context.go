@@ -30,7 +30,7 @@ type CHFContext struct {
 	RecordSequenceNumber      map[string]int64
 	LocalRecordSequenceNumber uint64
 	NrfUri                    string
-	NrfCerPem                 string
+	NrfCertPem                string
 	UePool                    sync.Map
 	OAuth2Required            bool
 
