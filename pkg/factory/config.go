@@ -54,7 +54,7 @@ type Configuration struct {
 	Sbi                 *Sbi      `yaml:"sbi,omitempty" valid:"required"`
 	ServiceNameList     []string  `yaml:"serviceNameList,omitempty" valid:"required"`
 	NrfUri              string    `yaml:"nrfUri,omitempty" valid:"required, url"`
-	NrfCertPem          string    `yaml:"nrfCertPem,omitempty" valid:"type(string),minstringlength(1),optional"`
+	NrfCertPem          string    `yaml:"nrfCertPem,omitempty" valid:"optional"`
 	Mongodb             *Mongodb  `yaml:"mongodb" valid:"required"`
 	VolumeLimit         int32     `yaml:"volumeLimit,omitempty" valid:"optional"`
 	VolumeLimitPDU      int32     `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
