@@ -1,6 +1,7 @@
 package context
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/openapi/oauth"
 	"github.com/free5gc/util/idgenerator"
 )
 
@@ -95,4 +97,14 @@ func GetSelf() *CHFContext {
 
 func (c *CHFContext) GetSelfID() string {
 	return c.NfId
+}
+
+func (c *CHFContext) GetTokenCtx(scope, targetNF string) (
+	context.Context, *models.ProblemDetails, error,
+) {
+	if !c.OAuth2Required {
+		return context.TODO(), nil, nil
+	}
+	return oauth.GetTokenCtx(models.NfType_CHF,
+		c.NfId, c.NrfUri, scope, targetNF)
 }

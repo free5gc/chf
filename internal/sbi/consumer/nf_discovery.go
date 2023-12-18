@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/Nnrf_NFDiscovery"
 	"github.com/free5gc/openapi/models"
@@ -17,7 +18,7 @@ func SendSearchNFInstances(
 	configuration.SetBasePath(nrfUri)
 	client := Nnrf_NFDiscovery.NewAPIClient(configuration)
 
-	ctx, _, err := GetTokenCtx("nnrf-disc", "NRF")
+	ctx, _, err := chf_context.GetSelf().GetTokenCtx("nnrf-disc", "NRF")
 	if err != nil {
 		return nil, err
 	}
