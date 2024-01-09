@@ -136,7 +136,11 @@ func handleCCR() diam.HandlerFunc {
 		}
 
 		quotaStr := chargingInterface["quota"].(string)
-		quota, _ := strconv.ParseInt(quotaStr, 10, 64)
+		quota, err := strconv.ParseInt(quotaStr, 10, 64)
+		if err != nil {
+			logger.AcctLog.Errorf("srtconv ParseInt error: %+v", err)
+			return
+		}
 
 		switch ccr.RequestedAction {
 		case charging_datatype.CHECK_BALANCE:
@@ -176,7 +180,12 @@ func handleCCR() diam.HandlerFunc {
 
 			// Convert quota into value digits and exponential expression
 			quotaStr = strconv.FormatInt(quota, 10)
-			quotaInt, _ := strconv.ParseInt(quotaStr, 10, 64)
+			quotaInt, err1 := strconv.ParseInt(quotaStr, 10, 64)
+			if err1 != nil {
+				logger.AcctLog.Errorf("srtconv ParseInt error: %+v", err1)
+				return
+			}
+
 			quotaLen := len(quotaStr)
 			quotaExp := quotaLen - 1
 			quotaVal := quotaInt / int64(math.Pow10(quotaExp))

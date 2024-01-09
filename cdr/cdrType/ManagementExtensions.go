@@ -5,5 +5,5 @@ package cdrType
 /* Set of = 36, FULL Name = struct ManagementExtensions */
 /* ManagementExtension */
 type ManagementExtensions struct {
-	List []ManagementExtension 
+	List []ManagementExtension
 }

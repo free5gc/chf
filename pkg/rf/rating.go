@@ -162,7 +162,8 @@ func handleSUR() diam.HandlerFunc {
 
 		unitCostStr := chargingInterface["unitCost"].(string)
 		monetaryTariff := buildTaffif(unitCostStr)
-		unitCost := datatype.Unsigned32(monetaryTariff.RateElement.UnitCost.ValueDigits) * datatype.Unsigned32(math.Pow10(int(monetaryTariff.RateElement.UnitCost.Exponent)))
+		unitCost := datatype.Unsigned32(monetaryTariff.RateElement.UnitCost.ValueDigits) *
+			datatype.Unsigned32(math.Pow10(int(monetaryTariff.RateElement.UnitCost.Exponent)))
 		sua := charging_datatype.ServiceUsageResponse{
 			SessionId:      sur.SessionId,
 			EventTimestamp: datatype.Time(time.Now()),

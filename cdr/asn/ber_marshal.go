@@ -94,7 +94,6 @@ func (i int64Encoder) Len() int {
 func (i int64Encoder) Encode(dst []byte) {
 	n := i.Len()
 	// i2 := i
-	
 	for j := 0; j < n; j++ {
 		dst[n-1-j] = byte(i)
 		i >>= 8
@@ -279,7 +278,9 @@ func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 					tempParams := parseFieldParameters(structType.Field(i).Tag.Get("ber"))
 					if tempParams.optional {
 						if v.Field(i).IsNil() {
-							//berTrace(3, fmt.Sprintf("Field \"%s\" in %s is OPTIONAL and not present", structType.Field(i).Name, structType))
+							//berTrace(
+							// 3, fmt.Sprintf("Field \"%s\" in %s is OPTIONAL and not present", structType.Field(i).Name, structType)
+							// )
 							s[i] = bytesEncoder(nil)
 							continue
 						} /*else {

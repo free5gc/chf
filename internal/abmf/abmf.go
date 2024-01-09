@@ -17,7 +17,10 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 )
 
-func SendAccountDebitRequest(ue *chf_context.ChfUe, ccr *charging_datatype.AccountDebitRequest) (*charging_datatype.AccountDebitResponse, error) {
+func SendAccountDebitRequest(
+	ue *chf_context.ChfUe,
+	ccr *charging_datatype.AccountDebitRequest,
+) (*charging_datatype.AccountDebitResponse, error) {
 	ue.AbmfMux.Handle("CCA", HandleCCA(ue.AcctChan))
 	abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
 	addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)

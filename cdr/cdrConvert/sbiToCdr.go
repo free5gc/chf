@@ -16,15 +16,15 @@ func MultiUnitUsageToCdr(multiUnitUsageList []models.MultipleUnitUsage) []cdrTyp
 	for _, multiUnitUsage := range multiUnitUsageList {
 		usedUnitContainer := UsedUnitContainerToCdr(multiUnitUsage.UsedUnitContainer)
 		cdrMultiUnitUsage := cdrType.MultipleUnitUsage{
-			cdrType.RatingGroupId{
-				int64(multiUnitUsage.RatingGroup),
+			RatingGroup: cdrType.RatingGroupId{
+				Value: int64(multiUnitUsage.RatingGroup),
 			},
-			usedUnitContainer,
-			&cdrType.NetworkFunctionName{
-				asn.IA5String(multiUnitUsage.UPFID),
+			UsedUnitContainers: usedUnitContainer,
+			UPFID: &cdrType.NetworkFunctionName{
+				Value: asn.IA5String(multiUnitUsage.UPFID),
 			},
 			// TODO convert PDUAddress, not exist in current spec
-			nil,
+			MultihomedPDUAddress: nil,
 		}
 		cdrMultiUnitUsageList = append(cdrMultiUnitUsageList, cdrMultiUnitUsage)
 	}
@@ -32,8 +32,8 @@ func MultiUnitUsageToCdr(multiUnitUsageList []models.MultipleUnitUsage) []cdrTyp
 	return cdrMultiUnitUsageList
 }
 
-// TODO: Only convert Local Sequence Number, Uplink, Downlink, Total Volumn,
-//       Service Specific Units currently.
+// TODO
+// Only convert Local Sequence Number, Uplink, Downlink, Total Volumn, Service Specific Units currently.
 func UsedUnitContainerToCdr(usedUnitContainerList []models.UsedUnitContainer) []cdrType.UsedUnitContainer {
 	cdrUsedUnitContainerList := make([]cdrType.UsedUnitContainer, 0, len(usedUnitContainerList))
 
@@ -41,16 +41,16 @@ func UsedUnitContainerToCdr(usedUnitContainerList []models.UsedUnitContainer) []
 		serviceSpecificUnits := int64(usedUnitContainer.ServiceSpecificUnits)
 		cdrUsedUnitContainer := cdrType.UsedUnitContainer{
 			LocalSequenceNumber: &cdrType.LocalSequenceNumber{
-				int64(usedUnitContainer.LocalSequenceNumber),
+				Value: int64(usedUnitContainer.LocalSequenceNumber),
 			},
 			DataVolumeUplink: &cdrType.DataVolumeOctets{
-				int64(usedUnitContainer.UplinkVolume),
+				Value: int64(usedUnitContainer.UplinkVolume),
 			},
 			DataVolumeDownlink: &cdrType.DataVolumeOctets{
-				int64(usedUnitContainer.DownlinkVolume),
+				Value: int64(usedUnitContainer.DownlinkVolume),
 			},
 			DataTotalVolume: &cdrType.DataVolumeOctets{
-				int64(usedUnitContainer.TotalVolume),
+				Value: int64(usedUnitContainer.TotalVolume),
 			},
 			ServiceSpecificUnits: &serviceSpecificUnits,
 		}
