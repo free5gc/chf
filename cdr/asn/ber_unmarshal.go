@@ -203,14 +203,14 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 				offset := 0
 				// embed choice type
 				if params.tagNumber != nil {
-					tal, talOff, err = parseTagAndLength(bytes[talOff:])
-					if err != nil {
-						return err
+					talNow, talOffNow, parse_err := parseTagAndLength(bytes[talOff:])
+					if parse_err != nil {
+						return parse_err
 					}
-					if int64(talOff)+tal.len > int64(len(bytes)) {
+					if int64(talOffNow)+talNow.len > int64(len(bytes)) {
 						return fmt.Errorf("type value out of range")
 					}
-					offset += talOff
+					offset += talOffNow
 				}
 
 				for i := 1; i < structType.NumField(); i++ {
@@ -239,16 +239,16 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 			current := 0
 			next := int64(0)
 			for ; offset < totalLen; offset = next {
-				tal, talOff1, err := parseTagAndLength(bytes[offset:])
-				if err != nil {
-					return err
+				talNow, talOffNow, parse_err := parseTagAndLength(bytes[offset:])
+				if parse_err != nil {
+					return parse_err
 				}
-				next = int64(offset) + int64(talOff1) + tal.len
+				next = int64(offset) + int64(talOffNow) + talNow.len
 				if next > totalLen {
 					return fmt.Errorf("type value out of range")
 				}
 				if offset >= next {
-					fmt.Println("bytes offset", offset, "next", next, "talOff", talOff1, "tal.len", tal.len)
+					fmt.Println("bytes offset", offset, "next", next, "talOff", talOffNow, "tal.len", talNow.len)
 				}
 
 				for ; current < structType.NumField(); current++ {
@@ -257,7 +257,7 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 						return fmt.Errorf("OpenType is not implemented")
 					}
 					if *structParams[current].tagNumber == tal.tagNumber {
-						if err := ParseField(val.Field(current), bytes[offset:next], structParams[current]); err != nil {
+						if err = ParseField(val.Field(current), bytes[offset:next], structParams[current]); err != nil {
 							return err
 						}
 						break
@@ -271,11 +271,11 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		} else {
 			next := int64(0)
 			for ; offset < totalLen; offset = next {
-				tal, talOff1, err := parseTagAndLength(bytes[offset:])
-				if err != nil {
-					return err
+				talNow, talOffNow, parse_err := parseTagAndLength(bytes[offset:])
+				if parse_err != nil {
+					return parse_err
 				}
-				next = offset + int64(talOff1) + tal.len
+				next = offset + int64(talOffNow) + talNow.len
 				if next > totalLen {
 					return fmt.Errorf("type value out of range")
 				}
@@ -287,8 +287,8 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 						return fmt.Errorf("OpenType is not implemented")
 					}
 					if *structParams[current].tagNumber == tal.tagNumber {
-						if err := ParseField(val.Field(current), bytes[offset:next], structParams[current]); err != nil {
-							return err
+						if parse_err1 := ParseField(val.Field(current), bytes[offset:next], structParams[current]); parse_err1 != nil {
+							return parse_err1
 						}
 						break
 					}
@@ -304,11 +304,11 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		var valArray [][]byte
 		var next int64
 		for offset := int64(talOff); offset < int64(len(bytes)); offset = next {
-			tal, talOff1, err := parseTagAndLength(bytes[offset:])
+			tal, talOff, err = parseTagAndLength(bytes[offset:])
 			if err != nil {
 				return err
 			}
-			next = offset + int64(talOff1) + tal.len
+			next = offset + int64(talOff) + tal.len
 			if next > int64(len(bytes)) {
 				return fmt.Errorf("type value out of range")
 			}
