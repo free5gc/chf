@@ -5,8 +5,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fclairamb/ftpserver/config"
@@ -150,10 +154,21 @@ const FTP_LOGIN_RETRY_NUMBER = 3
 const FTP_LOGIN_RETRY_WAITING_TIME = 1 * time.Second // second
 
 func (f *Cgf) Serve(wg *sync.WaitGroup) {
-	defer func() {
-		logger.CgfLog.Error("FTP server stopped")
-		f.Stop()
+	signalChannel := make(chan os.Signal, 1)
+	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				// Print stack for panic to log. Fatalf() will let program exit.
+				logger.InitLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+			}
+		}()
+
+		<-signalChannel
+		f.Terminate()
 		wg.Done()
+		os.Exit(0)
 	}()
 
 	for i := 0; i < FTP_LOGIN_RETRY_NUMBER; i++ {
@@ -175,10 +190,30 @@ func (f *Cgf) Serve(wg *sync.WaitGroup) {
 	}
 }
 
-func (f *Cgf) Stop() {
+func (f *Cgf) Terminate() {
 	f.driver.Stop()
 
 	if err := f.ftpServer.Stop(); err != nil {
 		logger.CgfLog.Error("Problem stopping server", "Err", err)
+	}
+
+	var cdrFilePath string
+	if factory.ChfConfig.Configuration.Cgf.CdrFilePath == "" {
+		cdrFilePath = factory.CgfDefaultCdrFilePath
+	} else {
+		cdrFilePath = factory.ChfConfig.Configuration.Cgf.CdrFilePath
+	}
+	files, err := filepath.Glob(cdrFilePath + "/*.cdr")
+	if err != nil {
+		logger.CgfLog.Warnln("no CDR file")
+	}
+
+	for _, file := range files {
+		if _, err := os.Stat(file); err == nil {
+			logger.CgfLog.Infof("Remove CDR file: " + file)
+			if err := os.Remove(file); err != nil {
+				logger.CgfLog.Warnf("Failed to remove CDR file: %s\n", file)
+			}
+		}
 	}
 }

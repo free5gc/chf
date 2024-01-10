@@ -9,6 +9,7 @@ import (
 	"time"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"golang.org/x/exp/constraints"
 
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
@@ -21,6 +22,13 @@ import (
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
 )
+
+func min[T constraints.Ordered](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 func NotifyRecharge(ueId string, rg int32) {
 	var reauthorizationDetails []models.ReauthorizationDetails
@@ -215,7 +223,7 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
 	if !ok {
-		logger.ChargingdataPostLog.Errorf("Do not find  CHFUe[%s] error", ueId)
+		logger.ChargingdataPostLog.Errorf("CHFUe[%s] not found", ueId)
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
@@ -349,6 +357,29 @@ func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataReque
 	return responseBody, partialRecord
 }
 
+func getUnitCost(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.ServiceUsageRequest) uint32 {
+	if sur == nil {
+		logger.ChargingdataPostLog.Errorln("ServiceUsageRequest is nil, set unitCost to 1")
+		return 1
+	}
+
+	sur.ServiceRating = &charging_datatype.ServiceRating{
+		ServiceIdentifier: datatype.Unsigned32(rg),
+		MonetaryQuota:     datatype.Unsigned32(0), // dummy
+		RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
+	}
+
+	serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+	if err != nil {
+		logger.ChargingdataPostLog.Errorf("err: %+v", err)
+		logger.ChargingdataPostLog.Errorln("cannot get unitCost by SendServiceUsageRequest, set unitCost to 1")
+		return 1
+	}
+
+	return uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
+		uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+}
+
 // 32.296 6.2.2.3.1: Service usage request method with reservation
 func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]models.MultipleUnitInformation, bool) {
 	var multipleUnitInformation []models.MultipleUnitInformation
@@ -389,7 +420,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 	}
 
 	for unitUsageNum, unitUsage := range chargingData.MultipleUnitUsage {
-		var totalUsaedUnit uint32
+		var totalUsedUnit uint32
 		var finalUnitIndication models.FinalUnitIndication
 		creditControl := false
 
@@ -405,8 +436,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			RatingGroup:         rg,
 		}
 
-		for _, useduint := range unitUsage.UsedUnitContainer {
-			switch useduint.QuotaManagementIndicator {
+		for _, usedUnit := range unitUsage.UsedUnitContainer {
+			switch usedUnit.QuotaManagementIndicator {
 			case models.QuotaManagementIndicator_OFFLINE_CHARGING:
 				unitInformation.Triggers = append(unitInformation.Triggers,
 					models.Trigger{
@@ -422,22 +453,20 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 				for _, trigger := range chargingData.Triggers {
 					// Check if partial record is needed
-
+					partialRecord = true
 					switch t := trigger; {
 					case t == models.Trigger{
 						TriggerType:     models.TriggerType_VOLUME_LIMIT,
 						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT}:
-						partialRecord = true
 					case t.TriggerType == models.TriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
-						partialRecord = true
 					case t.TriggerType == models.TriggerType_MANAGEMENT_INTERVENTION:
-						partialRecord = true
 					case t.TriggerType == models.TriggerType_FINAL:
 						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
+						partialRecord = false
 					}
 				}
 				// calculate total used unit
-				totalUsaedUnit += uint32(useduint.TotalVolume)
+				totalUsedUnit += uint32(usedUnit.TotalVolume)
 			case models.QuotaManagementIndicator_QUOTA_MANAGEMENT_SUSPENDED:
 				logger.ChargingdataPostLog.Errorf("Current do not support QUOTA MANAGEMENT SUSPENDED")
 			}
@@ -469,56 +498,26 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 		switch ue.RatingType[rg] {
 		case charging_datatype.REQ_SUBTYPE_RESERVE:
-			reserveQuota := true
-			if ue.ReservedQuota[rg] == 0 {
+			var requestedQuota uint64
+
+			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
+
+			usedQuota := uint64(totalUsedUnit * ue.UnitCost[rg])
+			requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
+			ue.ReservedQuota[rg] -= int64(usedQuota)
+			NeedReserveQuota := !(ue.ReservedQuota[rg] > 0)
+
+			if NeedReserveQuota {
+				reserveQuota := -uint64(ue.ReservedQuota[rg]) + requestedQuota
 				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
 				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
 					RatingGroup: datatype.Unsigned32(rg),
 					RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-						CCTotalOctets: datatype.Unsigned64(unitUsage.RequestedUnit.TotalVolume * 10),
+						CCTotalOctets: datatype.Unsigned64(reserveQuota),
 					},
 				}
-			} else {
-				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
-				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
-				logger.ChargingdataPostLog.Tracef("UsedUnit %v UnitCost: %v", totalUsaedUnit, ue.UnitCost[rg])
 
-				requestedQuota := uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg]
-				usedQuota := int64(totalUsaedUnit * ue.UnitCost[rg])
-				ue.ReservedQuota[rg] -= usedQuota
-				if ue.ReservedQuota[rg] > int64(requestedQuota) {
-					// If the reserved quota is bigger then the used quot and the requested quota,
-					// directly granted the requested Quota from the reserved qouta
-					ue.ReservedQuota[rg] -= int64(requestedQuota)
-					reserveQuota = false
-				} else {
-					if ue.ReservedQuota[rg] > 0 {
-						// If the reserved quota is bigger then the used quota,
-						// replenish the used quota to the ReservedQuota
-						// so that ReservedQuota remains the same
-						ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-							RatingGroup: datatype.Unsigned32(rg),
-							RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-								CCTotalOctets: datatype.Unsigned64(usedQuota),
-							},
-						}
-
-						logger.ChargingdataPostLog.Tracef("still remain reserved quota, replenish used quota: %v", usedQuota)
-					} else {
-						// make sure that the execeed unit usage will be deduct to the account
-						reserveQuota := requestedQuota + uint32(-1*ue.ReservedQuota[rg])
-						ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-							RatingGroup: datatype.Unsigned32(rg),
-							// Before reserve, first deduct the insufficient from the quota
-							RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-								CCTotalOctets: datatype.Unsigned64(reserveQuota),
-							},
-						}
-					}
-				}
-			}
-			if reserveQuota {
 				acctDebitRsp, err := abmf.SendAccountDebitRequest(ue, ccr)
 				if err != nil {
 					logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
@@ -526,13 +525,12 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				}
 
 				ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
-				logger.ChargingdataPostLog.Tracef("ue.ReservedQuota[rg] : %+v", ue.ReservedQuota[rg])
 
-				// Deduict the reserved quota from the account
+				// Deduct the reserved quota from the account
 				if acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication != nil {
 					switch acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication.FinalUnitAction {
 					case charging_datatype.TERMINATE:
-						logger.ChargingdataPostLog.Warnf("Last granted quota")
+						logger.ChargingdataPostLog.Tracef("Last granted quota")
 						finalUnitIndication = models.FinalUnitIndication{
 							FinalUnitAction: models.FinalUnitAction_TERMINATE,
 						}
@@ -543,7 +541,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 			sur.ServiceRating = &charging_datatype.ServiceRating{
 				ServiceIdentifier: datatype.Unsigned32(rg),
-				MonetaryQuota:     datatype.Unsigned32(ue.ReservedQuota[rg]),
+				MonetaryQuota:     datatype.Unsigned32(requestedQuota),
 				RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
 			}
 
@@ -554,17 +552,9 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				continue
 			}
 
-			ue.UnitCost[rg] = uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
-				uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
 
-			// Even if the reserved quota allows more unit compare to the request unit to be reserved,
-			// we still return the request unit back to smf
-			var grantedUnit uint32
-			if uint32(serviceUsageRsp.ServiceRating.AllowedUnits) > uint32(unitUsage.RequestedUnit.TotalVolume) {
-				grantedUnit = uint32(unitUsage.RequestedUnit.TotalVolume)
-			} else {
-				grantedUnit = uint32(serviceUsageRsp.ServiceRating.AllowedUnits)
-			}
+			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), uint32(unitUsage.RequestedUnit.TotalVolume))
 
 			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
 				unitInformation.Triggers = append(unitInformation.Triggers,
@@ -629,7 +619,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			// retrived tarrif for final pricing
 			sur.ServiceRating = &charging_datatype.ServiceRating{
 				ServiceIdentifier: datatype.Unsigned32(rg),
-				ConsumedUnits:     datatype.Unsigned32(totalUsaedUnit),
+				ConsumedUnits:     datatype.Unsigned32(totalUsedUnit),
 				RequestSubType:    charging_datatype.REQ_SUBTYPE_DEBIT,
 			}
 

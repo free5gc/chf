@@ -1,6 +1,6 @@
 module github.com/free5gc/chf
 
-go 1.17
+go 1.18
 
 require (
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
@@ -10,7 +10,7 @@ require (
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
 	github.com/free5gc/openapi v1.0.7-0.20231216094313-e15a4ff046f6
-	github.com/free5gc/util v1.0.5-0.20231001095115-433858e5be94
+	github.com/free5gc/util v1.0.5-0.20231012123940-85f4557167be
 	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0
@@ -23,6 +23,8 @@ require (
 	go.mongodb.org/mongo-driver v1.11.3
 	gopkg.in/yaml.v2 v2.4.0
 )
+
+require golang.org/x/exp v0.0.0-20231127185646-65229373498e
 
 require (
 	cloud.google.com/go/compute v1.14.0 // indirect

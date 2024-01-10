@@ -127,7 +127,8 @@ func handleCCR() diam.HandlerFunc {
 
 		// Retrieve quota into mongoDB
 		filter := bson.M{"ueId": subscriberId, "ratingGroup": rg}
-		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDatasColl, filter)
+		queryStrength := 2
+		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDatasColl, filter, queryStrength)
 
 		if chargingInterface == nil {
 			logger.AcctLog.Errorf("chargingInterface is nil, err: %v", err)
@@ -173,7 +174,7 @@ func handleCCR() diam.HandlerFunc {
 				quota -= usedQuota
 			}
 
-			// Convvert quota into valuedigits and expontent expresstion
+			// Convert quota into value digits and exponential expression
 			quotaStr = strconv.FormatInt(quota, 10)
 			quotaInt, _ := strconv.ParseInt(quotaStr, 10, 64)
 			quotaLen := len(quotaStr)
@@ -202,6 +203,7 @@ func handleCCR() diam.HandlerFunc {
 
 		chargingBsonM := make(bson.M)
 		chargingBsonM["quota"] = strconv.FormatInt(quota, 10)
+		logger.AcctLog.Warnln("quota:", quota)
 		if _, err := mongoapi.RestfulAPIPutOne(chargingDatasColl, filter, chargingBsonM); err != nil {
 			logger.AcctLog.Errorf("RestfulAPIPutOne err: %+v", err)
 		}
