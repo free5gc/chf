@@ -213,8 +213,8 @@ func handleCCR() diam.HandlerFunc {
 		chargingBsonM := make(bson.M)
 		chargingBsonM["quota"] = strconv.FormatInt(quota, 10)
 		logger.AcctLog.Warnln("quota:", quota)
-		if _, err := mongoapi.RestfulAPIPutOne(chargingDatasColl, filter, chargingBsonM); err != nil {
-			logger.AcctLog.Errorf("RestfulAPIPutOne err: %+v", err)
+		if _, err1 := mongoapi.RestfulAPIPutOne(chargingDatasColl, filter, chargingBsonM); err1 != nil {
+			logger.AcctLog.Errorf("RestfulAPIPutOne err: %+v", err1)
 		}
 
 		a := m.Answer(diam.Success)
