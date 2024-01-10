@@ -203,14 +203,14 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 				offset := 0
 				// embed choice type
 				if params.tagNumber != nil {
-					talNow, talOffNow, parse_err := parseTagAndLength(bytes[talOff:])
-					if parse_err != nil {
-						return parse_err
+					tal, talOff, err = parseTagAndLength(bytes[talOff:])
+					if err != nil {
+						return err
 					}
-					if int64(talOffNow)+talNow.len > int64(len(bytes)) {
+					if int64(talOff)+tal.len > int64(len(bytes)) {
 						return fmt.Errorf("type value out of range")
 					}
-					offset += talOffNow
+					offset += talOff
 				}
 
 				for i := 1; i < structType.NumField(); i++ {
@@ -256,7 +256,7 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 					if params.openType {
 						return fmt.Errorf("OpenType is not implemented")
 					}
-					if *structParams[current].tagNumber == tal.tagNumber {
+					if *structParams[current].tagNumber == talNow.tagNumber {
 						if err = ParseField(val.Field(current), bytes[offset:next], structParams[current]); err != nil {
 							return err
 						}
@@ -286,7 +286,7 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 					if params.openType {
 						return fmt.Errorf("OpenType is not implemented")
 					}
-					if *structParams[current].tagNumber == tal.tagNumber {
+					if *structParams[current].tagNumber == talNow.tagNumber {
 						if parse_err1 := ParseField(val.Field(current), bytes[offset:next], structParams[current]); parse_err1 != nil {
 							return parse_err1
 						}
@@ -304,11 +304,11 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		var valArray [][]byte
 		var next int64
 		for offset := int64(talOff); offset < int64(len(bytes)); offset = next {
-			tal, talOff, err = parseTagAndLength(bytes[offset:])
+			talNow, talOffNow, err := parseTagAndLength(bytes[offset:])
 			if err != nil {
 				return err
 			}
-			next = offset + int64(talOff) + tal.len
+			next = offset + int64(talOffNow) + talNow.len
 			if next > int64(len(bytes)) {
 				return fmt.Errorf("type value out of range")
 			}
