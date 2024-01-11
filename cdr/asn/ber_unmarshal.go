@@ -28,8 +28,7 @@ func parseTagAndLength(bytes []byte) (r tagAndLen, off int, e error) {
 	}
 
 	if off >= len(bytes) {
-		// fmt.Println(bytes)
-		e = fmt.Errorf("panic")
+		e = fmt.Errorf("panic: bytes: %v, off: %v", bytes, off)
 		return r, off, e
 	}
 	if bytes[off] <= 127 {
@@ -249,6 +248,9 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 				}
 				if offset >= next {
 					fmt.Println("bytes offset", offset, "next", next, "talOff", talOffNow, "tal.len", talNow.len)
+					if offset > next {
+						return fmt.Errorf("offset > next")
+					}
 				}
 
 				for ; current < structType.NumField(); current++ {
