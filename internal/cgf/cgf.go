@@ -70,7 +70,11 @@ func OpenServer(wg *sync.WaitGroup) *Cgf {
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
+	defer func() {
+		if close_err := file.Close(); close_err != nil {
+			logger.CfgLog.Error("Can't close file", close_err)
+		}
+	}()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
@@ -145,7 +149,10 @@ func SendCDR(supi string) error {
 	}
 
 	cdrReader := bytes.NewReader(cdrByte)
-	cgf.conn.Stor(fileName, cdrReader)
+	stor_err := cgf.conn.Stor(fileName, cdrReader)
+	if stor_err != nil {
+		return err
+	}
 
 	return nil
 }

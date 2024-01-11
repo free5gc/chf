@@ -17,7 +17,9 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 )
 
-func SendServiceUsageRequest(ue *chf_context.ChfUe, sur *charging_datatype.ServiceUsageRequest) (*charging_datatype.ServiceUsageResponse, error) {
+func SendServiceUsageRequest(
+	ue *chf_context.ChfUe, sur *charging_datatype.ServiceUsageRequest,
+) (*charging_datatype.ServiceUsageResponse, error) {
 	ue.RatingMux.Handle("SUA", HandleSUA(ue.RatingChan))
 	rfDiameter := factory.ChfConfig.Configuration.RfDiameter
 	addr := rfDiameter.HostIPv4 + ":" + strconv.Itoa(rfDiameter.Port)

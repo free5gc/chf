@@ -13,7 +13,9 @@ import (
 	"github.com/free5gc/openapi/models"
 )
 
-func OpenCDR(chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, sessionId string, partialRecord bool) (*cdrType.CHFRecord, error) {
+func OpenCDR(
+	chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, sessionId string, partialRecord bool,
+) (*cdrType.CHFRecord, error) {
 	// 32.298 5.1.5.0.1 for CHF CDR field
 	var chfCdr cdrType.ChargingRecord
 	logger.ChargingdataPostLog.Tracef("Open CDR")
@@ -41,8 +43,10 @@ func OpenCDR(chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, ses
 		Value: asn.IA5String(self.NfId),
 	}
 
-	// RecordOpeningTime: Time stamp when the PDU session is activated in the SMF or record opening time on subsequent partial records.
-	// TODO identify charging event is SMF PDU session
+	// RecordOpeningTime:
+	//  Time stamp when the PDU session is activated in the SMF or record opening time on subsequent partial records.
+	// TODO:
+	//  identify charging event is SMF PDU session
 	t := time.Now()
 	chfCdr.RecordOpeningTime = cdrConvert.TimeStampToCdr(&t)
 

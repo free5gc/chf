@@ -215,8 +215,9 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	return &responseBody, locationURI, nil
 }
 
-func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSessionId string) (*models.ChargingDataResponse,
-	*models.ProblemDetails) {
+func ChargingDataUpdate(
+	chargingData models.ChargingDataRequest, chargingSessionId string,
+) (*models.ChargingDataResponse, *models.ProblemDetails) {
 	var records []*cdrType.CHFRecord
 
 	self := chf_context.GetSelf()
@@ -246,9 +247,12 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 	}
 
 	if partialRecord {
-		ueId := chargingData.SubscriberIdentifier
+		ueId = chargingData.SubscriberIdentifier
 
-		CloseCDR(cdr, partialRecord)
+		close_err := CloseCDR(cdr, partialRecord)
+		if close_err != nil {
+			logger.ChargingdataPostLog.Error("CloseCDR error:", close_err)
+		}
 		err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
 		if err != nil {
 			problemDetails := &models.ProblemDetails{
@@ -257,8 +261,12 @@ func ChargingDataUpdate(chargingData models.ChargingDataRequest, chargingSession
 			return nil, problemDetails
 		}
 
-		OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
-		logger.ChargingdataPostLog.Tracef("CDR Record Sequence Number after Reopen %+v", *cdr.ChargingFunctionRecord.RecordSequenceNumber)
+		_, oper_err := OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
+		if oper_err != nil {
+			logger.ChargingdataPostLog.Error("OpenCDR error:", oper_err)
+		}
+		logger.ChargingdataPostLog.Tracef(
+			"CDR Record Sequence Number after Reopen %+v", *cdr.ChargingFunctionRecord.RecordSequenceNumber)
 	}
 
 	for _, cdr := range ue.Cdr {
@@ -330,7 +338,9 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 	return nil
 }
 
-func BuildOnlineChargingDataCreateResopone(ue *chf_context.ChfUe, chargingData models.ChargingDataRequest) models.ChargingDataResponse {
+func BuildOnlineChargingDataCreateResopone(
+	ue *chf_context.ChfUe, chargingData models.ChargingDataRequest,
+) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
 	ue.NotifyUri = chargingData.NotifyUri
 
@@ -343,7 +353,9 @@ func BuildOnlineChargingDataCreateResopone(ue *chf_context.ChfUe, chargingData m
 	return responseBody
 }
 
-func BuildOnlineChargingDataUpdateResopone(chargingData models.ChargingDataRequest) (models.ChargingDataResponse, bool) {
+func BuildOnlineChargingDataUpdateResopone(
+	chargingData models.ChargingDataRequest,
+) (models.ChargingDataResponse, bool) {
 	var partialRecord bool
 
 	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
@@ -628,7 +640,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
 				continue
 			}
-			logger.ChargingdataPostLog.Tracef("price %+v, ue.ReservedQuota[rg]: %+v", serviceUsageRsp.ServiceRating.Price, ue.ReservedQuota[rg])
+			logger.ChargingdataPostLog.Tracef(
+				"price %+v, ue.ReservedQuota[rg]: %+v", serviceUsageRsp.ServiceRating.Price, ue.ReservedQuota[rg])
 
 			if int64(serviceUsageRsp.ServiceRating.Price) < ue.ReservedQuota[rg] {
 				// The final consumed quota is smaller than the reserved quota

@@ -136,7 +136,11 @@ func handleCCR() diam.HandlerFunc {
 		}
 
 		quotaStr := chargingInterface["quota"].(string)
-		quota, _ := strconv.ParseInt(quotaStr, 10, 64)
+		quota, err := strconv.ParseInt(quotaStr, 10, 64)
+		if err != nil {
+			logger.AcctLog.Errorf("srtconv ParseInt error: %+v", err)
+			return
+		}
 
 		switch ccr.RequestedAction {
 		case charging_datatype.CHECK_BALANCE:
@@ -176,7 +180,12 @@ func handleCCR() diam.HandlerFunc {
 
 			// Convert quota into value digits and exponential expression
 			quotaStr = strconv.FormatInt(quota, 10)
-			quotaInt, _ := strconv.ParseInt(quotaStr, 10, 64)
+			quotaInt, err1 := strconv.ParseInt(quotaStr, 10, 64)
+			if err1 != nil {
+				logger.AcctLog.Errorf("srtconv ParseInt error: %+v", err1)
+				return
+			}
+
 			quotaLen := len(quotaStr)
 			quotaExp := quotaLen - 1
 			quotaVal := quotaInt / int64(math.Pow10(quotaExp))
@@ -204,8 +213,8 @@ func handleCCR() diam.HandlerFunc {
 		chargingBsonM := make(bson.M)
 		chargingBsonM["quota"] = strconv.FormatInt(quota, 10)
 		logger.AcctLog.Warnln("quota:", quota)
-		if _, err := mongoapi.RestfulAPIPutOne(chargingDatasColl, filter, chargingBsonM); err != nil {
-			logger.AcctLog.Errorf("RestfulAPIPutOne err: %+v", err)
+		if _, err1 := mongoapi.RestfulAPIPutOne(chargingDatasColl, filter, chargingBsonM); err1 != nil {
+			logger.AcctLog.Errorf("RestfulAPIPutOne err: %+v", err1)
 		}
 
 		a := m.Answer(diam.Success)

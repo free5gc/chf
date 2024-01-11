@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+
 	// "os"
 	"io/ioutil"
 )
@@ -17,7 +18,6 @@ type CDR struct {
 	Hdr     CdrHeader
 	CdrByte []byte
 }
-
 
 type CdrFileHeader struct {
 	FileLength                            uint32
@@ -51,13 +51,15 @@ type CdrHeader struct {
 }
 
 type CdrHdrTimeStamp struct {
-	MonthLocal  							uint8
-	DateLocal   							uint8
-	HourLocal   							uint8
-	MinuteLocal 							uint8
-	SignOfTheLocalTimeDifferentialFromUtc   uint8  // bit set to "1" expresses "+" or bit set to "0" expresses "-" time deviation)
-	HourDeviation 							uint8
-	MinuteDeviation 						uint8
+	MonthLocal  uint8
+	DateLocal   uint8
+	HourLocal   uint8
+	MinuteLocal uint8
+
+	// bit set to "1" expresses "+" or bit set to "0" expresses "-" time deviation)
+	SignOfTheLocalTimeDifferentialFromUtc uint8
+	HourDeviation                         uint8
+	MinuteDeviation                       uint8
 }
 
 type FileClosureTriggerReasonType uint8
@@ -126,7 +128,7 @@ const (
 	TS28202 TsNumberIdentifier = 24
 )
 
-func (cdrf CdrFileHeader) Encoding() []byte{
+func (cdrf CdrFileHeader) Encoding() []byte {
 	buf := new(bytes.Buffer)
 
 	// File length
@@ -142,7 +144,8 @@ func (cdrf CdrFileHeader) Encoding() []byte{
 	// High release / version identifier
 
 	// if cdrf.HighReleaseIdentifier == 7 {
-	// 	var highIdentifier uint8 = (cdrf.HighReleaseIdentifier+cdrf.HighReleaseIdentifierExtension+1)*100 + cdrf.HighVersionIdentifier
+	// var highIdentifier uint8 =
+	//  (cdrf.HighReleaseIdentifier+cdrf.HighReleaseIdentifierExtension+1)*100 + cdrf.HighVersionIdentifier
 	// 	if err := binary.Write(buf, binary.BigEndian, highIdentifier); err != nil {
 	// 		fmt.Println("binary.Write failed:", err)
 	// 	}
@@ -153,7 +156,7 @@ func (cdrf CdrFileHeader) Encoding() []byte{
 	// 	}
 	// }
 
-	var highIdentifier uint8 = (cdrf.HighReleaseIdentifier<<5) | cdrf.HighVersionIdentifier
+	var highIdentifier uint8 = (cdrf.HighReleaseIdentifier << 5) | cdrf.HighVersionIdentifier
 
 	if err := binary.Write(buf, binary.BigEndian, highIdentifier); err != nil {
 		fmt.Println("CdrFileHeader highIdentifier failed:", err)
@@ -162,7 +165,8 @@ func (cdrf CdrFileHeader) Encoding() []byte{
 	// Low release / version identifier
 
 	// if cdrf.LowReleaseIdentifier == 7 {
-	// 	var lowIdentifier uint8 = (cdrf.LowReleaseIdentifier+cdrf.LowReleaseIdentifierExtension+1)*100 + cdrf.LowVersionIdentifier
+	// 	var lowIdentifier uint8 =
+	//   (cdrf.LowReleaseIdentifier+cdrf.LowReleaseIdentifierExtension+1)*100 + cdrf.LowVersionIdentifier
 	// 	if err := binary.Write(buf, binary.BigEndian, lowIdentifier); err != nil {
 	// 		fmt.Println("binary.Write failed:", err)
 	// 	}
@@ -173,7 +177,7 @@ func (cdrf CdrFileHeader) Encoding() []byte{
 	// 	}
 	// }
 
-	var lowIdentifier uint8 = (cdrf.LowReleaseIdentifier<<5) | 	cdrf.LowVersionIdentifier
+	var lowIdentifier uint8 = (cdrf.LowReleaseIdentifier << 5) | cdrf.LowVersionIdentifier
 
 	if err := binary.Write(buf, binary.BigEndian, lowIdentifier); err != nil {
 		fmt.Println("CdrFileHeader lowIdentifier failed:", err)
@@ -305,7 +309,7 @@ func (cdrf CdrFileHeader) Encoding() []byte{
 	// fmt.Printf("%#v", cdrf.FileOpeningTimestamp.UTC().Sub(*cdrf.FileOpeningTimestamp).Hours())
 
 	// Check
-	if cdrf.HeaderLength != uint32(len(buf.Bytes())) && cdrf.HeaderLength != 0xffffffff{
+	if cdrf.HeaderLength != uint32(len(buf.Bytes())) && cdrf.HeaderLength != 0xffffffff {
 		fmt.Println("[Encoding Warning]HeaderLength field of CdfFile Header not equals to the length of CdfFile Header.")
 		fmt.Println("\tExpected", uint32(len(buf.Bytes())), "Get", cdrf.HeaderLength)
 	}
@@ -313,7 +317,7 @@ func (cdrf CdrFileHeader) Encoding() []byte{
 	return buf.Bytes()
 }
 
-func (header CdrHeader) Encoding() []byte{
+func (header CdrHeader) Encoding() []byte {
 	buf := new(bytes.Buffer)
 
 	// CDR length
@@ -371,13 +375,13 @@ func (cdfFile CDRFile) Encoding(fileName string) {
 	}
 
 	// Check
-	if cdfFile.Hdr.FileLength != uint32(len(buf.Bytes())) && cdfFile.Hdr.FileLength != 0xffffffff{
+	if cdfFile.Hdr.FileLength != uint32(len(buf.Bytes())) && cdfFile.Hdr.FileLength != 0xffffffff {
 		fmt.Println("[Encoding Warning]FileLength field of CdfFile Header not equals to the length of encoding file.")
 		fmt.Println("\tExpected", uint32(len(buf.Bytes())), "Get", cdfFile.Hdr.FileLength)
 	}
 
 	// fmt.Printf("Encoded: %b\n", buf.Bytes())
-	err := ioutil.WriteFile(fileName, buf.Bytes(), 0666) 
+	err := ioutil.WriteFile(fileName, buf.Bytes(), 0666)
 	if err != nil {
 		panic(err)
 	}
@@ -411,13 +415,13 @@ func (cdfFile *CDRFile) Decoding(fileName string) {
 	// // The year is temporarily set to the current year
 	// fileOpeningTimestamp := time.Date(time.Now().Year(), time.Month(month), date, hour, minute, 0, 0, loc)
 	fileOpeningTimestamp := CdrHdrTimeStamp{
-		MonthLocal                            : uint8(ts >> 28),
-		DateLocal                             : uint8((ts >> 23) & 0b11111),
-		HourLocal                             : uint8((ts >> 18) & 0b11111),
-		MinuteLocal                           : uint8((ts >> 12) & 0b111111),
-		SignOfTheLocalTimeDifferentialFromUtc : uint8((ts >> 11) & 0b1),
-		HourDeviation                         : uint8((ts >> 6) & 0b11111),
-		MinuteDeviation						  :	uint8(ts & 0b111111),
+		MonthLocal:                            uint8(ts >> 28),
+		DateLocal:                             uint8((ts >> 23) & 0b11111),
+		HourLocal:                             uint8((ts >> 18) & 0b11111),
+		MinuteLocal:                           uint8((ts >> 12) & 0b111111),
+		SignOfTheLocalTimeDifferentialFromUtc: uint8((ts >> 11) & 0b1),
+		HourDeviation:                         uint8((ts >> 6) & 0b11111),
+		MinuteDeviation:                       uint8(ts & 0b111111),
 	}
 
 	// Last CDR append timestamp
@@ -438,25 +442,25 @@ func (cdfFile *CDRFile) Decoding(fileName string) {
 	// loc = time.FixedZone("", offset)
 	// // The year is temporarily set to the current year
 	// lastCDRAppendTimestamp := time.Date(time.Now().Year(), time.Month(month), date, hour, minute, 0, 0, loc)
-    // fmt.Println(fileLength)
+	// fmt.Println(fileLength)
 
 	lastCDRAppendTimestamp := CdrHdrTimeStamp{
-		MonthLocal                            : uint8(ts >> 28),
-		DateLocal                             : uint8((ts >> 23) & 0b11111),
-		HourLocal                             : uint8((ts >> 18) & 0b11111),
-		MinuteLocal                           : uint8((ts >> 12) & 0b111111),
-		SignOfTheLocalTimeDifferentialFromUtc : uint8((ts >> 11) & 0b1),
-		HourDeviation                         : uint8((ts >> 6) & 0b11111),
-		MinuteDeviation						  :	uint8(ts & 0b111111),
+		MonthLocal:                            uint8(ts >> 28),
+		DateLocal:                             uint8((ts >> 23) & 0b11111),
+		HourLocal:                             uint8((ts >> 18) & 0b11111),
+		MinuteLocal:                           uint8((ts >> 12) & 0b111111),
+		SignOfTheLocalTimeDifferentialFromUtc: uint8((ts >> 11) & 0b1),
+		HourDeviation:                         uint8((ts >> 6) & 0b11111),
+		MinuteDeviation:                       uint8(ts & 0b111111),
 	}
 
 	// Length
 	numberOfCdrsInFile := binary.BigEndian.Uint32(data[18:22])
 	lengthOfCdrRouteingFilter := binary.BigEndian.Uint16(data[48:50])
-	xy := 50+lengthOfCdrRouteingFilter
-	LengthOfPrivateExtension:= binary.BigEndian.Uint16(data[xy:xy+2])
-	n := xy+2+LengthOfPrivateExtension
-	
+	xy := 50 + lengthOfCdrRouteingFilter
+	LengthOfPrivateExtension := binary.BigEndian.Uint16(data[xy : xy+2])
+	n := xy + 2 + LengthOfPrivateExtension
+
 	// ip
 	var IpAddressOfNodeThatGeneratedFile [20]byte
 	copy(IpAddressOfNodeThatGeneratedFile[:], data[27:47])
@@ -474,37 +478,37 @@ func (cdfFile *CDRFile) Decoding(fileName string) {
 		FileSequenceNumber:                    binary.BigEndian.Uint32(data[22:26]),
 		FileClosureTriggerReason:              FileClosureTriggerReasonType(data[26]),
 		IpAddressOfNodeThatGeneratedFile:      IpAddressOfNodeThatGeneratedFile,
-		LostCdrIndicator:          			   data[47],
-		LengthOfCdrRouteingFilter: 			   lengthOfCdrRouteingFilter,
+		LostCdrIndicator:                      data[47],
+		LengthOfCdrRouteingFilter:             lengthOfCdrRouteingFilter,
 		CDRRouteingFilter:                     data[50:xy],
-		LengthOfPrivateExtension: 			   LengthOfPrivateExtension,
-		PrivateExtension:                      data[xy+2:n],
-		HighReleaseIdentifierExtension: 	   data[n],
-		LowReleaseIdentifierExtension:  	   data[n+1],
+		LengthOfPrivateExtension:              LengthOfPrivateExtension,
+		PrivateExtension:                      data[xy+2 : n],
+		HighReleaseIdentifierExtension:        data[n],
+		LowReleaseIdentifierExtension:         data[n+1],
 	}
 
-    // fmt.Println("[Decode]cdrfileheader:\n", cdfFile.Hdr)
+	// fmt.Println("[Decode]cdrfileheader:\n", cdfFile.Hdr)
 
-	tail := n+2
+	tail := n + 2
 
 	for i := 1; i <= int(numberOfCdrsInFile); i++ {
-		cdrLength := binary.BigEndian.Uint16(data[tail:tail+2])
+		cdrLength := binary.BigEndian.Uint16(data[tail : tail+2])
 		if len(data) < int(tail)+5+int(cdrLength) {
-			fmt.Println("[Decoding Error]Length of cdrfile is wrong. cdr:",i)
+			fmt.Println("[Decoding Error]Length of cdrfile is wrong. cdr:", i)
 		}
 
-		cdrHeader := CdrHeader {
-			CdrLength                  :cdrLength,
-			ReleaseIdentifier          :ReleaseIdentifierType(data[tail+2] >> 5), 
-			VersionIdentifier          :data[tail+2] & 0b11111,                
-			DataRecordFormat           :DataRecordFormatType(data[tail+3] >> 5), 
-			TsNumber                   :TsNumberIdentifier(data[tail+3] & 0b11111),  
-			ReleaseIdentifierExtension :data[tail+4],
+		cdrHeader := CdrHeader{
+			CdrLength:                  cdrLength,
+			ReleaseIdentifier:          ReleaseIdentifierType(data[tail+2] >> 5),
+			VersionIdentifier:          data[tail+2] & 0b11111,
+			DataRecordFormat:           DataRecordFormatType(data[tail+3] >> 5),
+			TsNumber:                   TsNumberIdentifier(data[tail+3] & 0b11111),
+			ReleaseIdentifierExtension: data[tail+4],
 		}
-		
+
 		cdr := CDR{
-			Hdr: cdrHeader,
-			CdrByte: data[tail+5:tail+5+cdrLength],
+			Hdr:     cdrHeader,
+			CdrByte: data[tail+5 : tail+5+cdrLength],
 		}
 		cdfFile.CdrList = append(cdfFile.CdrList, cdr)
 		tail += 5 + cdrLength

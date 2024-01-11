@@ -2,7 +2,7 @@ package cdrType
 
 // Need to import "gofree5gc/lib/aper" if it uses "aper"
 
-type NetworkAreaInfo struct {	/* Sequence Type */
+type NetworkAreaInfo struct { /* Sequence Type */
 	/* Sequence of = 35, FULL Name = struct NetworkAreaInfo__ecgis */
 	/* Ecgi */
 	Ecgis []Ecgi `ber:"tagNum:0,optional"`
@@ -16,4 +16,3 @@ type NetworkAreaInfo struct {	/* Sequence Type */
 	/* TAI */
 	Tais []TAI `ber:"tagNum:3,optional"`
 }
-
