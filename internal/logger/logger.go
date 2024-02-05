@@ -22,6 +22,7 @@ var (
 	RatingLog           *logrus.Entry
 	AcctLog             *logrus.Entry
 	CgfLog              *logrus.Entry
+	UtilLog             *logrus.Entry
 	FtpServerLog        golog.Logger
 )
 
@@ -46,5 +47,6 @@ func init() {
 	CgfLog = NfLog.WithField(logger_util.FieldCategory, "CGF")
 	RatingLog = NfLog.WithField(logger_util.FieldCategory, "Rating")
 	AcctLog = NfLog.WithField(logger_util.FieldCategory, "Acct")
+	UtilLog = NfLog.WithField(logger_util.FieldCategory, "Util")
 	FtpServerLog = adapter.NewWrap(CgfLog.Logger).With("component", "CHF", "category", "FTP")
 }

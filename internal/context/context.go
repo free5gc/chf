@@ -20,6 +20,12 @@ func Init() {
 	InitChfContext(&chfContext)
 }
 
+type NFContext interface {
+	AuthorizationCheck(token, serviceName string) error
+}
+
+var _ NFContext = &CHFContext{}
+
 type CHFContext struct {
 	NfId                      string
 	Name                      string
@@ -41,6 +47,16 @@ type CHFContext struct {
 
 	RatingSessionIdGenerator  *idgenerator.IDGenerator
 	AccountSessionIdGenerator *idgenerator.IDGenerator
+}
+
+func (c *CHFContext) AuthorizationCheck(token, serviceName string) error {
+	if !c.OAuth2Required {
+		logger.UtilLog.Debugf("CHFContext::AuthorizationCheck: OAuth2 not required\n")
+		return nil
+	}
+
+	logger.UtilLog.Debugf("CHFContext::AuthorizationCheck: token[%s] serviceName[%s]\n", token, serviceName)
+	return oauth.VerifyOAuth(token, serviceName, c.NrfCertPem)
 }
 
 func (context *CHFContext) AddChfUeToUePool(ue *ChfUe, supi string) {
@@ -99,12 +115,12 @@ func (c *CHFContext) GetSelfID() string {
 	return c.NfId
 }
 
-func (c *CHFContext) GetTokenCtx(scope, targetNF string) (
+func (c *CHFContext) GetTokenCtx(scope string, targetNF models.NfType) (
 	context.Context, *models.ProblemDetails, error,
 ) {
 	if !c.OAuth2Required {
 		return context.TODO(), nil, nil
 	}
-	return oauth.GetTokenCtx(models.NfType_CHF,
-		c.NfId, c.NrfUri, scope, targetNF)
+	return oauth.GetTokenCtx(models.NfType_CHF, targetNF,
+		c.NfId, c.NrfUri, scope)
 }
