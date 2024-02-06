@@ -5,16 +5,17 @@ import (
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/openapi/models"
 	"github.com/gin-gonic/gin"
 )
 
 type NFContextGetter func() *chf_context.CHFContext
 
 type RouterAuthorizationCheck struct {
-	serviceName string
+	serviceName models.ServiceName
 }
 
-func NewRouterAuthorizationCheck(serviceName string) *RouterAuthorizationCheck {
+func NewRouterAuthorizationCheck(serviceName models.ServiceName) *RouterAuthorizationCheck {
 	return &RouterAuthorizationCheck{
 		serviceName: serviceName,
 	}
