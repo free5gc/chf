@@ -132,6 +132,7 @@ func Login() error {
 }
 
 func SendCDR(supi string) error {
+	logger.CfgLog.Debugln("SendCDR:", supi)
 	if cgf.conn == nil {
 		err := Login()
 
@@ -139,7 +140,17 @@ func SendCDR(supi string) error {
 			return err
 		}
 		logger.CgfLog.Infof("FTP Re-Login Success")
+	}
 
+	ping_err := cgf.conn.NoOp()
+	if ping_err != nil {
+		logger.CgfLog.Infof("Faile to ping FTP server, relogin...")
+		err := Login()
+
+		if err != nil {
+			return err
+		}
+		logger.CgfLog.Infof("FTP Re-Login Success")
 	}
 
 	fileName := supi + ".cdr"

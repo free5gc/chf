@@ -104,6 +104,7 @@ func printErrors(ec <-chan *diam.ErrorReport) {
 // 	return diam.ListenAndServe(addr, handler, nil)
 // }
 
+// Diameter Credit-Control-Request
 func handleCCR() diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
 		var ccr charging_datatype.AccountDebitRequest
