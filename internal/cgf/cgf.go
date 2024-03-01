@@ -27,6 +27,8 @@ type Cgf struct {
 	conn      *ftp.ServerConn
 	addr      string
 	ftpConfig FtpConfig
+
+	connMutex sync.Mutex
 }
 
 type Access struct {
@@ -112,10 +114,21 @@ func OpenServer(wg *sync.WaitGroup) *Cgf {
 }
 
 func Login() error {
+	cgf.connMutex.Lock()
+	defer cgf.connMutex.Unlock()
+
+	if cgf.conn != nil {
+		ping_err := cgf.conn.NoOp()
+		if ping_err == nil {
+			logger.CgfLog.Infof("FTP already login.")
+			return nil
+		}
+	}
+
 	// FTP server is for CDR transfer
 	var c *ftp.ServerConn
 
-	c, err := ftp.Dial(cgf.addr, ftp.DialWithTimeout(5*time.Second))
+	c, err := ftp.Dial(cgf.addr, ftp.DialWithTimeout(2*time.Second))
 	if err != nil {
 		return err
 	}
@@ -132,6 +145,7 @@ func Login() error {
 }
 
 func SendCDR(supi string) error {
+	logger.CfgLog.Debugln("SendCDR:", supi)
 	if cgf.conn == nil {
 		err := Login()
 
@@ -139,7 +153,17 @@ func SendCDR(supi string) error {
 			return err
 		}
 		logger.CgfLog.Infof("FTP Re-Login Success")
+	}
 
+	ping_err := cgf.conn.NoOp()
+	if ping_err != nil {
+		logger.CgfLog.Infof("Faile to ping FTP server, relogin...")
+		err := Login()
+
+		if err != nil {
+			return err
+		}
+		logger.CgfLog.Infof("FTP Re-Login Success")
 	}
 
 	fileName := supi + ".cdr"

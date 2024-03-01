@@ -235,7 +235,7 @@ func ChargingDataUpdate(
 	defer ue.CULock.Unlock()
 
 	// Online charging: Rate, Account, Reservation
-	responseBody, partialRecord := BuildOnlineChargingDataUpdateResopone(chargingData)
+	responseBody, partialRecord := BuildConvergedChargingDataUpdateResopone(chargingData)
 
 	cdr := ue.Cdr[chargingSessionId]
 	err := UpdateCDR(cdr, chargingData)
@@ -353,12 +353,12 @@ func BuildOnlineChargingDataCreateResopone(
 	return responseBody
 }
 
-func BuildOnlineChargingDataUpdateResopone(
+func BuildConvergedChargingDataUpdateResopone(
 	chargingData models.ChargingDataRequest,
 ) (models.ChargingDataResponse, bool) {
 	var partialRecord bool
 
-	logger.ChargingdataPostLog.Info("In BuildOnlineChargingDataUpdateResopone ")
+	logger.ChargingdataPostLog.Info("In BuildConvergedChargingDataUpdateResopone")
 
 	multipleUnitInformation, partialRecord := sessionChargingReservation(chargingData)
 
