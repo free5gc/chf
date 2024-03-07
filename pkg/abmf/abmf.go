@@ -17,12 +17,10 @@ package abmf
 
 import (
 	"bytes"
+	"context"
 	"math"
-	"os"
-	"os/signal"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	_ "net/http/pprof"
@@ -42,7 +40,7 @@ import (
 
 const chargingDatasColl = "policyData.ues.chargingData"
 
-func OpenServer(wg *sync.WaitGroup) {
+func OpenServer(ctx context.Context, wg *sync.WaitGroup) {
 	// Load our custom dictionary on top of the default one, which
 	// always have the Base Protocol (RFC6733) and Credit Control
 	// Application (RFC4006).
@@ -79,19 +77,15 @@ func OpenServer(wg *sync.WaitGroup) {
 			logger.AcctLog.Infoln("ABMF server stopped")
 			wg.Done()
 		}()
-		signalChannel := make(chan os.Signal, 1)
-		signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
-
-		abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
-		addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)
-
-		go func() {
-			err := diam.ListenAndServeTLS(addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key, mux, nil)
-			if err != nil {
-				logger.AcctLog.Errorf("ABMF server fail to listen: %V", err)
-			}
-		}()
-		<-signalChannel
+		<-ctx.Done()
+	}()
+	abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
+	addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)
+	go func() {
+		err := diam.ListenAndServeTLS(addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key, mux, nil)
+		if err != nil {
+			logger.AcctLog.Errorf("ABMF server fail to listen: %V", err)
+		}
 	}()
 }
 

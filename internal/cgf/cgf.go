@@ -3,14 +3,13 @@ package cgf
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/fclairamb/ftpserver/config"
@@ -46,7 +45,7 @@ type FtpConfig struct {
 
 var cgf *Cgf
 
-func OpenServer(wg *sync.WaitGroup) *Cgf {
+func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 	// Arguments vars
 	cgf = new(Cgf)
 
@@ -107,7 +106,7 @@ func OpenServer(wg *sync.WaitGroup) *Cgf {
 	// Setting up the ftpserver logger
 	cgf.ftpServer.Logger = logger.FtpServerLog
 
-	go cgf.Serve(wg)
+	go cgf.Serve(ctx, wg)
 	logger.CgfLog.Info("FTP server Start")
 
 	return cgf
@@ -184,10 +183,7 @@ func SendCDR(supi string) error {
 const FTP_LOGIN_RETRY_NUMBER = 3
 const FTP_LOGIN_RETRY_WAITING_TIME = 1 * time.Second // second
 
-func (f *Cgf) Serve(wg *sync.WaitGroup) {
-	signalChannel := make(chan os.Signal, 1)
-	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
-
+func (f *Cgf) Serve(ctx context.Context, wg *sync.WaitGroup) {
 	go func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -195,8 +191,7 @@ func (f *Cgf) Serve(wg *sync.WaitGroup) {
 				logger.InitLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
 			}
 		}()
-
-		<-signalChannel
+		<-ctx.Done()
 		f.Terminate()
 		wg.Done()
 	}()

@@ -17,14 +17,12 @@ package rf
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"math"
-	"os"
-	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	_ "net/http/pprof"
@@ -43,7 +41,7 @@ import (
 
 const chargingDatasColl = "policyData.ues.chargingData"
 
-func OpenServer(wg *sync.WaitGroup) {
+func OpenServer(ctx context.Context, wg *sync.WaitGroup) {
 	// Load our custom dictionary on top of the default one, which
 	// always have the Base Protocol (RFC6733) and Credit Control
 	// Application (RFC4006).
@@ -78,18 +76,15 @@ func OpenServer(wg *sync.WaitGroup) {
 			logger.CgfLog.Infoln("Rating Function server stopped")
 			wg.Done()
 		}()
-		signalChannel := make(chan os.Signal, 1)
-		signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
-
-		rfDiameter := factory.ChfConfig.Configuration.RfDiameter
-		addr := rfDiameter.HostIPv4 + ":" + strconv.Itoa(rfDiameter.Port)
-		go func() {
-			err := diam.ListenAndServeTLS(addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key, mux, nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}()
-		<-signalChannel
+		<-ctx.Done()
+	}()
+	rfDiameter := factory.ChfConfig.Configuration.RfDiameter
+	addr := rfDiameter.HostIPv4 + ":" + strconv.Itoa(rfDiameter.Port)
+	go func() {
+		err := diam.ListenAndServeTLS(addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key, mux, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}()
 }
 
