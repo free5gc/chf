@@ -148,8 +148,8 @@ func (c *ChfApp) Start(tlsKeyLogPath string) {
 
 		<-signalChannel
 		cancel()
-		wg.Wait()
 		c.Terminate()
+		wg.Wait()
 		os.Exit(0)
 	}()
 
