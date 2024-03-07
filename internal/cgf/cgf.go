@@ -199,7 +199,6 @@ func (f *Cgf) Serve(wg *sync.WaitGroup) {
 		<-signalChannel
 		f.Terminate()
 		wg.Done()
-		os.Exit(0)
 	}()
 
 	for i := 0; i < FTP_LOGIN_RETRY_NUMBER; i++ {
@@ -222,6 +221,8 @@ func (f *Cgf) Serve(wg *sync.WaitGroup) {
 }
 
 func (f *Cgf) Terminate() {
+	logger.CgfLog.Infoln("CGF Terminating...")
+
 	f.driver.Stop()
 
 	if err := f.ftpServer.Stop(); err != nil {
@@ -247,4 +248,5 @@ func (f *Cgf) Terminate() {
 			}
 		}
 	}
+	logger.CgfLog.Infoln("CGF terminated")
 }
