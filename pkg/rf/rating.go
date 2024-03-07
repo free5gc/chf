@@ -19,9 +19,12 @@ import (
 	"bytes"
 	"log"
 	"math"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	_ "net/http/pprof"
@@ -72,16 +75,21 @@ func OpenServer(wg *sync.WaitGroup) {
 	go printErrors(mux.ErrorReports())
 	go func() {
 		defer func() {
-			logger.CgfLog.Error("Rating Function server stopped")
+			logger.CgfLog.Infoln("Rating Function server stopped")
 			wg.Done()
 		}()
+		signalChannel := make(chan os.Signal, 1)
+		signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
 
 		rfDiameter := factory.ChfConfig.Configuration.RfDiameter
 		addr := rfDiameter.HostIPv4 + ":" + strconv.Itoa(rfDiameter.Port)
-		err := diam.ListenAndServeTLS(addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key, mux, nil)
-		if err != nil {
-			log.Fatal(err)
-		}
+		go func() {
+			err := diam.ListenAndServeTLS(addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key, mux, nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}()
+		<-signalChannel
 	}()
 }
 

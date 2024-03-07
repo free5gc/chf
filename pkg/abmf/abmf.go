@@ -18,8 +18,11 @@ package abmf
 import (
 	"bytes"
 	"math"
+	"os"
+	"os/signal"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	_ "net/http/pprof"
@@ -73,16 +76,22 @@ func OpenServer(wg *sync.WaitGroup) {
 	go printErrors(mux.ErrorReports())
 	go func() {
 		defer func() {
-			logger.AcctLog.Error("ABMF server stopped")
+			logger.AcctLog.Infoln("ABMF server stopped")
 			wg.Done()
 		}()
+		signalChannel := make(chan os.Signal, 1)
+		signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
 
 		abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
 		addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)
-		err := diam.ListenAndServeTLS(addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key, mux, nil)
-		if err != nil {
-			logger.AcctLog.Errorf("ABMF server fail to listen: %V", err)
-		}
+
+		go func() {
+			err := diam.ListenAndServeTLS(addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key, mux, nil)
+			if err != nil {
+				logger.AcctLog.Errorf("ABMF server fail to listen: %V", err)
+			}
+		}()
+		<-signalChannel
 	}()
 }
 
