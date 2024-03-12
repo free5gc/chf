@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -113,14 +114,16 @@ func (c *ChfApp) Start(tlsKeyLogPath string) {
 
 	wg := sync.WaitGroup{}
 
-	wg.Add(1)
-	cgf.OpenServer(&wg)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	wg.Add(1)
-	rf.OpenServer(&wg)
+	cgf.OpenServer(ctx, &wg)
 
 	wg.Add(1)
-	abmf.OpenServer(&wg)
+	rf.OpenServer(ctx, &wg)
+
+	wg.Add(1)
+	abmf.OpenServer(ctx, &wg)
 	// Register to NRF
 	profile, err := consumer.BuildNFInstance(self)
 	if err != nil {
@@ -144,7 +147,9 @@ func (c *ChfApp) Start(tlsKeyLogPath string) {
 		}()
 
 		<-signalChannel
+		cancel()
 		c.Terminate()
+		wg.Wait()
 		os.Exit(0)
 	}()
 
