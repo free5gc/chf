@@ -162,7 +162,11 @@ func handleSUR() diam.HandlerFunc {
 		if err != nil {
 			logger.ChargingdataPostLog.Errorf("Get tarrif error: %+v", err)
 		}
-
+		if chargingInterface == nil {
+			logger.ChargingdataPostLog.Warningf(
+				"No ChargingData found for UE:[%+v] for RG:[%+v]", subscriberId, rg)
+			return
+		}
 		unitCostStr := chargingInterface["unitCost"].(string)
 		monetaryTariff := buildTaffif(unitCostStr)
 		unitCost := datatype.Unsigned32(monetaryTariff.RateElement.UnitCost.ValueDigits) *
