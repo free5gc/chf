@@ -9,8 +9,8 @@ require (
 	github.com/fclairamb/ftpserverlib v0.21.0
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
-	github.com/free5gc/openapi v1.0.7
-	github.com/free5gc/util v1.0.5
+	github.com/free5gc/openapi v1.0.8
+	github.com/free5gc/util v1.0.6
 	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0
@@ -98,7 +98,7 @@ require (
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20221202195650-67e5cbc046fd // indirect
 	google.golang.org/grpc v1.50.1 // indirect
-	google.golang.org/protobuf v1.30.0 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 	gopkg.in/h2non/gock.v1 v1.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
