@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -28,16 +28,25 @@ import (
 type ChfApp struct {
 	cfg    *factory.Config
 	chfCtx *chf_context.CHFContext
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
-func NewApp(cfg *factory.Config) (*ChfApp, error) {
-	chf := &ChfApp{cfg: cfg}
+func NewApp(ctx context.Context, cfg *factory.Config) (*ChfApp, error) {
+	chf := &ChfApp{
+		cfg: cfg,
+		wg:  sync.WaitGroup{},
+	}
 	chf.SetLogEnable(cfg.GetLogEnable())
 	chf.SetLogLevel(cfg.GetLogLevel())
 	chf.SetReportCaller(cfg.GetLogReportCaller())
 
 	chf_context.Init()
 	chf.chfCtx = chf_context.GetSelf()
+
+	chf.ctx, chf.cancel = context.WithCancel(ctx)
+
 	return chf, nil
 }
 
@@ -45,7 +54,7 @@ func (c *ChfApp) SetLogEnable(enable bool) {
 	logger.MainLog.Infof("Log enable is set to [%v]", enable)
 	if enable && logger.Log.Out == os.Stderr {
 		return
-	} else if !enable && logger.Log.Out == ioutil.Discard {
+	} else if !enable && logger.Log.Out == io.Discard {
 		return
 	}
 
@@ -53,7 +62,7 @@ func (c *ChfApp) SetLogEnable(enable bool) {
 	if enable {
 		logger.Log.SetOutput(os.Stderr)
 	} else {
-		logger.Log.SetOutput(ioutil.Discard)
+		logger.Log.SetOutput(io.Discard)
 
 	}
 }
@@ -187,4 +196,9 @@ func (c *ChfApp) Terminate() {
 		logger.InitLog.Infof("Deregister from NRF successfully")
 	}
 	logger.InitLog.Infof("CHF terminated")
+}
+
+func (a *ChfApp) WaitRoutineStopped() {
+	a.wg.Wait()
+	logger.MainLog.Infof("NRF App is terminated")
 }

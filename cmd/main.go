@@ -12,10 +12,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"sync"
+	"syscall"
 
 	"github.com/urfave/cli"
 
@@ -63,13 +67,28 @@ func action(cliCtx *cli.Context) error {
 
 	logger.MainLog.Infoln("CHF version: ", version.GetVersion())
 
+	ctx, cancel := context.WithCancel(context.Background())
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-sigCh  // Wait for interrupt signal to gracefully shutdown UPF
+		cancel() // Notify each goroutine and wait them stopped
+		if CHF != nil {
+			CHF.WaitRoutineStopped()
+		}
+	}()
+
 	cfg, err := factory.ReadConfig(cliCtx.String("config"))
 	if err != nil {
 		return err
 	}
 	factory.ChfConfig = cfg
 
-	chf, err := service.NewApp(cfg)
+	chf, err := service.NewApp(ctx, cfg)
 	if err != nil {
 		return err
 	}
