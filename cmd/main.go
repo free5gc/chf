@@ -75,7 +75,7 @@ func action(cliCtx *cli.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		<-sigCh  // Wait for interrupt signal to gracefully shutdown UPF
+		<-sigCh  // Wait for interrupt signal to gracefully shutdown
 		cancel() // Notify each goroutine and wait them stopped
 		if CHF != nil {
 			CHF.WaitRoutineStopped()
@@ -88,13 +88,16 @@ func action(cliCtx *cli.Context) error {
 	}
 	factory.ChfConfig = cfg
 
-	chf, err := service.NewApp(ctx, cfg)
+	chf, err := service.NewApp(ctx, cfg, tlsKeyLogPath)
 	if err != nil {
 		return err
 	}
 	CHF = chf
 
 	chf.Start(tlsKeyLogPath)
+
+	<-ctx.Done()
+	chf.WaitRoutineStopped()
 
 	return nil
 }
