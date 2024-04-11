@@ -18,7 +18,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
-	"sync"
 	"syscall"
 
 	"github.com/urfave/cli"
@@ -71,33 +70,27 @@ func action(cliCtx *cli.Context) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-	wg := new(sync.WaitGroup)
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		<-sigCh  // Wait for interrupt signal to gracefully shutdown
 		cancel() // Notify each goroutine and wait them stopped
-		if CHF != nil {
-			CHF.WaitRoutineStopped()
-		}
 	}()
 
 	cfg, err := factory.ReadConfig(cliCtx.String("config"))
 	if err != nil {
+		sigCh <- nil
 		return err
 	}
 	factory.ChfConfig = cfg
 
 	chf, err := service.NewApp(ctx, cfg, tlsKeyLogPath)
 	if err != nil {
+		sigCh <- nil
 		return err
 	}
 	CHF = chf
 
-	chf.Start(tlsKeyLogPath)
-
-	<-ctx.Done()
-	chf.WaitRoutineStopped()
+	chf.Start()
+	CHF.WaitRoutineStopped()
 
 	return nil
 }

@@ -105,11 +105,8 @@ func (a *ChfApp) SetReportCaller(reportCaller bool) {
 	logger.Log.SetReportCaller(reportCaller)
 }
 
-func (a *ChfApp) Start(tlsKeyLogPath string) {
+func (a *ChfApp) Start() {
 	logger.InitLog.Infoln("Server started")
-
-	// router := logger_util.NewGinWithLogrus(logger.GinLog)
-	// convergedcharging.AddService(router)
 
 	a.wg.Add(1)
 	cgf.OpenServer(a.ctx, &a.wg)
@@ -136,25 +133,15 @@ func (a *ChfApp) Start(tlsKeyLogPath string) {
 	go a.listenShutdownEvent()
 
 	if err := a.sbiServer.Run(context.Background(), &a.wg); err != nil {
-		logger.InitLog.Fatalf("Run SBI server failed: %+v", err)
+		logger.MainLog.Fatalf("Run SBI server failed: %+v", err)
 	}
-
-	// signalChannel := make(chan os.Signal, 1)
-	// signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
-	// <-signalChannel
-
-	// a.cancel()
-	// a.Terminate()
-	// a.wg.Wait()
-
-	// os.Exit(0)
 }
 
 func (a *ChfApp) listenShutdownEvent() {
 	defer func() {
 		if p := recover(); p != nil {
 			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.InitLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+			logger.MainLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
 		}
 		a.wg.Done()
 	}()
@@ -162,31 +149,31 @@ func (a *ChfApp) listenShutdownEvent() {
 	<-a.ctx.Done()
 
 	if a.sbiServer != nil {
-		a.Terminate()
 		a.sbiServer.Stop(context.Background())
+		a.Terminate()
 	}
 }
 
 func (c *ChfApp) Terminate() {
-	logger.InitLog.Infof("Terminating CHF...")
+	logger.MainLog.Infof("Terminating CHF...")
 	// deregister with NRF
 	problemDetails, err := consumer.SendDeregisterNFInstance()
 	if problemDetails != nil {
-		logger.InitLog.Errorf("Deregister NF instance Failed Problem[%+v]", problemDetails)
+		logger.MainLog.Errorf("Deregister NF instance Failed Problem[%+v]", problemDetails)
 	} else if err != nil {
-		logger.InitLog.Errorf("Deregister NF instance Error[%+v]", err)
+		logger.MainLog.Errorf("Deregister NF instance Error[%+v]", err)
 	} else {
-		logger.InitLog.Infof("Deregister from NRF successfully")
+		logger.MainLog.Infof("Deregister from NRF successfully")
 	}
-	logger.InitLog.Infof("CHF terminated")
+	logger.MainLog.Infof("CHF SBI Server terminated")
 }
 
 func (a *ChfApp) Stop() {
 	a.cancel()
-	// a.WaitRoutineStopped()
+	a.WaitRoutineStopped()
 }
 
 func (a *ChfApp) WaitRoutineStopped() {
 	a.wg.Wait()
-	logger.MainLog.Infof("NRF App is terminated")
+	logger.MainLog.Infof("CHF App is terminated")
 }
