@@ -13,6 +13,7 @@ import (
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/util"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
@@ -53,6 +54,7 @@ type chf interface {
 	Config() *factory.Config
 	Context() *chf_context.CHFContext
 	CancelContext() context.Context
+	Consumer() *consumer.Consumer
 }
 
 type Server struct {
@@ -103,11 +105,15 @@ func NewServer(chf chf, tlsKeyLogPath string) (*Server, error) {
 }
 
 func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
+	var err error
+	_, s.Context().NfId, err = s.Consumer().RegisterNFInstance(s.CancelContext())
+	if err != nil {
+		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
+	}
+
 	wg.Add(1)
 	go s.startServer(wg)
 
-	// example: use of Consumer()
-	// s.Consumer().RegisterNFInstance(s.CancelContext())
 	return nil
 }
 

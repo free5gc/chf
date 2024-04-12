@@ -26,6 +26,7 @@ type ChfApp struct {
 	cancel context.CancelFunc
 
 	sbiServer *sbi.Server
+	consumer  *consumer.Consumer
 	wg        sync.WaitGroup
 }
 
@@ -41,9 +42,14 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 	chf_context.Init()
 	chf.chfCtx = chf_context.GetSelf()
 
+	consumer, err := consumer.NewConsumer(chf)
+	if err != nil {
+		return chf, err
+	}
+	chf.consumer = consumer
+
 	chf.ctx, chf.cancel = context.WithCancel(ctx)
 
-	var err error
 	if chf.sbiServer, err = sbi.NewServer(chf, tlsKeyLogPath); err != nil {
 		return nil, err
 	}
@@ -60,6 +66,10 @@ func (a *ChfApp) Context() *chf_context.CHFContext {
 
 func (a *ChfApp) CancelContext() context.Context {
 	return a.ctx
+}
+
+func (a *ChfApp) Consumer() *consumer.Consumer {
+	return a.consumer
 }
 
 func (c *ChfApp) SetLogEnable(enable bool) {
@@ -117,18 +127,6 @@ func (a *ChfApp) Start() {
 	a.wg.Add(1)
 	abmf.OpenServer(a.ctx, &a.wg)
 
-	self := a.chfCtx
-
-	// Register to NRF
-	profile, err := consumer.BuildNFInstance(self)
-	if err != nil {
-		logger.InitLog.Error("Build CHF Profile Error")
-	}
-	_, self.NfId, err = consumer.SendRegisterNFInstance(self.NrfUri, self.NfId, profile)
-	if err != nil {
-		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
-	}
-
 	a.wg.Add(1)
 	go a.listenShutdownEvent()
 
@@ -157,7 +155,7 @@ func (a *ChfApp) listenShutdownEvent() {
 func (c *ChfApp) Terminate() {
 	logger.MainLog.Infof("Terminating CHF...")
 	// deregister with NRF
-	problemDetails, err := consumer.SendDeregisterNFInstance()
+	problemDetails, err := c.Consumer().SendDeregisterNFInstance()
 	if problemDetails != nil {
 		logger.MainLog.Errorf("Deregister NF instance Failed Problem[%+v]", problemDetails)
 	} else if err != nil {
