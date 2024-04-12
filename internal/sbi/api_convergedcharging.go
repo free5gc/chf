@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/free5gc/chf/internal/sbi/producer"
 	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
 
@@ -97,7 +96,7 @@ func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
 	req := httpwrapper.NewRequest(c.Request, chargingDataReq)
 	req.Params["ChargingDataRef"] = c.Param("ChargingDataRef")
 
-	rsp := producer.HandleChargingdataRelease(req)
+	rsp := s.Processor().HandleChargingdataRelease(req)
 
 	for key, value := range rsp.Header {
 		c.Header(key, value[0])
@@ -149,7 +148,7 @@ func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
 	req := httpwrapper.NewRequest(c.Request, chargingDataReq)
 	req.Params["ChargingDataRef"] = c.Param("ChargingDataRef")
 
-	rsp := producer.HandleChargingdataUpdate(req)
+	rsp := s.Processor().HandleChargingdataUpdate(req)
 
 	for key, value := range rsp.Header {
 		c.Header(key, value[0])
@@ -200,7 +199,7 @@ func (s *Server) ChargingdataPost(c *gin.Context) {
 
 	req := httpwrapper.NewRequest(c.Request, chargingDataReq)
 
-	rsp := producer.HandleChargingdataInitial(req)
+	rsp := s.Processor().HandleChargingdataInitial(req)
 
 	for key, value := range rsp.Header {
 		c.Header(key, value[0])
@@ -235,7 +234,7 @@ func (s *Server) RechargePut(c *gin.Context) {
 
 	logger.RechargingLog.Warnf("UE[%s] Recharg for rating group %d", ueId, rg)
 
-	producer.NotifyRecharge(ueId, int32(rg))
+	s.Processor().NotifyRecharge(ueId, int32(rg))
 
 	c.JSON(http.StatusNoContent, gin.H{})
 }

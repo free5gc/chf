@@ -14,6 +14,7 @@ import (
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi/consumer"
+	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/internal/util"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
@@ -55,6 +56,7 @@ type chf interface {
 	Context() *chf_context.CHFContext
 	CancelContext() context.Context
 	Consumer() *consumer.Consumer
+	Processor() *processor.Processor
 }
 
 type Server struct {

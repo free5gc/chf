@@ -14,6 +14,7 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi"
 	"github.com/free5gc/chf/internal/sbi/consumer"
+	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/pkg/abmf"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/rf"
@@ -27,6 +28,7 @@ type ChfApp struct {
 
 	sbiServer *sbi.Server
 	consumer  *consumer.Consumer
+	processor *processor.Processor
 	wg        sync.WaitGroup
 }
 
@@ -41,6 +43,12 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 
 	chf_context.Init()
 	chf.chfCtx = chf_context.GetSelf()
+
+	processor, err_p := processor.NewProcessor(chf)
+	if err_p != nil {
+		return chf, err_p
+	}
+	chf.processor = processor
 
 	consumer, err := consumer.NewConsumer(chf)
 	if err != nil {
@@ -70,6 +78,10 @@ func (a *ChfApp) CancelContext() context.Context {
 
 func (a *ChfApp) Consumer() *consumer.Consumer {
 	return a.consumer
+}
+
+func (a *ChfApp) Processor() *processor.Processor {
+	return a.processor
 }
 
 func (c *ChfApp) SetLogEnable(enable bool) {
