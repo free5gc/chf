@@ -6,7 +6,7 @@ package factory
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 
 	"gopkg.in/yaml.v2"
 
@@ -23,7 +23,7 @@ func InitConfigFactory(f string, cfg *Config) error {
 		f = ChfDefaultConfigPath
 	}
 
-	if content, err := ioutil.ReadFile(f); err != nil {
+	if content, err := os.ReadFile(f); err != nil {
 		return fmt.Errorf("[Factory] %+v", err)
 	} else {
 		logger.CfgLog.Infof("Read config from [%s]", f)
@@ -40,8 +40,12 @@ func ReadConfig(cfgPath string) (*Config, error) {
 		return nil, fmt.Errorf("ReadConfig [%s] Error: %+v", cfgPath, err)
 	}
 	if _, err := cfg.Validate(); err != nil {
-		validErrs := err.(govalidator.Errors).Errors()
-		for _, validErr := range validErrs {
+		validErrsData, ok := err.(govalidator.Errors)
+		if !ok {
+			logger.CfgLog.Errorf("[-- PLEASE REFER TO SAMPLE CONFIG FILE COMMENTS --]")
+			return nil, fmt.Errorf("Config validate Error: %+v", err)
+		}
+		for _, validErr := range validErrsData.Errors() {
 			logger.CfgLog.Errorf("%+v", validErr)
 		}
 		logger.CfgLog.Errorf("[-- PLEASE REFER TO SAMPLE CONFIG FILE COMMENTS --]")

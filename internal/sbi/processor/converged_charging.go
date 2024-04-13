@@ -1,4 +1,4 @@
-package producer
+package processor
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func min[T constraints.Ordered](a, b T) T {
 	return b
 }
 
-func NotifyRecharge(ueId string, rg int32) {
+func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 	var reauthorizationDetails []models.ReauthorizationDetails
 
 	self := chf_context.GetSelf()
@@ -50,10 +50,10 @@ func NotifyRecharge(ueId string, rg int32) {
 		ReauthorizationDetails: reauthorizationDetails,
 	}
 
-	SendChargingNotification(ue.NotifyUri, notifyRequest)
+	p.SendChargingNotification(ue.NotifyUri, notifyRequest)
 }
 
-func SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
+func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
 	client := util.GetNchfChargingNotificationCallbackClient()
 	logger.NotifyEventLog.Warn("Send Charging Notification  to SMF: uri: ", notifyUri)
 	httpResponse, err := client.DefaultCallbackApi.ChargingNotification(context.Background(), notifyUri, notifyRequest)
@@ -80,11 +80,11 @@ func SendChargingNotification(notifyUri string, notifyRequest models.ChargingNot
 	}
 }
 
-func HandleChargingdataInitial(request *httpwrapper.Request) *httpwrapper.Response {
+func (p *Processor) HandleChargingdataInitial(request *httpwrapper.Request) *httpwrapper.Response {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
 	chargingdata := request.Body.(models.ChargingDataRequest)
 
-	response, locationURI, problemDetails := ChargingDataCreate(chargingdata)
+	response, locationURI, problemDetails := p.ChargingDataCreate(chargingdata)
 	respHeader := make(http.Header)
 	respHeader.Set("Location", locationURI)
 
@@ -100,12 +100,12 @@ func HandleChargingdataInitial(request *httpwrapper.Request) *httpwrapper.Respon
 	return httpwrapper.NewResponse(http.StatusForbidden, nil, problemDetails)
 }
 
-func HandleChargingdataUpdate(request *httpwrapper.Request) *httpwrapper.Response {
+func (p *Processor) HandleChargingdataUpdate(request *httpwrapper.Request) *httpwrapper.Response {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
 	chargingdata := request.Body.(models.ChargingDataRequest)
 	chargingSessionId := request.Params["ChargingDataRef"]
 
-	response, problemDetails := ChargingDataUpdate(chargingdata, chargingSessionId)
+	response, problemDetails := p.ChargingDataUpdate(chargingdata, chargingSessionId)
 
 	if response != nil {
 		return httpwrapper.NewResponse(http.StatusOK, nil, response)
@@ -119,12 +119,12 @@ func HandleChargingdataUpdate(request *httpwrapper.Request) *httpwrapper.Respons
 	return httpwrapper.NewResponse(http.StatusForbidden, nil, problemDetails)
 }
 
-func HandleChargingdataRelease(request *httpwrapper.Request) *httpwrapper.Response {
+func (p *Processor) HandleChargingdataRelease(request *httpwrapper.Request) *httpwrapper.Response {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
 	chargingdata := request.Body.(models.ChargingDataRequest)
 	chargingSessionId := request.Params["ChargingDataRef"]
 
-	problemDetails := ChargingDataRelease(chargingdata, chargingSessionId)
+	problemDetails := p.ChargingDataRelease(chargingdata, chargingSessionId)
 
 	if problemDetails == nil {
 		return httpwrapper.NewResponse(http.StatusNoContent, nil, nil)
@@ -138,7 +138,7 @@ func HandleChargingdataRelease(request *httpwrapper.Request) *httpwrapper.Respon
 	return httpwrapper.NewResponse(http.StatusForbidden, nil, problemDetails)
 }
 
-func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.ChargingDataResponse,
+func (p *Processor) ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.ChargingDataResponse,
 	string, *models.ProblemDetails) {
 	var responseBody models.ChargingDataResponse
 	var chargingSessionId string
@@ -168,7 +168,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	if !chargingData.OneTimeEvent {
 		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
 	}
-	cdr, err := OpenCDR(chargingData, ue, chargingSessionId, false)
+	cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -176,7 +176,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 		return nil, "", problemDetails
 	}
 
-	err = UpdateCDR(cdr, chargingData)
+	err = p.UpdateCDR(cdr, chargingData)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -187,7 +187,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	ue.Cdr[chargingSessionId] = cdr
 
 	if chargingData.OneTimeEvent {
-		err = CloseCDR(cdr, false)
+		err = p.CloseCDR(cdr, false)
 		if err != nil {
 			problemDetails := &models.ProblemDetails{
 				Status: http.StatusBadRequest,
@@ -215,7 +215,7 @@ func ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.Chargi
 	return &responseBody, locationURI, nil
 }
 
-func ChargingDataUpdate(
+func (p *Processor) ChargingDataUpdate(
 	chargingData models.ChargingDataRequest, chargingSessionId string,
 ) (*models.ChargingDataResponse, *models.ProblemDetails) {
 	var records []*cdrType.CHFRecord
@@ -235,10 +235,10 @@ func ChargingDataUpdate(
 	defer ue.CULock.Unlock()
 
 	// Online charging: Rate, Account, Reservation
-	responseBody, partialRecord := BuildConvergedChargingDataUpdateResopone(chargingData)
+	responseBody, partialRecord := p.BuildConvergedChargingDataUpdateResopone(chargingData)
 
 	cdr := ue.Cdr[chargingSessionId]
-	err := UpdateCDR(cdr, chargingData)
+	err := p.UpdateCDR(cdr, chargingData)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -249,7 +249,7 @@ func ChargingDataUpdate(
 	if partialRecord {
 		ueId = chargingData.SubscriberIdentifier
 
-		close_err := CloseCDR(cdr, partialRecord)
+		close_err := p.CloseCDR(cdr, partialRecord)
 		if close_err != nil {
 			logger.ChargingdataPostLog.Error("CloseCDR error:", close_err)
 		}
@@ -261,7 +261,7 @@ func ChargingDataUpdate(
 			return nil, problemDetails
 		}
 
-		_, oper_err := OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
+		_, oper_err := p.OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
 		if oper_err != nil {
 			logger.ChargingdataPostLog.Error("OpenCDR error:", oper_err)
 		}
@@ -292,7 +292,8 @@ func ChargingDataUpdate(
 	return &responseBody, nil
 }
 
-func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessionId string) *models.ProblemDetails {
+func (p *Processor) ChargingDataRelease(
+	chargingData models.ChargingDataRequest, chargingSessionId string) *models.ProblemDetails {
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
@@ -311,7 +312,7 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 
 	cdr := ue.Cdr[chargingSessionId]
 
-	err := UpdateCDR(cdr, chargingData)
+	err := p.UpdateCDR(cdr, chargingData)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -319,7 +320,7 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 		return problemDetails
 	}
 
-	err = CloseCDR(cdr, false)
+	err = p.CloseCDR(cdr, false)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -338,7 +339,7 @@ func ChargingDataRelease(chargingData models.ChargingDataRequest, chargingSessio
 	return nil
 }
 
-func BuildOnlineChargingDataCreateResopone(
+func (p *Processor) BuildOnlineChargingDataCreateResopone(
 	ue *chf_context.ChfUe, chargingData models.ChargingDataRequest,
 ) models.ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
@@ -353,7 +354,7 @@ func BuildOnlineChargingDataCreateResopone(
 	return responseBody
 }
 
-func BuildConvergedChargingDataUpdateResopone(
+func (p *Processor) BuildConvergedChargingDataUpdateResopone(
 	chargingData models.ChargingDataRequest,
 ) (models.ChargingDataResponse, bool) {
 	var partialRecord bool

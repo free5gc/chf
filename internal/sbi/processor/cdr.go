@@ -1,4 +1,4 @@
-package producer
+package processor
 
 import (
 	"strings"
@@ -13,7 +13,7 @@ import (
 	"github.com/free5gc/openapi/models"
 )
 
-func OpenCDR(
+func (p *Processor) OpenCDR(
 	chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, sessionId string, partialRecord bool,
 ) (*cdrType.CHFRecord, error) {
 	// 32.298 5.1.5.0.1 for CHF CDR field
@@ -197,7 +197,7 @@ func OpenCDR(
 	return &cdr, nil
 }
 
-func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataRequest) error {
+func (p *Processor) UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataRequest) error {
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
 
@@ -215,7 +215,7 @@ func UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataReques
 	return nil
 }
 
-func CloseCDR(record *cdrType.CHFRecord, partial bool) error {
+func (p *Processor) CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 	logger.ChargingdataPostLog.Infof("Close CDR")
 
 	chfCdr := record.ChargingFunctionRecord

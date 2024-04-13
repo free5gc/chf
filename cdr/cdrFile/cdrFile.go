@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-
-	// "os"
-	"io/ioutil"
+	"os"
 )
 
 type CDRFile struct {
@@ -381,14 +379,14 @@ func (cdfFile CDRFile) Encoding(fileName string) {
 	}
 
 	// fmt.Printf("Encoded: %b\n", buf.Bytes())
-	err := ioutil.WriteFile(fileName, buf.Bytes(), 0666)
+	err := os.WriteFile(fileName, buf.Bytes(), 0666)
 	if err != nil {
 		panic(err)
 	}
 }
 
 func (cdfFile *CDRFile) Decoding(fileName string) {
-	data, err := ioutil.ReadFile(fileName)
+	data, err := os.ReadFile(fileName)
 	if err != nil {
 		panic(err)
 	}
