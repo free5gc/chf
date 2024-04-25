@@ -20,7 +20,6 @@ import (
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
 	"github.com/free5gc/openapi/models"
-	"github.com/free5gc/util/httpwrapper"
 )
 
 func min[T constraints.Ordered](a, b T) T {
@@ -80,62 +79,89 @@ func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest mod
 	}
 }
 
-func (p *Processor) HandleChargingdataInitial(request *httpwrapper.Request) *httpwrapper.Response {
+func (p *Processor) HandleChargingdataInitial(
+	chargingdata models.ChargingDataRequest,
+) *HandlerResponse {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
-	chargingdata := request.Body.(models.ChargingDataRequest)
-
 	response, locationURI, problemDetails := p.ChargingDataCreate(chargingdata)
 	respHeader := make(http.Header)
 	respHeader.Set("Location", locationURI)
 
 	if response != nil {
-		return httpwrapper.NewResponse(http.StatusCreated, respHeader, response)
+		return &HandlerResponse{
+			Status:  http.StatusCreated,
+			Headers: nil,
+			Body:    problemDetails,
+		}
 	} else if problemDetails != nil {
-		return httpwrapper.NewResponse(int(problemDetails.Status), nil, problemDetails)
+		return &HandlerResponse{
+			Status:  int(problemDetails.Status),
+			Headers: nil,
+			Body:    problemDetails,
+		}
 	}
 	problemDetails = &models.ProblemDetails{
 		Status: http.StatusForbidden,
 		Cause:  "UNSPECIFIED",
 	}
-	return httpwrapper.NewResponse(http.StatusForbidden, nil, problemDetails)
+	return &HandlerResponse{
+		Status:  http.StatusForbidden,
+		Headers: nil,
+		Body:    problemDetails,
+	}
 }
 
-func (p *Processor) HandleChargingdataUpdate(request *httpwrapper.Request) *httpwrapper.Response {
+func (p *Processor) HandleChargingdataUpdate(
+	chargingdata models.ChargingDataRequest, chargingSessionId string,
+) *HandlerResponse {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
-	chargingdata := request.Body.(models.ChargingDataRequest)
-	chargingSessionId := request.Params["ChargingDataRef"]
-
 	response, problemDetails := p.ChargingDataUpdate(chargingdata, chargingSessionId)
 
 	if response != nil {
-		return httpwrapper.NewResponse(http.StatusOK, nil, response)
+		return &HandlerResponse{
+			Status:  int(problemDetails.Status),
+			Headers: nil,
+			Body:    problemDetails,
+		}
 	} else if problemDetails != nil {
-		return httpwrapper.NewResponse(int(problemDetails.Status), nil, problemDetails)
+		return &HandlerResponse{
+			Status:  int(problemDetails.Status),
+			Headers: nil,
+			Body:    problemDetails,
+		}
 	}
 	problemDetails = &models.ProblemDetails{
 		Status: http.StatusForbidden,
 		Cause:  "UNSPECIFIED",
 	}
-	return httpwrapper.NewResponse(http.StatusForbidden, nil, problemDetails)
+
+	return &HandlerResponse{
+		Status:  http.StatusForbidden,
+		Headers: nil,
+		Body:    problemDetails,
+	}
 }
 
-func (p *Processor) HandleChargingdataRelease(request *httpwrapper.Request) *httpwrapper.Response {
+func (p *Processor) HandleChargingdataRelease(
+	chargingdata models.ChargingDataRequest,
+	chargingSessionId string,
+) *HandlerResponse {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
-	chargingdata := request.Body.(models.ChargingDataRequest)
-	chargingSessionId := request.Params["ChargingDataRef"]
 
 	problemDetails := p.ChargingDataRelease(chargingdata, chargingSessionId)
 
 	if problemDetails == nil {
-		return httpwrapper.NewResponse(http.StatusNoContent, nil, nil)
-	} else if problemDetails != nil {
-		return httpwrapper.NewResponse(int(problemDetails.Status), nil, problemDetails)
+		return &HandlerResponse{
+			Status:  http.StatusNoContent,
+			Headers: nil,
+			Body:    problemDetails,
+		}
 	}
-	problemDetails = &models.ProblemDetails{
-		Status: http.StatusForbidden,
-		Cause:  "UNSPECIFIED",
+	return &HandlerResponse{
+		Status:  int(problemDetails.Status),
+		Headers: nil,
+		Body:    problemDetails,
 	}
-	return httpwrapper.NewResponse(http.StatusForbidden, nil, problemDetails)
 }
 
 func (p *Processor) ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.ChargingDataResponse,

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/free5gc/chf/pkg/factory"
+	"github.com/free5gc/openapi"
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
@@ -160,4 +161,52 @@ func (s *Server) startServer(wg *sync.WaitGroup) {
 		logger.SBILog.Errorf("SBI server error: %v", err)
 	}
 	logger.SBILog.Warnf("SBI server (listen on %s) stopped", s.httpServer.Addr)
+}
+
+func buildHttpResponseHeader(gc *gin.Context, rsp *httpwrapper.Response) {
+	for k, v := range rsp.Header {
+		// Concatenate all values of the Header with ','
+		allValues := ""
+		for i, vv := range v {
+			if i == 0 {
+				allValues += vv
+			} else {
+				allValues += "," + vv
+			}
+		}
+		gc.Header(k, allValues)
+	}
+}
+
+func (s *Server) buildAndSendHttpResponse(
+	gc *gin.Context,
+	hdlRsp *processor.HandlerResponse,
+	multipart bool,
+) {
+	if hdlRsp.Status == 0 {
+		// No Response to send
+		return
+	}
+
+	rsp := httpwrapper.NewResponse(hdlRsp.Status, hdlRsp.Headers, hdlRsp.Body)
+
+	buildHttpResponseHeader(gc, rsp)
+
+	var rspBody []byte
+	var contentType string
+	var err error
+	if multipart {
+		rspBody, contentType, err = openapi.MultipartSerialize(rsp.Body)
+	} else {
+		// TODO: support other JSON content-type
+		rspBody, err = openapi.Serialize(rsp.Body, "application/json")
+		contentType = "application/json"
+	}
+
+	if err != nil {
+		logger.SBILog.Errorln(err)
+		gc.JSON(http.StatusInternalServerError, openapi.ProblemDetailsSystemFailure(err.Error()))
+	} else {
+		gc.Data(rsp.Status, contentType, rspBody)
+	}
 }
