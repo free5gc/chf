@@ -28,8 +28,8 @@ func Index(c *gin.Context) {
 	c.String(http.StatusOK, "Hello World!")
 }
 
-func (s *Server) getConvergenChargingEndpoints() []Endpoint {
-	return []Endpoint{
+func (s *Server) getConvergenChargingEndpoints() []Route {
+	return []Route{
 		{
 			Method:  http.MethodGet,
 			Pattern: "/",

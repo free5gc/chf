@@ -28,25 +28,25 @@ const (
 	CorsConfigMaxAge = 86400
 )
 
-type Endpoint struct {
+type Route struct {
 	Method  string
 	Pattern string
 	APIFunc gin.HandlerFunc
 }
 
-func applyEndpoints(group *gin.RouterGroup, endpoints []Endpoint) {
-	for _, endpoint := range endpoints {
-		switch endpoint.Method {
+func applyEndpoints(group *gin.RouterGroup, routes []Route) {
+	for _, route := range routes {
+		switch route.Method {
 		case "GET":
-			group.GET(endpoint.Pattern, endpoint.APIFunc)
+			group.GET(route.Pattern, route.APIFunc)
 		case "POST":
-			group.POST(endpoint.Pattern, endpoint.APIFunc)
+			group.POST(route.Pattern, route.APIFunc)
 		case "PUT":
-			group.PUT(endpoint.Pattern, endpoint.APIFunc)
+			group.PUT(route.Pattern, route.APIFunc)
 		case "PATCH":
-			group.PATCH(endpoint.Pattern, endpoint.APIFunc)
+			group.PATCH(route.Pattern, route.APIFunc)
 		case "DELETE":
-			group.DELETE(endpoint.Pattern, endpoint.APIFunc)
+			group.DELETE(route.Pattern, route.APIFunc)
 		}
 	}
 }
