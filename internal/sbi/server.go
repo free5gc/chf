@@ -52,7 +52,7 @@ func applyRoutes(group *gin.RouterGroup, routes []Route) {
 	}
 }
 
-type chf interface {
+type Chf interface {
 	Config() *factory.Config
 	Context() *chf_context.CHFContext
 	CancelContext() context.Context
@@ -61,20 +61,19 @@ type chf interface {
 }
 
 type Server struct {
-	chf
+	Chf
 
 	httpServer *http.Server
 	router     *gin.Engine
 }
 
-func NewServer(chf chf, tlsKeyLogPath string) (*Server, error) {
+func NewServer(chf Chf, tlsKeyLogPath string) (*Server, error) {
 	s := &Server{
-		chf:    chf,
+		Chf:    chf,
 		router: logger_util.NewGinWithLogrus(logger.GinLog),
 	}
 
 	endpoints := s.getConvergenChargingEndpoints()
-	// group := s.router.Group(openapi.ServiceBaseUri(models.ServiceName_NCHF_CONVERGEDCHARGING))
 	group := s.router.Group(factory.ConvergedChargingResUriPrefix)
 	routerAuthorizationCheck := util.NewRouterAuthorizationCheck(models.ServiceName_NCHF_CONVERGEDCHARGING)
 	group.Use(func(c *gin.Context) {
@@ -109,7 +108,7 @@ func NewServer(chf chf, tlsKeyLogPath string) (*Server, error) {
 
 func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
 	var err error
-	_, s.Context().NfId, err = s.Consumer().RegisterNFInstance(s.CancelContext())
+	_, s.Context().NfId, err = s.Consumer().RegisterNFInstance(context.Background())
 	if err != nil {
 		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
 	}

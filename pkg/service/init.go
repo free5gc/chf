@@ -25,9 +25,9 @@ var _ App = &ChfApp{}
 type App interface {
 	Config() *factory.Config
 	Context() *chf_context.CHFContext
-	CancelContext() context.Context
-	Consumer() *consumer.Consumer
 }
+
+var CHF App
 
 type ChfApp struct {
 	cfg    *factory.Config
@@ -70,6 +70,8 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 	if chf.sbiServer, err = sbi.NewServer(chf, tlsKeyLogPath); err != nil {
 		return nil, err
 	}
+	CHF = chf
+
 	return chf, nil
 }
 
@@ -166,11 +168,7 @@ func (a *ChfApp) listenShutdownEvent() {
 	}()
 
 	<-a.ctx.Done()
-
-	if a.sbiServer != nil {
-		a.sbiServer.Stop()
-		a.Terminate()
-	}
+	a.Stop()
 }
 
 func (c *ChfApp) Terminate() {
@@ -188,7 +186,10 @@ func (c *ChfApp) Terminate() {
 }
 
 func (a *ChfApp) Stop() {
-	a.cancel()
+	if a.sbiServer != nil {
+		a.sbiServer.Stop()
+		a.Terminate()
+	}
 }
 
 func (a *ChfApp) WaitRoutineStopped() {

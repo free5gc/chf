@@ -8,7 +8,7 @@ import (
 	"github.com/free5gc/chf/pkg/factory"
 )
 
-type chf interface {
+type Chf interface {
 	Config() *factory.Config
 	Context() *chf_context.CHFContext
 	Consumer() *consumer.Consumer
@@ -16,7 +16,7 @@ type chf interface {
 }
 
 type Processor struct {
-	chf
+	Chf
 }
 
 type HandlerResponse struct {
@@ -25,9 +25,9 @@ type HandlerResponse struct {
 	Body    interface{}
 }
 
-func NewProcessor(chf chf) (*Processor, error) {
+func NewProcessor(chf Chf) (*Processor, error) {
 	p := &Processor{
-		chf: chf,
+		Chf: chf,
 	}
 	return p, nil
 }

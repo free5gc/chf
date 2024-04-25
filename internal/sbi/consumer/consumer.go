@@ -10,22 +10,21 @@ import (
 	chf_context "github.com/free5gc/chf/internal/context"
 )
 
-type chf interface {
+type Chf interface {
 	Config() *factory.Config
 	Context() *chf_context.CHFContext
 	CancelContext() context.Context
 }
 
 type Consumer struct {
-	chf
+	Chf
 
-	// consumer services
 	*nnrfService
 }
 
-func NewConsumer(chf chf) (*Consumer, error) {
+func NewConsumer(chf Chf) (*Consumer, error) {
 	c := &Consumer{
-		chf: chf,
+		Chf: chf,
 	}
 
 	c.nnrfService = &nnrfService{
