@@ -20,6 +20,15 @@ import (
 	"github.com/free5gc/chf/pkg/rf"
 )
 
+var _ App = &ChfApp{}
+
+type App interface {
+	Config() *factory.Config
+	Context() *chf_context.CHFContext
+	CancelContext() context.Context
+	Consumer() *consumer.Consumer
+}
+
 type ChfApp struct {
 	cfg    *factory.Config
 	chfCtx *chf_context.CHFContext
@@ -180,7 +189,6 @@ func (c *ChfApp) Terminate() {
 
 func (a *ChfApp) Stop() {
 	a.cancel()
-	a.WaitRoutineStopped()
 }
 
 func (a *ChfApp) WaitRoutineStopped() {

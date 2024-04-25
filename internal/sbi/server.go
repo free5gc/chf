@@ -35,7 +35,7 @@ type Route struct {
 	APIFunc gin.HandlerFunc
 }
 
-func applyEndpoints(group *gin.RouterGroup, routes []Route) {
+func applyRoutes(group *gin.RouterGroup, routes []Route) {
 	for _, route := range routes {
 		switch route.Method {
 		case "GET":
@@ -80,7 +80,7 @@ func NewServer(chf chf, tlsKeyLogPath string) (*Server, error) {
 	group.Use(func(c *gin.Context) {
 		routerAuthorizationCheck.Check(c, chf_context.GetSelf())
 	})
-	applyEndpoints(group, endpoints)
+	applyRoutes(group, endpoints)
 
 	s.router.Use(cors.New(cors.Config{
 		AllowMethods: []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"},

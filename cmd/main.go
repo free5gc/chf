@@ -29,7 +29,7 @@ import (
 	"github.com/free5gc/util/version"
 )
 
-var CHF = &service.ChfApp{}
+var CHF *service.ChfApp
 
 func main() {
 	defer func() {
