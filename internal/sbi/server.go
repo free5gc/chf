@@ -120,7 +120,7 @@ func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
 	return nil
 }
 
-func (s *Server) Stop(traceCtx context.Context) {
+func (s *Server) Stop() {
 	const defaultShutdownTimeout time.Duration = 2 * time.Second
 
 	if s.httpServer != nil {

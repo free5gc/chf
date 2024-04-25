@@ -168,7 +168,7 @@ func (a *ChfApp) listenShutdownEvent() {
 	<-a.ctx.Done()
 
 	if a.sbiServer != nil {
-		a.sbiServer.Stop(context.Background())
+		a.sbiServer.Stop()
 		a.Terminate()
 	}
 }

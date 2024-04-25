@@ -90,8 +90,8 @@ func (p *Processor) HandleChargingdataInitial(
 	if response != nil {
 		return &HandlerResponse{
 			Status:  http.StatusCreated,
-			Headers: nil,
-			Body:    problemDetails,
+			Headers: respHeader,
+			Body:    response,
 		}
 	} else if problemDetails != nil {
 		return &HandlerResponse{
@@ -119,9 +119,9 @@ func (p *Processor) HandleChargingdataUpdate(
 
 	if response != nil {
 		return &HandlerResponse{
-			Status:  int(problemDetails.Status),
+			Status:  http.StatusOK,
 			Headers: nil,
-			Body:    problemDetails,
+			Body:    response,
 		}
 	} else if problemDetails != nil {
 		return &HandlerResponse{
@@ -154,7 +154,7 @@ func (p *Processor) HandleChargingdataRelease(
 		return &HandlerResponse{
 			Status:  http.StatusNoContent,
 			Headers: nil,
-			Body:    problemDetails,
+			Body:    nil,
 		}
 	}
 	return &HandlerResponse{
