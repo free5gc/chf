@@ -27,7 +27,7 @@ func Index(c *gin.Context) {
 	c.String(http.StatusOK, "Hello World!")
 }
 
-func (s *Server) getConvergenChargingEndpoints() []Route {
+func (s *Server) getConvergenChargingRoutes() []Route {
 	return []Route{
 		{
 			Method:  http.MethodGet,
@@ -93,8 +93,7 @@ func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
 	}
 	chargingSessionId := c.Param("ChargingDataRef")
 
-	hdlRsp := s.Processor().HandleChargingdataRelease(chargingDataReq, chargingSessionId)
-	s.buildAndSendHttpResponse(c, hdlRsp, false)
+	s.Processor().HandleChargingdataRelease(c, chargingDataReq, chargingSessionId)
 }
 
 // ChargingdataChargingDataRefUpdatePost
@@ -128,8 +127,7 @@ func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
 	}
 	chargingSessionId := c.Param("ChargingDataRef")
 
-	hdlRsp := s.Processor().HandleChargingdataUpdate(chargingDataReq, chargingSessionId)
-	s.buildAndSendHttpResponse(c, hdlRsp, false)
+	s.Processor().HandleChargingdataUpdate(c, chargingDataReq, chargingSessionId)
 }
 
 // ChargingdataPost
@@ -162,8 +160,7 @@ func (s *Server) ChargingdataPost(c *gin.Context) {
 		return
 	}
 
-	hdlRsp := s.Processor().HandleChargingdataInitial(chargingDataReq)
-	s.buildAndSendHttpResponse(c, hdlRsp, false)
+	s.Processor().HandleChargingdataInitial(c, chargingDataReq)
 }
 
 func (s *Server) RechargeGet(c *gin.Context) {

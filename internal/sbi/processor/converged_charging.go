@@ -9,6 +9,7 @@ import (
 	"time"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"github.com/gin-gonic/gin"
 	"golang.org/x/exp/constraints"
 
 	"github.com/fiorix/go-diameter/diam/datatype"
@@ -80,88 +81,62 @@ func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest mod
 }
 
 func (p *Processor) HandleChargingdataInitial(
+	c *gin.Context,
 	chargingdata models.ChargingDataRequest,
-) *HandlerResponse {
+) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
 	response, locationURI, problemDetails := p.ChargingDataCreate(chargingdata)
-	respHeader := make(http.Header)
-	respHeader.Set("Location", locationURI)
 
 	if response != nil {
-		return &HandlerResponse{
-			Status:  http.StatusCreated,
-			Headers: respHeader,
-			Body:    response,
-		}
+		c.Header("Location", locationURI)
+		c.JSON(http.StatusCreated, response)
+		return
 	} else if problemDetails != nil {
-		return &HandlerResponse{
-			Status:  int(problemDetails.Status),
-			Headers: nil,
-			Body:    problemDetails,
-		}
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
 	}
 	problemDetails = &models.ProblemDetails{
 		Status: http.StatusForbidden,
 		Cause:  "UNSPECIFIED",
 	}
-	return &HandlerResponse{
-		Status:  http.StatusForbidden,
-		Headers: nil,
-		Body:    problemDetails,
-	}
+	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
 func (p *Processor) HandleChargingdataUpdate(
-	chargingdata models.ChargingDataRequest, chargingSessionId string,
-) *HandlerResponse {
+	c *gin.Context,
+	chargingdata models.ChargingDataRequest,
+	chargingSessionId string,
+) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
 	response, problemDetails := p.ChargingDataUpdate(chargingdata, chargingSessionId)
 
 	if response != nil {
-		return &HandlerResponse{
-			Status:  http.StatusOK,
-			Headers: nil,
-			Body:    response,
-		}
+		c.JSON(http.StatusOK, response)
+		return
 	} else if problemDetails != nil {
-		return &HandlerResponse{
-			Status:  int(problemDetails.Status),
-			Headers: nil,
-			Body:    problemDetails,
-		}
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
 	}
 	problemDetails = &models.ProblemDetails{
 		Status: http.StatusForbidden,
 		Cause:  "UNSPECIFIED",
 	}
-
-	return &HandlerResponse{
-		Status:  http.StatusForbidden,
-		Headers: nil,
-		Body:    problemDetails,
-	}
+	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
 func (p *Processor) HandleChargingdataRelease(
+	c *gin.Context,
 	chargingdata models.ChargingDataRequest,
 	chargingSessionId string,
-) *HandlerResponse {
+) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
 
 	problemDetails := p.ChargingDataRelease(chargingdata, chargingSessionId)
-
 	if problemDetails == nil {
-		return &HandlerResponse{
-			Status:  http.StatusNoContent,
-			Headers: nil,
-			Body:    nil,
-		}
+		c.Status(http.StatusBadRequest)
+		return
 	}
-	return &HandlerResponse{
-		Status:  int(problemDetails.Status),
-		Headers: nil,
-		Body:    problemDetails,
-	}
+	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
 func (p *Processor) ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.ChargingDataResponse,

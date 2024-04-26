@@ -30,6 +30,8 @@ type App interface {
 var CHF App
 
 type ChfApp struct {
+	App
+
 	cfg    *factory.Config
 	chfCtx *chf_context.CHFContext
 	ctx    context.Context
