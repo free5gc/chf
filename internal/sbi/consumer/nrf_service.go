@@ -76,7 +76,7 @@ func (s *nnrfService) SendSearchNFInstances(
 	nrfUri string, targetNfType, requestNfType models.NfType, param Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (
 	*models.SearchResult, error) {
 	// Set client and set url
-	chfContext := s.consumer.Chf.Context()
+	chfContext := s.consumer.RuntimeRepository.Context()
 
 	client := s.getNFDiscClient(chfContext.NrfUri)
 
@@ -109,7 +109,7 @@ func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.Problem
 		return pd, err
 	}
 
-	chfContext := s.consumer.Chf.Context()
+	chfContext := s.consumer.RuntimeRepository.Context()
 	client := s.getNFManagementClient(chfContext.NrfUri)
 
 	var res *http.Response
@@ -136,7 +136,7 @@ func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.Problem
 
 func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 	resouceNrfUri string, retrieveNfInstanceID string, err error) {
-	chfContext := s.consumer.Chf.Context()
+	chfContext := s.consumer.RuntimeRepository.Context()
 
 	client := s.getNFManagementClient(chfContext.NrfUri)
 	nfProfile, err := s.buildNfProfile(chfContext)

@@ -1,22 +1,16 @@
 package processor
 
 import (
-	"context"
-
-	chf_context "github.com/free5gc/chf/internal/context"
-	"github.com/free5gc/chf/internal/sbi/consumer"
-	"github.com/free5gc/chf/pkg/factory"
+	"github.com/free5gc/chf/internal/repository"
 )
 
 type Chf interface {
-	Config() *factory.Config
-	Context() *chf_context.CHFContext
-	Consumer() *consumer.Consumer
-	CancelContext() context.Context
+	// Processor doesn't need any App component now
 }
 
 type Processor struct {
 	Chf
+	RuntimeRepository *repository.RuntimeRepository
 }
 
 type HandlerResponse struct {
@@ -25,9 +19,10 @@ type HandlerResponse struct {
 	Body    interface{}
 }
 
-func NewProcessor(chf Chf) (*Processor, error) {
+func NewProcessor(chf Chf, runtimeRepo *repository.RuntimeRepository) (*Processor, error) {
 	p := &Processor{
-		Chf: chf,
+		Chf:               chf,
+		RuntimeRepository: runtimeRepo,
 	}
 	return p, nil
 }

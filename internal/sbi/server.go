@@ -13,6 +13,7 @@ import (
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/repository"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/internal/util"
@@ -51,25 +52,24 @@ func applyRoutes(group *gin.RouterGroup, routes []Route) {
 	}
 }
 
-type Chf interface {
-	Config() *factory.Config
-	Context() *chf_context.CHFContext
-	CancelContext() context.Context
+type chf interface {
 	Consumer() *consumer.Consumer
 	Processor() *processor.Processor
 }
 
 type Server struct {
-	Chf
+	chf
+	RuntimeRepository *repository.RuntimeRepository
 
 	httpServer *http.Server
 	router     *gin.Engine
 }
 
-func NewServer(chf Chf, tlsKeyLogPath string) (*Server, error) {
+func NewServer(chf chf, runtimeRepo *repository.RuntimeRepository, tlsKeyLogPath string) (*Server, error) {
 	s := &Server{
-		Chf:    chf,
-		router: logger_util.NewGinWithLogrus(logger.GinLog),
+		chf:               chf,
+		RuntimeRepository: runtimeRepo,
+		router:            logger_util.NewGinWithLogrus(logger.GinLog),
 	}
 
 	routes := s.getConvergenChargingRoutes()
@@ -92,7 +92,7 @@ func NewServer(chf Chf, tlsKeyLogPath string) (*Server, error) {
 		MaxAge:           CorsConfigMaxAge,
 	}))
 
-	cfg := s.Config()
+	cfg := s.RuntimeRepository.Config()
 	bindAddr := cfg.GetSbiBindingAddr()
 	logger.SBILog.Infof("Binding addr: [%s]", bindAddr)
 	var err error
@@ -107,7 +107,7 @@ func NewServer(chf Chf, tlsKeyLogPath string) (*Server, error) {
 
 func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
 	var err error
-	_, s.Context().NfId, err = s.Consumer().RegisterNFInstance(context.Background())
+	_, s.RuntimeRepository.Context().NfId, err = s.Consumer().RegisterNFInstance(context.Background())
 	if err != nil {
 		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
 	}
@@ -143,7 +143,7 @@ func (s *Server) startServer(wg *sync.WaitGroup) {
 	logger.SBILog.Infof("Start SBI server (listen on %s)", s.httpServer.Addr)
 
 	var err error
-	cfg := s.Config()
+	cfg := s.RuntimeRepository.Config()
 	scheme := cfg.GetSbiScheme()
 	if scheme == "http" {
 		err = s.httpServer.ListenAndServe()
