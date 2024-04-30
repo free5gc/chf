@@ -1,14 +1,14 @@
 package consumer
 
 import (
-	chf_context "github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/chf/pkg/app"
 
 	"github.com/free5gc/openapi/Nnrf_NFDiscovery"
 	"github.com/free5gc/openapi/Nnrf_NFManagement"
 )
 
 type ConsumerChf interface {
-	Context() *chf_context.CHFContext
+	app.App
 }
 
 type Consumer struct {
