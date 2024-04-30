@@ -130,7 +130,8 @@ func (c *ChfApp) SetReportCaller(reportCaller bool) {
 	logger.Log.SetReportCaller(reportCaller)
 }
 
-func (a *ChfApp) Start() {
+// tlsKeyLogPath have to remove after all NFs are refactor
+func (a *ChfApp) Start(tlsKeyLogPath string) {
 	logger.InitLog.Infoln("Server started")
 
 	a.wg.Add(1)
@@ -160,11 +161,14 @@ func (a *ChfApp) listenShutdownEvent() {
 	}()
 
 	<-a.ctx.Done()
-	a.Stop()
+	a.Terminate()
 }
 
 func (c *ChfApp) Terminate() {
 	logger.MainLog.Infof("Terminating CHF...")
+	c.cancel()
+	c.CallServerStop()
+
 	// deregister with NRF
 	problemDetails, err := c.Consumer().SendDeregisterNFInstance()
 	if problemDetails != nil {
@@ -177,10 +181,9 @@ func (c *ChfApp) Terminate() {
 	logger.MainLog.Infof("CHF SBI Server terminated")
 }
 
-func (a *ChfApp) Stop() {
+func (a *ChfApp) CallServerStop() {
 	if a.sbiServer != nil {
 		a.sbiServer.Stop()
-		a.Terminate()
 	}
 }
 
