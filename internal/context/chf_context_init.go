@@ -1,7 +1,6 @@
 package context
 
 import (
-	"fmt"
 	"math"
 	"os"
 	"strconv"
@@ -90,8 +89,6 @@ func InitChfContext(context *CHFContext) {
 
 	context.NfService = make(map[models.ServiceName]models.NfService)
 	AddNfServices(&context.NfService, config, context)
-
-	fmt.Println("chf context = ", context)
 }
 
 func AddNfServices(serviceMap *map[models.ServiceName]models.NfService, config *factory.Config, context *CHFContext) {

@@ -1,16 +1,11 @@
 package processor
 
-import (
-	"github.com/free5gc/chf/internal/repository"
-)
-
-type Chf interface {
+type ProcessorChf interface {
 	// Processor doesn't need any App component now
 }
 
 type Processor struct {
-	Chf
-	RuntimeRepository *repository.RuntimeRepository
+	ProcessorChf
 }
 
 type HandlerResponse struct {
@@ -19,10 +14,9 @@ type HandlerResponse struct {
 	Body    interface{}
 }
 
-func NewProcessor(chf Chf, runtimeRepo *repository.RuntimeRepository) (*Processor, error) {
+func NewProcessor(chf ProcessorChf) (*Processor, error) {
 	p := &Processor{
-		Chf:               chf,
-		RuntimeRepository: runtimeRepo,
+		ProcessorChf: chf,
 	}
 	return p, nil
 }

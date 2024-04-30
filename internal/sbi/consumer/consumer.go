@@ -1,27 +1,25 @@
 package consumer
 
 import (
-	"github.com/free5gc/chf/internal/repository"
+	chf_context "github.com/free5gc/chf/internal/context"
 
 	"github.com/free5gc/openapi/Nnrf_NFDiscovery"
 	"github.com/free5gc/openapi/Nnrf_NFManagement"
 )
 
-type Chf interface {
-	// Consumer doesn't need any App component now
+type ConsumerChf interface {
+	Context() *chf_context.CHFContext
 }
 
 type Consumer struct {
-	Chf
-	RuntimeRepository *repository.RuntimeRepository
+	ConsumerChf
 
 	*nnrfService
 }
 
-func NewConsumer(chf Chf, runtimeRepo *repository.RuntimeRepository) (*Consumer, error) {
+func NewConsumer(chf ConsumerChf) (*Consumer, error) {
 	c := &Consumer{
-		Chf:               chf,
-		RuntimeRepository: runtimeRepo,
+		ConsumerChf: chf,
 	}
 
 	c.nnrfService = &nnrfService{

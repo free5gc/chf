@@ -12,26 +12,27 @@ import (
 	"github.com/free5gc/chf/internal/cgf"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/chf/internal/repository"
 	"github.com/free5gc/chf/internal/sbi"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/pkg/abmf"
+	"github.com/free5gc/chf/pkg/app"
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/rf"
 )
 
 var CHF *ChfApp
 
-var _ App = &ChfApp{}
-
-type App interface {
-	Consumer() *consumer.Consumer
-	Processor() *processor.Processor
-}
+var _ app.App = &ChfApp{}
 
 type ChfApp struct {
-	App
-	RuntimeRepo *repository.RuntimeRepository
+	app.App
+	consumer.ConsumerChf
+	processor.ProcessorChf
+	sbi.ServerChf
+
+	chfCtx *chf_context.CHFContext
+	cfg    *factory.Config
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -42,32 +43,32 @@ type ChfApp struct {
 	processor *processor.Processor
 }
 
-func NewApp(ctx context.Context, RuntimeRepo *repository.RuntimeRepository, tlsKeyLogPath string) (*ChfApp, error) {
+func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*ChfApp, error) {
 	chf := &ChfApp{
-		RuntimeRepo: RuntimeRepo,
-		wg:          sync.WaitGroup{},
+		cfg: cfg,
+		wg:  sync.WaitGroup{},
 	}
-	chf.SetLogEnable(RuntimeRepo.Config().GetLogEnable())
-	chf.SetLogLevel(RuntimeRepo.Config().GetLogLevel())
-	chf.SetReportCaller(RuntimeRepo.Config().GetLogReportCaller())
-
+	chf.SetLogEnable(cfg.GetLogEnable())
+	chf.SetLogLevel(cfg.GetLogLevel())
+	chf.SetReportCaller(cfg.GetLogReportCaller())
 	chf_context.Init()
 
-	processor, err_p := processor.NewProcessor(chf, chf.RuntimeRepo)
+	processor, err_p := processor.NewProcessor(chf)
 	if err_p != nil {
 		return chf, err_p
 	}
 	chf.processor = processor
 
-	consumer, err := consumer.NewConsumer(chf, chf.RuntimeRepo)
+	consumer, err := consumer.NewConsumer(chf)
 	if err != nil {
 		return chf, err
 	}
 	chf.consumer = consumer
 
 	chf.ctx, chf.cancel = context.WithCancel(ctx)
+	chf.chfCtx = chf_context.GetSelf()
 
-	if chf.sbiServer, err = sbi.NewServer(chf, chf.RuntimeRepo, tlsKeyLogPath); err != nil {
+	if chf.sbiServer, err = sbi.NewServer(chf, tlsKeyLogPath); err != nil {
 		return nil, err
 	}
 	CHF = chf
@@ -87,6 +88,14 @@ func (a *ChfApp) Processor() *processor.Processor {
 	return a.processor
 }
 
+func (a *ChfApp) Context() *chf_context.CHFContext {
+	return a.chfCtx
+}
+
+func (a *ChfApp) Config() *factory.Config {
+	return a.cfg
+}
+
 func (c *ChfApp) SetLogEnable(enable bool) {
 	logger.MainLog.Infof("Log enable is set to [%v]", enable)
 	if enable && logger.Log.Out == os.Stderr {
@@ -95,7 +104,7 @@ func (c *ChfApp) SetLogEnable(enable bool) {
 		return
 	}
 
-	c.RuntimeRepo.Config().SetLogEnable(enable)
+	c.Config().SetLogEnable(enable)
 	if enable {
 		logger.Log.SetOutput(os.Stderr)
 	} else {
@@ -116,7 +125,7 @@ func (c *ChfApp) SetLogLevel(level string) {
 		return
 	}
 
-	c.RuntimeRepo.Config().SetLogLevel(level)
+	c.Config().SetLogLevel(level)
 	logger.Log.SetLevel(lvl)
 }
 
@@ -126,7 +135,7 @@ func (c *ChfApp) SetReportCaller(reportCaller bool) {
 		return
 	}
 
-	c.RuntimeRepo.Config().SetLogReportCaller(reportCaller)
+	c.Config().SetLogReportCaller(reportCaller)
 	logger.Log.SetReportCaller(reportCaller)
 }
 
