@@ -23,13 +23,14 @@ import (
 	"github.com/urfave/cli"
 
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/repository"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/service"
 	logger_util "github.com/free5gc/util/logger"
 	"github.com/free5gc/util/version"
 )
 
-var CHF = &service.ChfApp{}
+var CHF *service.ChfApp
 
 func main() {
 	defer func() {
@@ -81,15 +82,16 @@ func action(cliCtx *cli.Context) error {
 		return err
 	}
 	factory.ChfConfig = cfg
+	runtimeRepo := repository.NewRuntimeRepository(cfg)
 
-	chf, err := service.NewApp(ctx, cfg, tlsKeyLogPath)
+	chf, err := service.NewApp(ctx, runtimeRepo, tlsKeyLogPath)
 	if err != nil {
 		sigCh <- nil
 		return err
 	}
 	CHF = chf
 
-	chf.Start()
+	chf.Start(tlsKeyLogPath)
 	CHF.WaitRoutineStopped()
 
 	return nil

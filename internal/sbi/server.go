@@ -13,6 +13,7 @@ import (
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/repository"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/internal/util"
@@ -28,58 +29,56 @@ const (
 	CorsConfigMaxAge = 86400
 )
 
-type Endpoint struct {
+type Route struct {
 	Method  string
 	Pattern string
 	APIFunc gin.HandlerFunc
 }
 
-func applyEndpoints(group *gin.RouterGroup, endpoints []Endpoint) {
-	for _, endpoint := range endpoints {
-		switch endpoint.Method {
+func applyRoutes(group *gin.RouterGroup, routes []Route) {
+	for _, route := range routes {
+		switch route.Method {
 		case "GET":
-			group.GET(endpoint.Pattern, endpoint.APIFunc)
+			group.GET(route.Pattern, route.APIFunc)
 		case "POST":
-			group.POST(endpoint.Pattern, endpoint.APIFunc)
+			group.POST(route.Pattern, route.APIFunc)
 		case "PUT":
-			group.PUT(endpoint.Pattern, endpoint.APIFunc)
+			group.PUT(route.Pattern, route.APIFunc)
 		case "PATCH":
-			group.PATCH(endpoint.Pattern, endpoint.APIFunc)
+			group.PATCH(route.Pattern, route.APIFunc)
 		case "DELETE":
-			group.DELETE(endpoint.Pattern, endpoint.APIFunc)
+			group.DELETE(route.Pattern, route.APIFunc)
 		}
 	}
 }
 
 type chf interface {
-	Config() *factory.Config
-	Context() *chf_context.CHFContext
-	CancelContext() context.Context
 	Consumer() *consumer.Consumer
 	Processor() *processor.Processor
 }
 
 type Server struct {
 	chf
+	RuntimeRepository *repository.RuntimeRepository
 
 	httpServer *http.Server
 	router     *gin.Engine
 }
 
-func NewServer(chf chf, tlsKeyLogPath string) (*Server, error) {
+func NewServer(chf chf, runtimeRepo *repository.RuntimeRepository, tlsKeyLogPath string) (*Server, error) {
 	s := &Server{
-		chf:    chf,
-		router: logger_util.NewGinWithLogrus(logger.GinLog),
+		chf:               chf,
+		RuntimeRepository: runtimeRepo,
+		router:            logger_util.NewGinWithLogrus(logger.GinLog),
 	}
 
-	endpoints := s.getConvergenChargingEndpoints()
-	// group := s.router.Group(openapi.ServiceBaseUri(models.ServiceName_NCHF_CONVERGEDCHARGING))
+	routes := s.getConvergenChargingRoutes()
 	group := s.router.Group(factory.ConvergedChargingResUriPrefix)
 	routerAuthorizationCheck := util.NewRouterAuthorizationCheck(models.ServiceName_NCHF_CONVERGEDCHARGING)
 	group.Use(func(c *gin.Context) {
 		routerAuthorizationCheck.Check(c, chf_context.GetSelf())
 	})
-	applyEndpoints(group, endpoints)
+	applyRoutes(group, routes)
 
 	s.router.Use(cors.New(cors.Config{
 		AllowMethods: []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"},
@@ -93,7 +92,7 @@ func NewServer(chf chf, tlsKeyLogPath string) (*Server, error) {
 		MaxAge:           CorsConfigMaxAge,
 	}))
 
-	cfg := s.Config()
+	cfg := s.RuntimeRepository.Config()
 	bindAddr := cfg.GetSbiBindingAddr()
 	logger.SBILog.Infof("Binding addr: [%s]", bindAddr)
 	var err error
@@ -108,7 +107,7 @@ func NewServer(chf chf, tlsKeyLogPath string) (*Server, error) {
 
 func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
 	var err error
-	_, s.Context().NfId, err = s.Consumer().RegisterNFInstance(s.CancelContext())
+	_, s.RuntimeRepository.Context().NfId, err = s.Consumer().RegisterNFInstance(context.Background())
 	if err != nil {
 		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
 	}
@@ -119,7 +118,7 @@ func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
 	return nil
 }
 
-func (s *Server) Stop(traceCtx context.Context) {
+func (s *Server) Stop() {
 	const defaultShutdownTimeout time.Duration = 2 * time.Second
 
 	if s.httpServer != nil {
@@ -144,7 +143,7 @@ func (s *Server) startServer(wg *sync.WaitGroup) {
 	logger.SBILog.Infof("Start SBI server (listen on %s)", s.httpServer.Addr)
 
 	var err error
-	cfg := s.Config()
+	cfg := s.RuntimeRepository.Config()
 	scheme := cfg.GetSbiScheme()
 	if scheme == "http" {
 		err = s.httpServer.ListenAndServe()

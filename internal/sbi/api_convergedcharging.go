@@ -20,7 +20,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/util/httpwrapper"
 )
 
 // Index is the index handler.
@@ -28,8 +27,8 @@ func Index(c *gin.Context) {
 	c.String(http.StatusOK, "Hello World!")
 }
 
-func (s *Server) getConvergenChargingEndpoints() []Endpoint {
-	return []Endpoint{
+func (s *Server) getConvergenChargingRoutes() []Route {
+	return []Route{
 		{
 			Method:  http.MethodGet,
 			Pattern: "/",
@@ -92,27 +91,9 @@ func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, rsp)
 		return
 	}
+	chargingSessionId := c.Param("ChargingDataRef")
 
-	req := httpwrapper.NewRequest(c.Request, chargingDataReq)
-	req.Params["ChargingDataRef"] = c.Param("ChargingDataRef")
-
-	rsp := s.Processor().HandleChargingdataRelease(req)
-
-	for key, value := range rsp.Header {
-		c.Header(key, value[0])
-	}
-	responseBody, err := openapi.Serialize(rsp.Body, "application/json")
-	if err != nil {
-		logger.ChargingdataPostLog.Errorln(err)
-		problemDetails := models.ProblemDetails{
-			Status: http.StatusInternalServerError,
-			Cause:  "SYSTEM_FAILURE",
-			Detail: err.Error(),
-		}
-		c.JSON(http.StatusInternalServerError, problemDetails)
-	} else {
-		c.Data(rsp.Status, "application/json", responseBody)
-	}
+	s.Processor().HandleChargingdataRelease(c, chargingDataReq, chargingSessionId)
 }
 
 // ChargingdataChargingDataRefUpdatePost
@@ -144,27 +125,9 @@ func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, rsp)
 		return
 	}
+	chargingSessionId := c.Param("ChargingDataRef")
 
-	req := httpwrapper.NewRequest(c.Request, chargingDataReq)
-	req.Params["ChargingDataRef"] = c.Param("ChargingDataRef")
-
-	rsp := s.Processor().HandleChargingdataUpdate(req)
-
-	for key, value := range rsp.Header {
-		c.Header(key, value[0])
-	}
-	responseBody, err := openapi.Serialize(rsp.Body, "application/json")
-	if err != nil {
-		logger.ChargingdataPostLog.Errorln(err)
-		problemDetails := models.ProblemDetails{
-			Status: http.StatusInternalServerError,
-			Cause:  "SYSTEM_FAILURE",
-			Detail: err.Error(),
-		}
-		c.JSON(http.StatusInternalServerError, problemDetails)
-	} else {
-		c.Data(rsp.Status, "application/json", responseBody)
-	}
+	s.Processor().HandleChargingdataUpdate(c, chargingDataReq, chargingSessionId)
 }
 
 // ChargingdataPost
@@ -197,25 +160,7 @@ func (s *Server) ChargingdataPost(c *gin.Context) {
 		return
 	}
 
-	req := httpwrapper.NewRequest(c.Request, chargingDataReq)
-
-	rsp := s.Processor().HandleChargingdataInitial(req)
-
-	for key, value := range rsp.Header {
-		c.Header(key, value[0])
-	}
-	responseBody, err := openapi.Serialize(rsp.Body, "application/json")
-	if err != nil {
-		logger.ChargingdataPostLog.Errorln(err)
-		problemDetails := models.ProblemDetails{
-			Status: http.StatusInternalServerError,
-			Cause:  "SYSTEM_FAILURE",
-			Detail: err.Error(),
-		}
-		c.JSON(http.StatusInternalServerError, problemDetails)
-	} else {
-		c.Data(rsp.Status, "application/json", responseBody)
-	}
+	s.Processor().HandleChargingdataInitial(c, chargingDataReq)
 }
 
 func (s *Server) RechargeGet(c *gin.Context) {

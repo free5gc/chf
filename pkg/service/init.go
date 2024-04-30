@@ -12,45 +12,54 @@ import (
 	"github.com/free5gc/chf/internal/cgf"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/repository"
 	"github.com/free5gc/chf/internal/sbi"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/pkg/abmf"
-	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/rf"
 )
 
+var CHF *ChfApp
+
+var _ App = &ChfApp{}
+
+type App interface {
+	Consumer() *consumer.Consumer
+	Processor() *processor.Processor
+}
+
 type ChfApp struct {
-	cfg    *factory.Config
-	chfCtx *chf_context.CHFContext
+	App
+	RuntimeRepo *repository.RuntimeRepository
+
 	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
 	sbiServer *sbi.Server
 	consumer  *consumer.Consumer
 	processor *processor.Processor
-	wg        sync.WaitGroup
 }
 
-func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*ChfApp, error) {
+func NewApp(ctx context.Context, RuntimeRepo *repository.RuntimeRepository, tlsKeyLogPath string) (*ChfApp, error) {
 	chf := &ChfApp{
-		cfg: cfg,
-		wg:  sync.WaitGroup{},
+		RuntimeRepo: RuntimeRepo,
+		wg:          sync.WaitGroup{},
 	}
-	chf.SetLogEnable(cfg.GetLogEnable())
-	chf.SetLogLevel(cfg.GetLogLevel())
-	chf.SetReportCaller(cfg.GetLogReportCaller())
+	chf.SetLogEnable(RuntimeRepo.Config().GetLogEnable())
+	chf.SetLogLevel(RuntimeRepo.Config().GetLogLevel())
+	chf.SetReportCaller(RuntimeRepo.Config().GetLogReportCaller())
 
 	chf_context.Init()
-	chf.chfCtx = chf_context.GetSelf()
 
-	processor, err_p := processor.NewProcessor(chf)
+	processor, err_p := processor.NewProcessor(chf, chf.RuntimeRepo)
 	if err_p != nil {
 		return chf, err_p
 	}
 	chf.processor = processor
 
-	consumer, err := consumer.NewConsumer(chf)
+	consumer, err := consumer.NewConsumer(chf, chf.RuntimeRepo)
 	if err != nil {
 		return chf, err
 	}
@@ -58,18 +67,12 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 
 	chf.ctx, chf.cancel = context.WithCancel(ctx)
 
-	if chf.sbiServer, err = sbi.NewServer(chf, tlsKeyLogPath); err != nil {
+	if chf.sbiServer, err = sbi.NewServer(chf, chf.RuntimeRepo, tlsKeyLogPath); err != nil {
 		return nil, err
 	}
+	CHF = chf
+
 	return chf, nil
-}
-
-func (a *ChfApp) Config() *factory.Config {
-	return a.cfg
-}
-
-func (a *ChfApp) Context() *chf_context.CHFContext {
-	return a.chfCtx
 }
 
 func (a *ChfApp) CancelContext() context.Context {
@@ -92,7 +95,7 @@ func (c *ChfApp) SetLogEnable(enable bool) {
 		return
 	}
 
-	c.cfg.SetLogEnable(enable)
+	c.RuntimeRepo.Config().SetLogEnable(enable)
 	if enable {
 		logger.Log.SetOutput(os.Stderr)
 	} else {
@@ -113,21 +116,22 @@ func (c *ChfApp) SetLogLevel(level string) {
 		return
 	}
 
-	c.cfg.SetLogLevel(level)
+	c.RuntimeRepo.Config().SetLogLevel(level)
 	logger.Log.SetLevel(lvl)
 }
 
-func (a *ChfApp) SetReportCaller(reportCaller bool) {
+func (c *ChfApp) SetReportCaller(reportCaller bool) {
 	logger.MainLog.Infof("Report Caller is set to [%v]", reportCaller)
 	if reportCaller == logger.Log.ReportCaller {
 		return
 	}
 
-	a.cfg.SetLogReportCaller(reportCaller)
+	c.RuntimeRepo.Config().SetLogReportCaller(reportCaller)
 	logger.Log.SetReportCaller(reportCaller)
 }
 
-func (a *ChfApp) Start() {
+// tlsKeyLogPath have to remove after all NFs are refactor
+func (a *ChfApp) Start(tlsKeyLogPath string) {
 	logger.InitLog.Infoln("Server started")
 
 	a.wg.Add(1)
@@ -157,15 +161,14 @@ func (a *ChfApp) listenShutdownEvent() {
 	}()
 
 	<-a.ctx.Done()
-
-	if a.sbiServer != nil {
-		a.sbiServer.Stop(context.Background())
-		a.Terminate()
-	}
+	a.Terminate()
 }
 
 func (c *ChfApp) Terminate() {
 	logger.MainLog.Infof("Terminating CHF...")
+	c.cancel()
+	c.CallServerStop()
+
 	// deregister with NRF
 	problemDetails, err := c.Consumer().SendDeregisterNFInstance()
 	if problemDetails != nil {
@@ -178,9 +181,10 @@ func (c *ChfApp) Terminate() {
 	logger.MainLog.Infof("CHF SBI Server terminated")
 }
 
-func (a *ChfApp) Stop() {
-	a.cancel()
-	a.WaitRoutineStopped()
+func (a *ChfApp) CallServerStop() {
+	if a.sbiServer != nil {
+		a.sbiServer.Stop()
+	}
 }
 
 func (a *ChfApp) WaitRoutineStopped() {
