@@ -23,7 +23,6 @@ import (
 	"github.com/urfave/cli"
 
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/chf/internal/repository"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/service"
 	logger_util "github.com/free5gc/util/logger"
@@ -82,9 +81,8 @@ func action(cliCtx *cli.Context) error {
 		return err
 	}
 	factory.ChfConfig = cfg
-	runtimeRepo := repository.NewRuntimeRepository(cfg)
 
-	chf, err := service.NewApp(ctx, runtimeRepo, tlsKeyLogPath)
+	chf, err := service.NewApp(ctx, cfg, tlsKeyLogPath)
 	if err != nil {
 		sigCh <- nil
 		return err
