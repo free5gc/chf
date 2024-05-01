@@ -14,8 +14,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/free5gc/openapi"
-	"github.com/free5gc/openapi/models"
+	// "github.com/free5gc/openapi"
+	// "github.com/free5gc/openapi/models"
+	"github.com/free5gc/openapi-r17"
+	"github.com/free5gc/openapi-r17/models"
 
 	"github.com/gin-gonic/gin"
 
@@ -64,7 +66,7 @@ func (s *Server) getConvergenChargingRoutes() []Route {
 
 // ChargingdataChargingDataRefReleasePost -
 func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
-	var chargingDataReq models.ChargingDataRequest
+	var chargingDataReq models.ChfConvergedChargingChargingDataRequest
 
 	requestBody, err := c.GetRawData()
 	if err != nil {
@@ -98,7 +100,7 @@ func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
 
 // ChargingdataChargingDataRefUpdatePost
 func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
-	var chargingDataReq models.ChargingDataRequest
+	var chargingDataReq models.ChfConvergedChargingChargingDataRequest
 
 	requestBody, err := c.GetRawData()
 	if err != nil {
@@ -132,7 +134,7 @@ func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
 
 // ChargingdataPost
 func (s *Server) ChargingdataPost(c *gin.Context) {
-	var chargingDataReq models.ChargingDataRequest
+	var chargingDataReq models.ChfConvergedChargingChargingDataRequest
 
 	requestBody, err := c.GetRawData()
 	if err != nil {
