@@ -10,11 +10,13 @@ import (
 	"github.com/free5gc/chf/cdr/cdrType"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/openapi/models"
+
+	// "github.com/free5gc/openapi/models"
+	"github.com/free5gc/openapi-r17/models"
 )
 
 func (p *Processor) OpenCDR(
-	chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, sessionId string, partialRecord bool,
+	chargingData models.ChfConvergedChargingChargingDataRequest, ue *chf_context.ChfUe, sessionId string, partialRecord bool,
 ) (*cdrType.CHFRecord, error) {
 	// 32.298 5.1.5.0.1 for CHF CDR field
 	var chfCdr cdrType.ChargingRecord
@@ -197,7 +199,7 @@ func (p *Processor) OpenCDR(
 	return &cdr, nil
 }
 
-func (p *Processor) UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataRequest) error {
+func (p *Processor) UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChfConvergedChargingChargingDataRequest) error {
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
 
