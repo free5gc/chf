@@ -140,7 +140,7 @@ func (c *ChfApp) SetReportCaller(reportCaller bool) {
 }
 
 // tlsKeyLogPath have to remove after all NFs are refactor
-func (a *ChfApp) Start(tlsKeyLogPath string) {
+func (a *ChfApp) Start() {
 	logger.InitLog.Infoln("Server started")
 
 	a.wg.Add(1)
