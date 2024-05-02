@@ -89,7 +89,7 @@ func action(cliCtx *cli.Context) error {
 	}
 	CHF = chf
 
-	chf.Start(tlsKeyLogPath)
+	chf.Start()
 	CHF.WaitRoutineStopped()
 
 	return nil

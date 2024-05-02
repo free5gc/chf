@@ -1,7 +1,9 @@
 package processor
 
+import "github.com/free5gc/chf/pkg/app"
+
 type ProcessorChf interface {
-	// Processor doesn't need any App component now
+	app.App
 }
 
 type Processor struct {

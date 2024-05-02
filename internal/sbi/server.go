@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/free5gc/chf/pkg/app"
 	"github.com/free5gc/chf/pkg/factory"
 
 	chf_context "github.com/free5gc/chf/internal/context"
@@ -19,43 +20,15 @@ import (
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
 	logger_util "github.com/free5gc/util/logger"
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	CorsConfigMaxAge = 86400
-)
-
-type Route struct {
-	Method  string
-	Pattern string
-	APIFunc gin.HandlerFunc
-}
-
-func applyRoutes(group *gin.RouterGroup, routes []Route) {
-	for _, route := range routes {
-		switch route.Method {
-		case "GET":
-			group.GET(route.Pattern, route.APIFunc)
-		case "POST":
-			group.POST(route.Pattern, route.APIFunc)
-		case "PUT":
-			group.PUT(route.Pattern, route.APIFunc)
-		case "PATCH":
-			group.PATCH(route.Pattern, route.APIFunc)
-		case "DELETE":
-			group.DELETE(route.Pattern, route.APIFunc)
-		}
-	}
-}
-
 type ServerChf interface {
+	app.App
+
 	Consumer() *consumer.Consumer
 	Processor() *processor.Processor
-	Config() *factory.Config
-	Context() *chf_context.CHFContext
 }
 
 type Server struct {
@@ -78,18 +51,6 @@ func NewServer(chf ServerChf, tlsKeyLogPath string) (*Server, error) {
 		routerAuthorizationCheck.Check(c, chf_context.GetSelf())
 	})
 	applyRoutes(group, routes)
-
-	s.router.Use(cors.New(cors.Config{
-		AllowMethods: []string{"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"},
-		AllowHeaders: []string{
-			"Origin", "Content-Length", "Content-Type", "User-Agent",
-			"Referrer", "Host", "Token", "X-Requested-With",
-		},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		AllowAllOrigins:  true,
-		MaxAge:           CorsConfigMaxAge,
-	}))
 
 	cfg := s.Config()
 	bindAddr := cfg.GetSbiBindingAddr()
@@ -135,6 +96,7 @@ func (s *Server) startServer(wg *sync.WaitGroup) {
 		if p := recover(); p != nil {
 			// Print stack for panic to log. Fatalf() will let program exit.
 			logger.SBILog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+			s.Terminate()
 		}
 		wg.Done()
 	}()
