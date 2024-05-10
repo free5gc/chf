@@ -149,8 +149,6 @@ github.com/fiorix/go-diameter v3.0.2+incompatible h1:PLk2NkqMYILlEdeiz0hJVB3xcuu
 github.com/fiorix/go-diameter v3.0.2+incompatible/go.mod h1:GgNrDCADT8o3k8zV1UsI473j8CFdLGY9ikZYDNEeYU8=
 github.com/franela/goblin v0.0.0-20200105215937-c9ffbefa60db/go.mod h1:7dvUGVsVBjqR7JHJk0brhHOZYGmfBYOrK0ZhYMEtBr4=
 github.com/franela/goreq v0.0.0-20171204163338-bcd34c9993f8/go.mod h1:ZhphrRTfi2rbfLwlschooIH4+wKKDR4Pdxhh+TRoA20=
-github.com/free5gc/openapi v1.0.8 h1:QjfQdB6VVA1GRnzOJ7nILzrI7gMiY0lH64JHVW7vF34=
-github.com/free5gc/openapi v1.0.8/go.mod h1:w6y9P/uySczc1d9OJZAEuB2FImR/z60Wg2BekPAVt3M=
 github.com/free5gc/openapi v1.0.9-0.20240423011706-2d0028a9b5e1 h1:FfC7eshpnGNBND5RZ5dBy3q59KKfKSxhsqGcxqvqbtw=
 github.com/free5gc/openapi v1.0.9-0.20240423011706-2d0028a9b5e1/go.mod h1:hKziqKVGp/C4k7EN1sMn0fMflQX3DS8tqTgnhb/pemU=
 github.com/free5gc/util v1.0.6 h1:dBt9drcXtYKE/cY5XuQcuffgsYclPIpIArhSeS6M+DQ=
@@ -334,8 +332,6 @@ github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHm
 github.com/jstemmer/go-junit-report v0.0.0-20190106144839-af01ea7f8024/go.mod h1:6v2b51hI/fHJwM22ozAgKL4VKDeJcHhJFhtBdhmNjmU=
 github.com/jstemmer/go-junit-report v0.9.1/go.mod h1:Brl9GWCQeLvo8nXZwPNNblvFj/XSXhF0NWZEnDohbsk=
 github.com/jtolds/gls v4.20.0+incompatible/go.mod h1:QJZ7F/aHp+rZTRtaJ1ow/lLfFfVYBRgL+9YlvaHOwJU=
-github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b h1:FQ7+9fxhyp82ks9vAuyPzG0/vVbWwMwLJ+P6yJI5FN8=
-github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b/go.mod h1:HMcgvsgd0Fjj4XXDkbjdmlbI505rUPBs6WBMYg2pXks=
 github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7VTCxuUUipMqKk8s4w=
 github.com/julienschmidt/httprouter v1.3.0/go.mod h1:JR6WtHb+2LUe8TCKY3cZOxFyyO8IZAc4RVcycCCAKdM=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

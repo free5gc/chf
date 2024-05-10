@@ -12,8 +12,6 @@ import (
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/pkg/factory"
-
-	"github.com/juju/fslock"
 )
 
 type ChfUe struct {
@@ -44,9 +42,8 @@ type ChfUe struct {
 	RateSessionId uint32
 
 	// lock
-	Cdr         map[string]*cdrType.CHFRecord
-	CdrFileLock fslock.Lock
-	CULock      sync.Mutex
+	Cdr    map[string]*cdrType.CHFRecord
+	CULock sync.Mutex
 }
 
 func (ue *ChfUe) FindRatingGroup(ratingGroup int32) bool {
