@@ -64,7 +64,7 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 				},
 			},
 		},
-		ListenAddress: factory.ChfConfig.Configuration.Sbi.RegisterIPv4 + ":" + strconv.Itoa(cgfConfig.ListenPort),
+		ListenAddress: factory.ChfConfig.Configuration.Sbi.BindingIPv4 + ":" + strconv.Itoa(cgfConfig.ListenPort),
 	}
 
 	file, err := os.Create("/tmp/config.json")
