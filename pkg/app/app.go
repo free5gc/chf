@@ -10,7 +10,7 @@ type App interface {
 	SetLogLevel(level string)
 	SetReportCaller(reportCaller bool)
 
-	Start()
+	Start(tlsKeyLogPath string)
 	Terminate()
 
 	Context() *chf_context.CHFContext
