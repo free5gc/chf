@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -164,6 +165,8 @@ func SendCDR(supi string) error {
 		}
 		logger.CgfLog.Infof("FTP Re-Login Success")
 	}
+	cgf.connMutex.Lock()
+	defer cgf.connMutex.Unlock()
 
 	fileName := supi + ".cdr"
 	cdrByte, err := os.ReadFile("/tmp/" + fileName)
@@ -177,6 +180,31 @@ func SendCDR(supi string) error {
 		return err
 	}
 
+	// check file exist and verify size
+	entries, err := cgf.conn.List(".")
+	if err != nil {
+		logger.CgfLog.Warnf("List entries error: %+v, the CDR file not check", err)
+		return nil
+	}
+
+	fileUploaded := false
+	for _, entry := range entries {
+		if entry.Name == fileName {
+			fileUploaded = true
+			logger.CgfLog.Debugln("File found in remote")
+			if entry.Size == uint64(len(cdrByte)) {
+				logger.CgfLog.Debugln("File size matches")
+			} else {
+				logger.CgfLog.Warningf("File size does not match: local[%v], remote[%v]", len(cdrByte), entry.Size)
+			}
+			break
+		}
+	}
+	if !fileUploaded {
+		logger.CgfLog.Warningln("File upload failed.")
+		return fmt.Errorf("sendCDR failed: %+v", err)
+	}
+	logger.CgfLog.Infof("SendCDR success: %+v", supi)
 	return nil
 }
 
@@ -222,6 +250,13 @@ func (f *Cgf) Terminate() {
 
 	if err := f.ftpServer.Stop(); err != nil {
 		logger.CgfLog.Error("Problem stopping server", "Err", err)
+	}
+
+	if f.conn != nil {
+		// close ftp connection if exist
+		if err := f.conn.Quit(); err != nil {
+			logger.CgfLog.Errorf("Problem stopping connection: %+v", err)
+		}
 	}
 
 	var cdrFilePath string
