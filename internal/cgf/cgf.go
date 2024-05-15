@@ -38,10 +38,17 @@ type Access struct {
 	Params map[string]string `json:"params"`
 }
 
+type PortRange struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
+}
+
 type FtpConfig struct {
 	Version       int      `json:"version"`
 	Accesses      []Access `json:"accesses"`
 	ListenAddress string   `json:"listen_address"`
+
+	Passive_transfer_port_range PortRange `json:"passive_transfer_port_range"`
 }
 
 var cgf *Cgf
@@ -64,6 +71,10 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 					"basePath": "/tmp",
 				},
 			},
+		},
+		Passive_transfer_port_range: PortRange{
+			Start: 2123,
+			End:   2130,
 		},
 		ListenAddress: factory.ChfConfig.Configuration.Sbi.BindingIPv4 + ":" + strconv.Itoa(cgfConfig.ListenPort),
 	}
