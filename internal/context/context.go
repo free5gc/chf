@@ -8,8 +8,11 @@ import (
 
 	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/openapi/models"
-	"github.com/free5gc/openapi/oauth"
+	"github.com/free5gc/openapi-r17/models"
+
+	// "github.com/free5gc/openapi/models"
+	"github.com/free5gc/openapi-r17/oauth"
+	// "github.com/free5gc/openapi/oauth"
 	"github.com/free5gc/util/idgenerator"
 )
 
@@ -34,7 +37,7 @@ type CHFContext struct {
 	BindingIPv4               string
 	RegisterIPv4              string
 	SBIPort                   int
-	NfService                 map[models.ServiceName]models.NfService
+	NfService                 map[models.ServiceName]models.NrfNfManagementNfService
 	RecordSequenceNumber      map[string]int64
 	LocalRecordSequenceNumber uint64
 	NrfUri                    string
@@ -115,12 +118,12 @@ func (c *CHFContext) GetSelfID() string {
 	return c.NfId
 }
 
-func (c *CHFContext) GetTokenCtx(serviceName models.ServiceName, targetNF models.NfType) (
+func (c *CHFContext) GetTokenCtx(serviceName models.ServiceName, targetNF models.NrfNfManagementNfType) (
 	context.Context, *models.ProblemDetails, error,
 ) {
 	if !c.OAuth2Required {
 		return context.TODO(), nil, nil
 	}
-	return oauth.GetTokenCtx(models.NfType_CHF, targetNF,
+	return oauth.GetTokenCtx(models.NrfNfManagementNfType_CHF, targetNF,
 		c.NfId, c.NrfUri, string(serviceName))
 }
