@@ -2,18 +2,23 @@ package consumer
 
 import (
 	"context"
-	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/openapi"
-	"github.com/free5gc/openapi/Nnrf_NFDiscovery"
-	"github.com/free5gc/openapi/Nnrf_NFManagement"
-	"github.com/free5gc/openapi/models"
+
+	// "github.com/free5gc/openapi/Nnrf_NFDiscovery"
+	Nnrf_NFDiscovery "github.com/free5gc/openapi-r17/nrf/NFDiscovery"
+	"github.com/free5gc/openapi-r17/nrf/NFManagement"
+	Nnrf_NFManagement "github.com/free5gc/openapi-r17/nrf/NFManagement"
+
+	// "github.com/free5gc/openapi/Nnrf_NFManagement"
+	// R17
+
+	// "github.com/free5gc/openapi/models"
+	"github.com/free5gc/openapi-r17/models"
 	"github.com/pkg/errors"
 )
 
@@ -81,22 +86,15 @@ func (s *nnrfService) SendSearchNFInstances(
 
 	client := s.getNFDiscClient(chfContext.NrfUri)
 
-	ctx, _, err := chf_context.GetSelf().GetTokenCtx(models.ServiceName_NNRF_DISC, models.NfType_NRF)
+	ctx, _, err := chf_context.GetSelf().GetTokenCtx(models.ServiceName_NNRF_DISC, models.NrfNfManagementNfType_NRF)
 	if err != nil {
 		return nil, err
 	}
 
-	result, res, err := client.NFInstancesStoreApi.SearchNFInstances(ctx, targetNfType, requestNfType, &param)
+	res, err := client.NFInstancesStoreApi.SearchNFInstances(ctx, &param)
+	result := res.SearchResult
 	if err != nil {
 		logger.ConsumerLog.Errorf("SearchNFInstances failed: %+v", err)
-	}
-	defer func() {
-		if resCloseErr := res.Body.Close(); resCloseErr != nil {
-			logger.ConsumerLog.Errorf("NFInstancesStoreApi response body cannot close: %+v", resCloseErr)
-		}
-	}()
-	if res != nil && res.StatusCode == http.StatusTemporaryRedirect {
-		return nil, fmt.Errorf("Temporary Redirect For Non NRF Consumer")
 	}
 
 	return &result, nil
@@ -105,7 +103,7 @@ func (s *nnrfService) SendSearchNFInstances(
 func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.ProblemDetails, err error) {
 	logger.ConsumerLog.Infof("Send Deregister NFInstance")
 
-	ctx, pd, err := chf_context.GetSelf().GetTokenCtx(models.ServiceName_NNRF_NFM, models.NfType_NRF)
+	ctx, pd, err := chf_context.GetSelf().GetTokenCtx(models.ServiceName_NNRF_NFM, models.NrfNfManagementNfType_NRF)
 	if err != nil {
 		return pd, err
 	}
@@ -113,25 +111,11 @@ func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.Problem
 	chfContext := s.consumer.Context()
 	client := s.getNFManagementClient(chfContext.NrfUri)
 
-	var res *http.Response
+	var request *Nnrf_NFManagement.DeregisterNFInstanceRequest
+	request.SetNfInstanceID(chfContext.NfId)
 
-	res, err = client.NFInstanceIDDocumentApi.DeregisterNFInstance(ctx, chfContext.NfId)
-	if err == nil {
-		return problemDetails, err
-	} else if res != nil {
-		defer func() {
-			if resCloseErr := res.Body.Close(); resCloseErr != nil {
-				logger.ConsumerLog.Errorf("DeregisterNFInstance response cannot close: %+v", resCloseErr)
-			}
-		}()
-		if res.Status != err.Error() {
-			return problemDetails, err
-		}
-		problem := err.(openapi.GenericOpenAPIError).Model().(models.ProblemDetails)
-		problemDetails = &problem
-	} else {
-		err = openapi.ReportError("server no response")
-	}
+	_, err = client.NFInstanceIDDocumentApi.DeregisterNFInstance(ctx, request)
+
 	return problemDetails, err
 }
 
@@ -145,27 +129,27 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 		return "", "", errors.Wrap(err, "RegisterNFInstance buildNfProfile()")
 	}
 
-	var nf models.NfProfile
-	var res *http.Response
+	var nf models.NrfNfManagementNfProfile
+	var res *NFManagement.RegisterNFInstanceResponse
+	var registerNFInstanceRequest *NFManagement.RegisterNFInstanceRequest
+	registerNFInstanceRequest.SetNfInstanceID(chfContext.NfId)
+	registerNFInstanceRequest.SetNrfNfManagementNfProfile(nfProfile)
 	for {
-		nf, res, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(ctx, chfContext.NfId, nfProfile)
+		res, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(ctx, registerNFInstanceRequest)
+		nf = res.NrfNfManagementNfProfile
 		if err != nil || res == nil {
 			logger.ConsumerLog.Errorf("CHF register to NRF Error[%v]", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		defer func() {
-			if resCloseErr := res.Body.Close(); resCloseErr != nil {
-				logger.ConsumerLog.Errorf("RegisterNFInstance response body cannot close: %+v", resCloseErr)
-			}
-		}()
-		status := res.StatusCode
-		if status == http.StatusOK {
+
+		// http.StatusOK
+		if res.Location == "" {
 			// NFUpdate
 			break
-		} else if status == http.StatusCreated {
+		} else { // http.StatusCreated
 			// NFRegister
-			resourceUri := res.Header.Get("Location")
+			resourceUri := res.Location
 			resouceNrfUri = resourceUri[:strings.Index(resourceUri, "/nnrf-nfm/")]
 			retrieveNfInstanceID = resourceUri[strings.LastIndex(resourceUri, "/")+1:]
 
@@ -183,25 +167,22 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 			}
 
 			break
-		} else {
-			fmt.Println(fmt.Errorf("handler returned wrong status code %d", status))
-			fmt.Println("NRF return wrong status code", status)
 		}
 	}
 	return resouceNrfUri, retrieveNfInstanceID, err
 }
 
-func (s *nnrfService) buildNfProfile(chfContext *chf_context.CHFContext) (profile models.NfProfile, err error) {
+func (s *nnrfService) buildNfProfile(chfContext *chf_context.CHFContext) (profile models.NrfNfManagementNfProfile, err error) {
 	profile.NfInstanceId = chfContext.NfId
-	profile.NfType = models.NfType_CHF
-	profile.NfStatus = models.NfStatus_REGISTERED
+	profile.NfType = models.NrfNfManagementNfType_CHF
+	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED
 	profile.Ipv4Addresses = append(profile.Ipv4Addresses, chfContext.RegisterIPv4)
-	services := []models.NfService{}
+	services := []models.NrfNfManagementNfService{}
 	for _, nfService := range chfContext.NfService {
 		services = append(services, nfService)
 	}
 	if len(services) > 0 {
-		profile.NfServices = &services
+		profile.NfServices = services
 	}
 	profile.ChfInfo = &models.ChfInfo{
 		// Todo
