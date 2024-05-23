@@ -5,7 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/free5gc/openapi/models"
+	// "github.com/free5gc/openapi/models"
+	"github.com/free5gc/openapi-r17/models"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 )
