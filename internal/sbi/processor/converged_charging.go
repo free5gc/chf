@@ -61,7 +61,7 @@ func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest mod
 	logger.NotifyEventLog.Warn("Send Charging Notification  to SMF: uri: ", notifyUri)
 	chargingNotifyRequest := Nchf_ConvergedCharging.NewPostChargingNotificationRequest()
 	chargingNotifyRequest.SetChargingNotifyRequest(notifyRequest)
-	err := client.DefaultApi.PostChargingNotification(context.Background(), notifyUri, chargingNotifyRequest)
+	_, err := client.DefaultApi.PostChargingNotification(context.Background(), notifyUri, chargingNotifyRequest)
 
 	if err != nil {
 		logger.NotifyEventLog.Warnf("Charging Notification Failed[%s]", err.Error())
