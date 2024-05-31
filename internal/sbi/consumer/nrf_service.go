@@ -108,8 +108,8 @@ func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.Problem
 
 	chfContext := s.consumer.Context()
 	client := s.getNFManagementClient(chfContext.NrfUri)
+	request := &NFManagement.DeregisterNFInstanceRequest{}
 
-	var request *Nnrf_NFManagement.DeregisterNFInstanceRequest
 	request.SetNfInstanceID(chfContext.NfId)
 
 	_, err = client.NFInstanceIDDocumentApi.DeregisterNFInstance(ctx, request)
@@ -120,7 +120,6 @@ func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.Problem
 func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 	resouceNrfUri string, retrieveNfInstanceID string, err error) {
 	chfContext := s.consumer.Context()
-
 	client := s.getNFManagementClient(chfContext.NrfUri)
 	nfProfile, err := s.buildNfProfile(chfContext)
 	if err != nil {
@@ -129,7 +128,7 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 
 	var nf models.NrfNfManagementNfProfile
 	var res *NFManagement.RegisterNFInstanceResponse
-	var registerNFInstanceRequest *NFManagement.RegisterNFInstanceRequest
+	registerNFInstanceRequest := &NFManagement.RegisterNFInstanceRequest{}
 	registerNFInstanceRequest.SetNfInstanceID(chfContext.NfId)
 	registerNFInstanceRequest.SetNrfNfManagementNfProfile(nfProfile)
 	for {
