@@ -10,15 +10,15 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 
 	// "github.com/free5gc/openapi/Nnrf_NFDiscovery"
-	Nnrf_NFDiscovery "github.com/free5gc/openapi-r17/nrf/NFDiscovery"
-	"github.com/free5gc/openapi-r17/nrf/NFManagement"
-	Nnrf_NFManagement "github.com/free5gc/openapi-r17/nrf/NFManagement"
+	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDiscovery"
+	"github.com/free5gc/openapi/nrf/NFManagement"
+	Nnrf_NFManagement "github.com/free5gc/openapi/nrf/NFManagement"
 
 	// "github.com/free5gc/openapi/Nnrf_NFManagement"
 	// R17
 
 	// "github.com/free5gc/openapi/models"
-	"github.com/free5gc/openapi-r17/models"
+	"github.com/free5gc/openapi/models"
 	"github.com/pkg/errors"
 )
 
