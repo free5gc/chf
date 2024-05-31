@@ -6,7 +6,7 @@ import (
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/pkg/app"
-	"github.com/free5gc/openapi-r17"
+	"github.com/free5gc/openapi"
 	"github.com/h2non/gock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"

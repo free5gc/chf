@@ -18,8 +18,7 @@ import (
 	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/internal/util"
 
-	// "github.com/free5gc/openapi/models"
-	"github.com/free5gc/openapi-r17/models"
+	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
 	logger_util "github.com/free5gc/util/logger"
 	"github.com/gin-gonic/gin"

@@ -10,7 +10,7 @@ require (
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
 	github.com/free5gc/openapi v1.0.8
-	github.com/free5gc/openapi-r17 v0.0.0
+	// github.com/free5gc/openapi-r17 v0.0.0
 	github.com/free5gc/util v1.0.6
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0
@@ -117,4 +117,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/free5gc/openapi-r17 v0.0.0 => /home/ubuntu/R17/openapi
+replace github.com/free5gc/openapi v1.0.8 => /home/ubuntu/R17/openapi
