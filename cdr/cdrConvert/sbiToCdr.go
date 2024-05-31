@@ -8,8 +8,7 @@ import (
 	"github.com/free5gc/chf/cdr/asn"
 	"github.com/free5gc/chf/cdr/cdrType"
 
-	// "github.com/free5gc/openapi/models"
-	"github.com/free5gc/openapi-r17/models"
+	"github.com/free5gc/openapi/models"
 )
 
 func MultiUnitUsageToCdr(multiUnitUsageList []models.ChfConvergedChargingMultipleUnitUsage) []cdrType.MultipleUnitUsage {

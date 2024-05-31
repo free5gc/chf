@@ -20,9 +20,9 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
-	Nchf_ConvergedCharging "github.com/free5gc/openapi-r17/chf/ConvergedCharging"
+	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
 
-	"github.com/free5gc/openapi-r17/models"
+	"github.com/free5gc/openapi/models"
 	// "github.com/free5gc/openapi/models"
 )
 
