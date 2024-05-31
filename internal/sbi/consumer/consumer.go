@@ -3,9 +3,7 @@ package consumer
 import (
 	"github.com/free5gc/chf/pkg/app"
 
-	// "github.com/free5gc/openapi/Nnrf_NFDiscovery"
 	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDiscovery"
-	// "github.com/free5gc/openapi/Nnrf_NFManagement"
 	Nnrf_NFManagement "github.com/free5gc/openapi/nrf/NFManagement"
 )
 
