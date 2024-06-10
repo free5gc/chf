@@ -9,13 +9,12 @@ require (
 	github.com/fclairamb/ftpserverlib v0.21.0
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
-	github.com/free5gc/openapi v1.0.8
+	github.com/free5gc/openapi v1.0.9-0.20240424093716-bda9387bb300
 	github.com/free5gc/util v1.0.6
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0
 	github.com/ishidawataru/sctp v0.0.0-20230406120618-7ff4192f6ff2 // indirect
 	github.com/jlaffaye/ftp v0.1.0
-	github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.8.4
 	github.com/urfave/cli v1.22.5
@@ -24,13 +23,14 @@ require (
 )
 
 require (
+	github.com/h2non/gock v1.2.0
 	github.com/pkg/errors v0.9.1
+	go.uber.org/mock v0.4.0
 	golang.org/x/exp v0.0.0-20231127185646-65229373498e
 )
 
 require (
 	cloud.google.com/go/compute v1.19.1 // indirect
-	github.com/antihax/optional v1.0.0 // indirect
 	github.com/aws/aws-sdk-go v1.44.177 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
@@ -58,7 +58,6 @@ require (
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
 	github.com/googleapis/gax-go/v2 v2.7.1 // indirect
-	github.com/h2non/gock v1.2.0 // indirect
 	github.com/h2non/parth v0.0.0-20190131123155-b4df798d6542 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
@@ -97,7 +96,6 @@ require (
 	go.opentelemetry.io/otel v1.24.0 // indirect
 	go.opentelemetry.io/otel/metric v1.24.0 // indirect
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
-	go.uber.org/mock v0.4.0 // indirect
 	golang.org/x/arch v0.3.0 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
@@ -115,5 +113,3 @@ require (
 	gopkg.in/h2non/gock.v1 v1.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/free5gc/openapi v1.0.8 => /home/ubuntu/R17/openapi
