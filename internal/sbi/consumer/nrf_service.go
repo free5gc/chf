@@ -73,8 +73,10 @@ func (s *nnrfService) getNFDiscClient(uri string) *Nnrf_NFDiscovery.APIClient {
 }
 
 func (s *nnrfService) SendSearchNFInstances(
-	nrfUri string, targetNfType, requestNfType models.NfType, param Nnrf_NFDiscovery.SearchNFInstancesParamOpts) (
-	*models.SearchResult, error) {
+	nrfUri string, targetNfType, requestNfType models.NfType, param Nnrf_NFDiscovery.SearchNFInstancesParamOpts,
+) (
+	*models.SearchResult, error,
+) {
 	// Set client and set url
 	chfContext := s.consumer.Context()
 
@@ -147,7 +149,7 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 	var nf models.NfProfile
 	var res *http.Response
 	for {
-		nf, res, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(context.TODO(), chfContext.NfId, nfProfile)
+		nf, res, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(ctx, chfContext.NfId, nfProfile)
 		if err != nil || res == nil {
 			logger.ConsumerLog.Errorf("CHF register to NRF Error[%v]", err)
 			time.Sleep(2 * time.Second)
