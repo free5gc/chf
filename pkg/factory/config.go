@@ -16,16 +16,18 @@ import (
 )
 
 const (
-	ChfDefaultTLSKeyLogPath       = "./log/chfsslkey.log"
-	ChfDefaultTLSPemPath          = "./cert/chf.pem"
-	ChfDefaultTLSKeyPath          = "./cert/chf.key"
-	ChfDefaultConfigPath          = "./config/chfcfg.yaml"
-	ChfSbiDefaultIPv4             = "127.0.0.113"
-	ChfSbiDefaultPort             = 8000
-	ChfSbiDefaultScheme           = "https"
-	ChfDefaultNrfUri              = "https://127.0.0.10:8000"
-	CgfDefaultCdrFilePath         = "/tmp"
-	ConvergedChargingResUriPrefix = "/nchf-convergedcharging/v3"
+	ChfDefaultTLSKeyLogPath          = "./log/chfsslkey.log"
+	ChfDefaultTLSPemPath             = "./cert/chf.pem"
+	ChfDefaultTLSKeyPath             = "./cert/chf.key"
+	ChfDefaultConfigPath             = "./config/chfcfg.yaml"
+	ChfSbiDefaultIPv4                = "127.0.0.113"
+	ChfSbiDefaultPort                = 8000
+	ChfSbiDefaultScheme              = "https"
+	ChfDefaultNrfUri                 = "https://127.0.0.10:8000"
+	CgfDefaultCdrFilePath            = "/tmp"
+	ConvergedChargingResUriPrefix    = "/nchf-convergedcharging/v3"
+	OfflineOnlyChargingResUriPrefix  = "/nchf-offlineonlycharging/v1"
+	SpendingLimitControlResUriPrefix = "/nchf-spendinglimitcontrol/v1"
 )
 
 type Config struct {
@@ -84,6 +86,8 @@ func (c *Configuration) validate() (bool, error) {
 	for index, serviceName := range c.ServiceNameList {
 		switch {
 		case serviceName == "nchf-convergedcharging":
+		case serviceName == "nchf-offlineonlycharging":
+		case serviceName == "nchf-spendinglimitcontrol":
 		default:
 			err := errors.New("Invalid serviceNameList[" + strconv.Itoa(index) + "]: " +
 				serviceName + ", should be nchf-convergedcharging.")
