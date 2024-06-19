@@ -26,11 +26,6 @@ var CHF *ChfApp
 var _ app.App = &ChfApp{}
 
 type ChfApp struct {
-	app.App
-	consumer.ConsumerChf
-	processor.ProcessorChf
-	sbi.ServerChf
-
 	chfCtx *chf_context.CHFContext
 	cfg    *factory.Config
 
@@ -134,7 +129,6 @@ func (c *ChfApp) SetReportCaller(reportCaller bool) {
 	if reportCaller == logger.Log.ReportCaller {
 		return
 	}
-
 	c.Config().SetLogReportCaller(reportCaller)
 	logger.Log.SetReportCaller(reportCaller)
 }

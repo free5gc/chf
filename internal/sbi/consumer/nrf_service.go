@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	// "github.com/free5gc/openapi/nrf/NFManagement" // R17
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi"
