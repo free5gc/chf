@@ -151,6 +151,8 @@ func (a *ChfApp) Start() {
 	if err := a.sbiServer.Run(context.Background(), &a.wg); err != nil {
 		logger.MainLog.Fatalf("Run SBI server failed: %+v", err)
 	}
+
+	a.WaitRoutineStopped()
 }
 
 func (a *ChfApp) listenShutdownEvent() {
@@ -163,12 +165,15 @@ func (a *ChfApp) listenShutdownEvent() {
 	}()
 
 	<-a.ctx.Done()
-	a.Terminate()
+	a.terminateProcedure()
 }
 
 func (c *ChfApp) Terminate() {
-	logger.MainLog.Infof("Terminating CHF...")
 	c.cancel()
+}
+
+func (c *ChfApp) terminateProcedure() {
+	logger.MainLog.Infof("Terminating CHF...")
 	c.CallServerStop()
 
 	// deregister with NRF

@@ -90,7 +90,6 @@ func action(cliCtx *cli.Context) error {
 	CHF = chf
 
 	chf.Start()
-	chf.WaitRoutineStopped()
 
 	return nil
 }
