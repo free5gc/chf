@@ -26,11 +26,6 @@ var CHF *ChfApp
 var _ app.App = &ChfApp{}
 
 type ChfApp struct {
-	app.App
-	consumer.ConsumerChf
-	processor.ProcessorChf
-	sbi.ServerChf
-
 	chfCtx *chf_context.CHFContext
 	cfg    *factory.Config
 
@@ -134,13 +129,11 @@ func (c *ChfApp) SetReportCaller(reportCaller bool) {
 	if reportCaller == logger.Log.ReportCaller {
 		return
 	}
-
 	c.Config().SetLogReportCaller(reportCaller)
 	logger.Log.SetReportCaller(reportCaller)
 }
 
-// tlsKeyLogPath have to remove after all NFs are refactor
-func (a *ChfApp) Start(tlsKeyLogPath string) {
+func (a *ChfApp) Start() {
 	logger.InitLog.Infoln("Server started")
 
 	a.wg.Add(1)
@@ -158,6 +151,8 @@ func (a *ChfApp) Start(tlsKeyLogPath string) {
 	if err := a.sbiServer.Run(context.Background(), &a.wg); err != nil {
 		logger.MainLog.Fatalf("Run SBI server failed: %+v", err)
 	}
+
+	a.WaitRoutineStopped()
 }
 
 func (a *ChfApp) listenShutdownEvent() {
@@ -170,12 +165,15 @@ func (a *ChfApp) listenShutdownEvent() {
 	}()
 
 	<-a.ctx.Done()
-	a.Terminate()
+	a.terminateProcedure()
 }
 
 func (c *ChfApp) Terminate() {
-	logger.MainLog.Infof("Terminating CHF...")
 	c.cancel()
+}
+
+func (c *ChfApp) terminateProcedure() {
+	logger.MainLog.Infof("Terminating CHF...")
 	c.CallServerStop()
 
 	// deregister with NRF
