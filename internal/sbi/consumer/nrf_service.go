@@ -72,7 +72,7 @@ func (s *nnrfService) getNFDiscClient(uri string) *Nnrf_NFDiscovery.APIClient {
 }
 
 func (s *nnrfService) SendSearchNFInstances(
-	nrfUri string, targetNfType, requestNfType models.NfType, param Nnrf_NFDiscovery.SearchNFInstancesParamOpts,
+	nrfUri string, targetNfType, requestNfType models.NfType, param Nnrf_NFDiscovery.SearchNFInstancesRequest,
 ) (
 	*models.SearchResult, error,
 ) {
