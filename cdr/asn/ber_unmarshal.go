@@ -283,9 +283,9 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		var valArray [][]byte
 		var next int64
 		for offset := int64(talOff); offset < int64(len(bytes)); offset = next {
-			talNow, talOffNow, err := parseTagAndLength(bytes[offset:])
-			if err != nil {
-				return err
+			talNow, talOffNow, errParse := parseTagAndLength(bytes[offset:])
+			if errParse != nil {
+				return errParse
 			}
 			next = offset + int64(talOffNow) + talNow.len
 			if next > int64(len(bytes)) {
@@ -297,9 +297,9 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		sliceLen := len(valArray)
 		newSlice := reflect.MakeSlice(sliceType, sliceLen, sliceLen)
 		for i := 0; i < sliceLen; i++ {
-			err := ParseField(newSlice.Index(i), valArray[i], params)
-			if err != nil {
-				return err
+			errParse := ParseField(newSlice.Index(i), valArray[i], params)
+			if errParse != nil {
+				return errParse
 			}
 		}
 

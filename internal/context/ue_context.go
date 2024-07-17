@@ -9,6 +9,7 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm"
+
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/pkg/factory"
@@ -55,6 +56,7 @@ func (ue *ChfUe) FindRatingGroup(ratingGroup int32) bool {
 	}
 	return false
 }
+
 func (ue *ChfUe) init() {
 	config := factory.ChfConfig
 
