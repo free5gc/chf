@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
-	chf_context "github.com/free5gc/chf/internal/context"
-	"github.com/free5gc/chf/pkg/app"
-	"github.com/free5gc/openapi"
 	"github.com/h2non/gock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	chf_context "github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/chf/pkg/app"
+	"github.com/free5gc/openapi"
 )
 
 func Test_nnrfService_RegisterNFInstance(t *testing.T) {
@@ -17,6 +18,7 @@ func Test_nnrfService_RegisterNFInstance(t *testing.T) {
 
 	// gock.InterceptClient(openapi.GetHttpClient())
 	// defer gock.RestoreClient(openapi.GetHttpClient())
+
 	openapi.InterceptH2CClient()
 	defer openapi.RestoreH2CClient()
 
@@ -38,7 +40,7 @@ func Test_nnrfService_RegisterNFInstance(t *testing.T) {
 		},
 	)
 
-	_, _, err = consumer.RegisterNFInstance(context.TODO())
+	_, _, err = consumer.RegisterNFInstance(context.Background())
 	require.NoError(t, err)
 }
 

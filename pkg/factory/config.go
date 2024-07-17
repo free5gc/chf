@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/asaskevich/govalidator"
+
 	"github.com/free5gc/chf/internal/logger"
 )
 

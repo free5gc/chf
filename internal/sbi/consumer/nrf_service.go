@@ -6,15 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
+
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
-
+	"github.com/free5gc/openapi/models"
 	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDiscovery"
 	"github.com/free5gc/openapi/nrf/NFManagement"
 	Nnrf_NFManagement "github.com/free5gc/openapi/nrf/NFManagement"
-
-	"github.com/free5gc/openapi/models"
-	"github.com/pkg/errors"
 )
 
 type nnrfService struct {
@@ -72,7 +71,7 @@ func (s *nnrfService) getNFDiscClient(uri string) *Nnrf_NFDiscovery.APIClient {
 }
 
 func (s *nnrfService) SendSearchNFInstances(
-	nrfUri string, targetNfType, requestNfType models.NfType, param Nnrf_NFDiscovery.SearchNFInstancesParamOpts,
+	nrfUri string, targetNfType, requestNfType models.NfType, param Nnrf_NFDiscovery.SearchNFInstancesRequest,
 ) (
 	*models.SearchResult, error,
 ) {
@@ -115,7 +114,8 @@ func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.Problem
 }
 
 func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
-	resouceNrfUri string, retrieveNfInstanceID string, err error) {
+	resouceNrfUri string, retrieveNfInstanceID string, err error,
+) {
 	chfContext := s.consumer.Context()
 	client := s.getNFManagementClient(chfContext.NrfUri)
 	nfProfile, err := s.buildNfProfile(chfContext)
@@ -135,12 +135,12 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 		default:
 		}
 		res, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(ctx, registerNFInstanceRequest)
-		nf = res.NrfNfManagementNfProfile
 		if err != nil || res == nil {
 			logger.ConsumerLog.Errorf("CHF register to NRF Error[%v]", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
+		nf = res.NrfNfManagementNfProfile
 
 		// http.StatusOK
 		if res.Location == "" {
@@ -171,7 +171,9 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 	return resouceNrfUri, retrieveNfInstanceID, err
 }
 
-func (s *nnrfService) buildNfProfile(chfContext *chf_context.CHFContext) (profile models.NrfNfManagementNfProfile, err error) {
+func (s *nnrfService) buildNfProfile(
+	chfContext *chf_context.CHFContext,
+) (profile models.NrfNfManagementNfProfile, err error) {
 	profile.NfInstanceId = chfContext.NfId
 	profile.NfType = models.NrfNfManagementNfType_CHF
 	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED

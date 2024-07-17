@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/exp/constraints"
 
-	"github.com/fiorix/go-diameter/diam/datatype"
+	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/cgf"
@@ -21,9 +21,7 @@ import (
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
 	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
-
 	"github.com/free5gc/openapi/models"
-	// "github.com/free5gc/openapi/models"
 )
 
 func min[T constraints.Ordered](a, b T) T {
@@ -62,14 +60,12 @@ func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest mod
 	chargingNotifyRequest := Nchf_ConvergedCharging.NewPostChargingNotificationRequest()
 	chargingNotifyRequest.SetChargingNotifyRequest(notifyRequest)
 	_, err := client.DefaultApi.PostChargingNotification(context.Background(), notifyUri, chargingNotifyRequest)
-
 	if err != nil {
 		logger.NotifyEventLog.Warnf("Charging Notification Failed[%s]", err.Error())
 		return
 	}
 
 	logger.NotifyEventLog.Tracef("Charging Notification Success")
-
 }
 
 func (p *Processor) HandleChargingdataInitial(
@@ -131,8 +127,12 @@ func (p *Processor) HandleChargingdataRelease(
 	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
-func (p *Processor) ChargingDataCreate(chargingData models.ChfConvergedChargingChargingDataRequest) (*models.ChfConvergedChargingChargingDataResponse,
-	string, *models.ProblemDetails) {
+func (p *Processor) ChargingDataCreate(
+	chargingData models.ChfConvergedChargingChargingDataRequest,
+) (
+	*models.ChfConvergedChargingChargingDataResponse,
+	string, *models.ProblemDetails,
+) {
 	var responseBody models.ChfConvergedChargingChargingDataResponse
 	var chargingSessionId string
 
@@ -286,7 +286,8 @@ func (p *Processor) ChargingDataUpdate(
 }
 
 func (p *Processor) ChargingDataRelease(
-	chargingData models.ChfConvergedChargingChargingDataRequest, chargingSessionId string) *models.ProblemDetails {
+	chargingData models.ChfConvergedChargingChargingDataRequest, chargingSessionId string,
+) *models.ProblemDetails {
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
@@ -387,7 +388,9 @@ func getUnitCost(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.Service
 }
 
 // 32.296 6.2.2.3.1: Service usage request method with reservation
-func sessionChargingReservation(chargingData models.ChfConvergedChargingChargingDataRequest) ([]models.MultipleUnitInformation, bool) {
+func sessionChargingReservation(
+	chargingData models.ChfConvergedChargingChargingDataRequest,
+) ([]models.MultipleUnitInformation, bool) {
 	var multipleUnitInformation []models.MultipleUnitInformation
 	var partialRecord bool
 	var subscriberIdentifier *charging_datatype.SubscriptionId
@@ -463,7 +466,8 @@ func sessionChargingReservation(chargingData models.ChfConvergedChargingCharging
 					switch t := trigger; {
 					case t == models.ChfConvergedChargingTrigger{
 						TriggerType:     models.ChfConvergedChargingTriggerType_VOLUME_LIMIT,
-						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT}:
+						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					}:
 					case t.TriggerType == models.ChfConvergedChargingTriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
 					case t.TriggerType == models.ChfConvergedChargingTriggerType_MANAGEMENT_INTERVENTION:
 					case t.TriggerType == models.ChfConvergedChargingTriggerType_FINAL:
@@ -622,7 +626,7 @@ func sessionChargingReservation(chargingData models.ChfConvergedChargingCharging
 
 		case charging_datatype.REQ_SUBTYPE_DEBIT:
 			logger.ChargingdataPostLog.Info("Debit mode, will not grant unit")
-			// retrived tarrif for final pricing
+			// retrieved tarrif for final pricing
 			sur.ServiceRating = &charging_datatype.ServiceRating{
 				ServiceIdentifier: datatype.Unsigned32(rg),
 				ConsumedUnits:     datatype.Unsigned32(totalUsedUnit),

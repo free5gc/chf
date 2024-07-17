@@ -12,7 +12,6 @@ import (
 
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
-
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/idgenerator"
 )
@@ -92,7 +91,9 @@ func InitChfContext(context *CHFContext) {
 	AddNfServices(&context.NfService, config, context)
 }
 
-func AddNfServices(serviceMap *map[models.ServiceName]models.NrfNfManagementNfService, config *factory.Config, context *CHFContext) {
+func AddNfServices(
+	serviceMap *map[models.ServiceName]models.NrfNfManagementNfService, config *factory.Config, context *CHFContext,
+) {
 	var nfService models.NrfNfManagementNfService
 	var ipEndPoints []models.IpEndPoint
 	var nfServiceVersions []models.NfServiceVersion

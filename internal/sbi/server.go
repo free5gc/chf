@@ -9,19 +9,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/free5gc/chf/pkg/app"
-	"github.com/free5gc/chf/pkg/factory"
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/internal/util"
-
+	"github.com/free5gc/chf/pkg/app"
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
 	logger_util "github.com/free5gc/util/logger"
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 )
 
 type ServerChf interface {
@@ -40,7 +39,6 @@ type Server struct {
 }
 
 func NewServer(chf ServerChf, tlsKeyLogPath string) (*Server, error) {
-
 	s := &Server{
 		ServerChf: chf,
 		router:    logger_util.NewGinWithLogrus(logger.GinLog),

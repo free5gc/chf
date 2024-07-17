@@ -7,11 +7,12 @@ import (
 
 	"github.com/free5gc/chf/cdr/asn"
 	"github.com/free5gc/chf/cdr/cdrType"
-
 	"github.com/free5gc/openapi/models"
 )
 
-func MultiUnitUsageToCdr(multiUnitUsageList []models.ChfConvergedChargingMultipleUnitUsage) []cdrType.MultipleUnitUsage {
+func MultiUnitUsageToCdr(
+	multiUnitUsageList []models.ChfConvergedChargingMultipleUnitUsage,
+) []cdrType.MultipleUnitUsage {
 	cdrMultiUnitUsageList := make([]cdrType.MultipleUnitUsage, 0, len(multiUnitUsageList))
 
 	for _, multiUnitUsage := range multiUnitUsageList {
@@ -35,7 +36,9 @@ func MultiUnitUsageToCdr(multiUnitUsageList []models.ChfConvergedChargingMultipl
 
 // TODO
 // Only convert Local Sequence Number, Uplink, Downlink, Total Volumn, Service Specific Units currently.
-func UsedUnitContainerToCdr(usedUnitContainerList []models.ChfConvergedChargingUsedUnitContainer) []cdrType.UsedUnitContainer {
+func UsedUnitContainerToCdr(
+	usedUnitContainerList []models.ChfConvergedChargingUsedUnitContainer,
+) []cdrType.UsedUnitContainer {
 	cdrUsedUnitContainerList := make([]cdrType.UsedUnitContainer, 0, len(usedUnitContainerList))
 
 	for _, usedUnitContainer := range usedUnitContainerList {
