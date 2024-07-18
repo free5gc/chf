@@ -16,15 +16,12 @@ import (
 func Test_nnrfService_RegisterNFInstance(t *testing.T) {
 	defer gock.Off() // Flush pending mocks after test execution
 
-	// gock.InterceptClient(openapi.GetHttpClient())
-	// defer gock.RestoreClient(openapi.GetHttpClient())
-
-	openapi.InterceptH2CClient()
-	defer openapi.RestoreH2CClient()
+	gock.InterceptClient(openapi.GetHttpClient())
+	defer gock.RestoreClient(openapi.GetHttpClient())
 
 	gock.New("http://127.0.0.10:8000").
 		Put("/nnrf-nfm/v1/nf-instances/1").
-		Reply(200).
+		Reply(201).
 		JSON(map[string]string{})
 
 	ctrl := gomock.NewController(t)
@@ -47,14 +44,12 @@ func Test_nnrfService_RegisterNFInstance(t *testing.T) {
 func Test_nnrfService_SendDeregisterNFInstance(t *testing.T) {
 	defer gock.Off() // Flush pending mocks after test execution
 
-	// gock.InterceptClient(openapi.GetHttpClient())
-	// defer gock.RestoreClient(openapi.GetHttpClient())
-	openapi.InterceptH2CClient()
-	defer openapi.RestoreH2CClient()
+	gock.InterceptClient(openapi.GetHttpClient())
+	defer gock.RestoreClient(openapi.GetHttpClient())
 
 	gock.New("http://127.0.0.10:8000").
-		Put("/nnrf-nfm/v1/nf-instances/1").
-		Reply(200).
+		Delete("/nnrf-nfm/v1/nf-instances/1").
+		Reply(204).
 		JSON(map[string]string{})
 
 	ctrl := gomock.NewController(t)
