@@ -22,17 +22,14 @@ import (
 	"github.com/free5gc/openapi/models"
 )
 
-// Index is the index handler.
-func Index(c *gin.Context) {
-	c.String(http.StatusOK, "Hello World!")
-}
-
 func (s *Server) getConvergenChargingRoutes() []Route {
 	return []Route{
 		{
 			Method:  http.MethodGet,
 			Pattern: "/",
-			APIFunc: Index,
+			APIFunc: func(c *gin.Context) {
+				c.String(http.StatusOK, "Hello free5GC!")
+			},
 		},
 		{
 			Method:  http.MethodPost,

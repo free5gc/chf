@@ -33,7 +33,7 @@ func (s *nnrfService) getNFManagementClient(uri string) *Nnrf_NFManagement.APICl
 	s.nfMngmntMu.RLock()
 	client, ok := s.nfMngmntClients[uri]
 	if ok {
-		defer s.nfMngmntMu.RUnlock()
+		s.nfMngmntMu.RUnlock()
 		return client
 	}
 
@@ -55,7 +55,7 @@ func (s *nnrfService) getNFDiscClient(uri string) *Nnrf_NFDiscovery.APIClient {
 	s.nfDiscMu.RLock()
 	client, ok := s.nfDiscClients[uri]
 	if ok {
-		defer s.nfDiscMu.RUnlock()
+		s.nfDiscMu.RUnlock()
 		return client
 	}
 
@@ -66,16 +66,18 @@ func (s *nnrfService) getNFDiscClient(uri string) *Nnrf_NFDiscovery.APIClient {
 	s.nfDiscMu.RUnlock()
 	s.nfDiscMu.Lock()
 	defer s.nfDiscMu.Unlock()
+
 	s.nfDiscClients[uri] = client
 	return client
 }
 
 func (s *nnrfService) SendSearchNFInstances(
-	nrfUri string, targetNfType, requestNfType models.NfType, param Nnrf_NFDiscovery.SearchNFInstancesRequest,
+	nrfUri string, targetNfType,
+	requestNfType models.NrfNfManagementNfType,
+	param Nnrf_NFDiscovery.SearchNFInstancesRequest,
 ) (
 	*models.SearchResult, error,
 ) {
-	// Set client and set url
 	chfContext := s.consumer.Context()
 
 	client := s.getNFDiscClient(chfContext.NrfUri)
@@ -90,7 +92,6 @@ func (s *nnrfService) SendSearchNFInstances(
 	if err != nil {
 		logger.ConsumerLog.Errorf("SearchNFInstances failed: %+v", err)
 	}
-
 	return &result, nil
 }
 
@@ -104,9 +105,9 @@ func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.Problem
 
 	chfContext := s.consumer.Context()
 	client := s.getNFManagementClient(chfContext.NrfUri)
-	request := &NFManagement.DeregisterNFInstanceRequest{}
-
-	request.SetNfInstanceID(chfContext.NfId)
+	request := &NFManagement.DeregisterNFInstanceRequest{
+		NfInstanceID: &chfContext.NfId,
+	}
 
 	_, err = client.NFInstanceIDDocumentApi.DeregisterNFInstance(ctx, request)
 
@@ -125,9 +126,10 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 
 	var nf models.NrfNfManagementNfProfile
 	var res *NFManagement.RegisterNFInstanceResponse
-	registerNFInstanceRequest := &NFManagement.RegisterNFInstanceRequest{}
-	registerNFInstanceRequest.SetNfInstanceID(chfContext.NfId)
-	registerNFInstanceRequest.SetNrfNfManagementNfProfile(nfProfile)
+	registerNFInstanceRequest := &NFManagement.RegisterNFInstanceRequest{
+		NfInstanceID:             &chfContext.NfId,
+		NrfNfManagementNfProfile: &nfProfile,
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -189,8 +191,8 @@ func (s *nnrfService) buildNfProfile(
 		// Todo
 		// SupiRanges: &[]models.SupiRange{
 		// 	{
-		// 		//from TS 29.510 6.1.6.2.9 example2
-		//		//no need to set supirange in this moment 2019/10/4
+		// 		// from TS 29.510 6.1.6.2.9 example2
+		//		// no need to set supirange in this moment 2019/10/4
 		// 		Start:   "123456789040000",
 		// 		End:     "123456789059999",
 		// 		Pattern: "^imsi-12345678904[0-9]{4}$",

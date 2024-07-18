@@ -22,7 +22,9 @@ func (s *Server) getOfflineOnlyChargingRoutes() []Route {
 			Name:    "Index",
 			Method:  http.MethodGet,
 			Pattern: "/",
-			APIFunc: Index,
+			APIFunc: func(c *gin.Context) {
+				c.String(http.StatusOK, "Hello free5GC!")
+			},
 		},
 		{
 			Name:    "OfflinechargingdataOfflineChargingDataRefReleasePost",
