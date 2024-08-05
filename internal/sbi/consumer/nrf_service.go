@@ -10,6 +10,7 @@ import (
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
 	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDiscovery"
 	Nnrf_NFManagement "github.com/free5gc/openapi/nrf/NFManagement"
@@ -95,7 +96,7 @@ func (s *nnrfService) SendSearchNFInstances(
 	return &result, nil
 }
 
-func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.ProblemDetails, err error) {
+func (s *nnrfService) SendDeregisterNFInstance() (*models.ProblemDetails, error) {
 	logger.ConsumerLog.Infof("Send Deregister NFInstance")
 
 	ctx, pd, err := chf_context.GetSelf().GetTokenCtx(models.ServiceName_NNRF_NFM, models.NrfNfManagementNfType_NRF)
@@ -110,8 +111,14 @@ func (s *nnrfService) SendDeregisterNFInstance() (problemDetails *models.Problem
 	}
 
 	_, err = client.NFInstanceIDDocumentApi.DeregisterNFInstance(ctx, request)
-
-	return problemDetails, err
+	if apiErr, ok := err.(openapi.GenericOpenAPIError); ok {
+		// API error
+		if deregNfError, okDeg := apiErr.Model().(Nnrf_NFManagement.DeregisterNFInstanceError); okDeg {
+			return &deregNfError.ProblemDetails, err
+		}
+		return nil, err
+	}
+	return nil, err
 }
 
 func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
