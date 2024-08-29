@@ -136,8 +136,11 @@ func (c *ChfApp) SetReportCaller(reportCaller bool) {
 func (a *ChfApp) Start() {
 	logger.InitLog.Infoln("Server started")
 
-	a.wg.Add(1)
-	cgf.OpenServer(a.ctx, &a.wg)
+	if a.cfg.Configuration.Cgf.Enable {
+		cgf.CGFEnable = true
+		a.wg.Add(1)
+		cgf.OpenServer(a.ctx, &a.wg)
+	}
 
 	a.wg.Add(1)
 	rf.OpenServer(a.ctx, &a.wg)
