@@ -108,6 +108,7 @@ type Diameter struct {
 }
 
 type Cgf struct {
+	Enable      bool   `yaml:"enable,omitempty" valid:"type(bool)"`
 	HostIPv4    string `yaml:"hostIPv4,omitempty" valid:"required,host"`
 	Port        int    `yaml:"port,omitempty" valid:"required,port"`
 	ListenPort  int    `yaml:"listenPort,omitempty" valid:"required,port"`

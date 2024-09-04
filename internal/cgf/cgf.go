@@ -52,6 +52,7 @@ type FtpConfig struct {
 }
 
 var cgf *Cgf
+var CGFEnable bool = false
 
 func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 	// Arguments vars
@@ -157,6 +158,11 @@ func Login() error {
 
 func SendCDR(supi string) error {
 	logger.CfgLog.Debugln("SendCDR:", supi)
+	if !CGFEnable {
+		logger.CfgLog.Warningln("CGF Not enable: SendCDR() didn't do anything.")
+		return nil
+	}
+
 	if cgf.conn == nil {
 		err := Login()
 
