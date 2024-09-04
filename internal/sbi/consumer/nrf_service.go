@@ -148,6 +148,11 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 	var nf models.NfProfile
 	var res *http.Response
 	for {
+		select {
+		case <-ctx.Done():
+			return "", "", errors.Errorf("Context Cancel before RegisterNFInstance")
+		default:
+		}
 		nf, res, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(ctx, chfContext.NfId, nfProfile)
 		if err != nil || res == nil {
 			logger.ConsumerLog.Errorf("CHF register to NRF Error[%v]", err)
