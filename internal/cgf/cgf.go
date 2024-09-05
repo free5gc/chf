@@ -53,6 +53,7 @@ type FtpConfig struct {
 }
 
 var cgf *Cgf
+
 var CGFEnable bool = false
 
 func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {

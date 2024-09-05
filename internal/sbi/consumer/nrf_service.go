@@ -82,7 +82,7 @@ func (s *nnrfService) SendSearchNFInstances(
 
 	client := s.getNFDiscClient(chfContext.NrfUri)
 
-	ctx, _, err := chf_context.GetSelf().GetTokenCtx(models.ServiceName_NNRF_DISC, models.NrfNfManagementNfType_NRF)
+	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NNRF_DISC, models.NrfNfManagementNfType_NRF)
 	if err != nil {
 		return nil, err
 	}
