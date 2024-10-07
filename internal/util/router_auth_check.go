@@ -3,10 +3,11 @@ package util
 import (
 	"net/http"
 
+	"github.com/gin-gonic/gin"
+
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
-	"github.com/gin-gonic/gin"
 )
 
 type NFContextGetter func() *chf_context.CHFContext
@@ -24,7 +25,6 @@ func NewRouterAuthorizationCheck(serviceName models.ServiceName) *RouterAuthoriz
 func (rac *RouterAuthorizationCheck) Check(c *gin.Context, chfContext chf_context.NFContext) {
 	token := c.Request.Header.Get("Authorization")
 	err := chfContext.AuthorizationCheck(token, rac.serviceName)
-
 	if err != nil {
 		logger.UtilLog.Debugf("RouterAuthorizationCheck::Check Unauthorized: %s", err.Error())
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})

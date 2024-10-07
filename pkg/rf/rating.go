@@ -20,23 +20,23 @@ import (
 	"context"
 	"log"
 	"math"
+	_ "net/http/pprof"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	_ "net/http/pprof"
-
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm"
+	"go.mongodb.org/mongo-driver/bson"
+
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/util/mongoapi"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 const chargingDatasColl = "policyData.ues.chargingData"
@@ -81,9 +81,9 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) {
 	rfDiameter := factory.ChfConfig.Configuration.RfDiameter
 	addr := rfDiameter.HostIPv4 + ":" + strconv.Itoa(rfDiameter.Port)
 	go func() {
-		err := diam.ListenAndServeTLS(addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key, mux, nil)
+		errListen := diam.ListenAndServeTLS(addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key, mux, nil)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(errListen)
 		}
 	}()
 }

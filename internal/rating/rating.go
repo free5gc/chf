@@ -5,16 +5,16 @@ import (
 	"strconv"
 	"time"
 
-	chf_context "github.com/free5gc/chf/internal/context"
-	"github.com/free5gc/chf/pkg/factory"
-
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm/smpeer"
+
 	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/pkg/factory"
 )
 
 func SendServiceUsageRequest(
@@ -51,8 +51,8 @@ func SendServiceUsageRequest(
 	select {
 	case m := <-ue.RatingChan:
 		var sua charging_datatype.ServiceUsageResponse
-		if err := m.Unmarshal(&sua); err != nil {
-			return nil, fmt.Errorf("Failed to parse message from %v", err)
+		if errMarshal := m.Unmarshal(&sua); errMarshal != nil {
+			return nil, fmt.Errorf("Failed to parse message from %v", errMarshal)
 		}
 		return &sua, nil
 	case <-time.After(5 * time.Second):

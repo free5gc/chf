@@ -19,23 +19,22 @@ import (
 	"bytes"
 	"context"
 	"math"
+	_ "net/http/pprof"
 	"strconv"
 	"sync"
 	"time"
-
-	_ "net/http/pprof"
-
-	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
-	"github.com/free5gc/chf/pkg/factory"
-	"github.com/free5gc/util/mongoapi"
-	"go.mongodb.org/mongo-driver/bson"
 
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm"
+	"go.mongodb.org/mongo-driver/bson"
+
+	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/pkg/factory"
+	"github.com/free5gc/util/mongoapi"
 )
 
 const chargingDatasColl = "policyData.ues.chargingData"
@@ -82,9 +81,9 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) {
 	abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
 	addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)
 	go func() {
-		err := diam.ListenAndServeTLS(addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key, mux, nil)
-		if err != nil {
-			logger.AcctLog.Errorf("ABMF server fail to listen: %V", err)
+		errListen := diam.ListenAndServeTLS(addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key, mux, nil)
+		if errListen != nil {
+			logger.AcctLog.Errorf("ABMF server fail to listen: %V", errListen)
 		}
 	}()
 }
@@ -209,7 +208,6 @@ func handleCCR() diam.HandlerFunc {
 				},
 				MultipleServicesCreditControl: creditControl,
 			}
-
 		}
 
 		logger.AcctLog.Infof("UE [%s], Rating group [%d], quota [%d]", subscriberId, rg, quota)

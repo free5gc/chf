@@ -87,12 +87,14 @@ func InitChfContext(context *CHFContext) {
 
 	context.Url = string(context.UriScheme) + "://" + context.RegisterIPv4 + ":" + strconv.Itoa(context.SBIPort)
 
-	context.NfService = make(map[models.ServiceName]models.NfService)
+	context.NfService = make(map[models.ServiceName]models.NrfNfManagementNfService)
 	AddNfServices(&context.NfService, config, context)
 }
 
-func AddNfServices(serviceMap *map[models.ServiceName]models.NfService, config *factory.Config, context *CHFContext) {
-	var nfService models.NfService
+func AddNfServices(
+	serviceMap *map[models.ServiceName]models.NrfNfManagementNfService, config *factory.Config, context *CHFContext,
+) {
+	var nfService models.NrfNfManagementNfService
 	var ipEndPoints []models.IpEndPoint
 	var nfServiceVersions []models.NfServiceVersion
 	services := *serviceMap
@@ -103,7 +105,7 @@ func AddNfServices(serviceMap *map[models.ServiceName]models.NfService, config *
 	var ipEndPoint models.IpEndPoint
 	ipEndPoint.Ipv4Address = context.RegisterIPv4
 	ipEndPoint.Port = int32(context.SBIPort)
-	ipEndPoint.Transport = models.TransportProtocol_TCP
+	ipEndPoint.Transport = models.NrfNfManagementTransportProtocol_TCP
 	ipEndPoints = append(ipEndPoints, ipEndPoint)
 
 	var nfServiceVersion models.NfServiceVersion
@@ -114,7 +116,7 @@ func AddNfServices(serviceMap *map[models.ServiceName]models.NfService, config *
 	nfService.Scheme = context.UriScheme
 	nfService.NfServiceStatus = models.NfServiceStatus_REGISTERED
 
-	nfService.IpEndPoints = &ipEndPoints
-	nfService.Versions = &nfServiceVersions
+	nfService.IpEndPoints = ipEndPoints
+	nfService.Versions = nfServiceVersions
 	services[models.ServiceName_NCHF_CONVERGEDCHARGING] = nfService
 }

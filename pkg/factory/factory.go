@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/asaskevich/govalidator"
 	"gopkg.in/yaml.v2"
 
-	"github.com/asaskevich/govalidator"
 	"github.com/free5gc/chf/internal/logger"
 )
 
@@ -34,6 +34,7 @@ func InitConfigFactory(f string, cfg *Config) error {
 
 	return nil
 }
+
 func ReadConfig(cfgPath string) (*Config, error) {
 	cfg := &Config{}
 	if err := InitConfigFactory(cfgPath, cfg); err != nil {

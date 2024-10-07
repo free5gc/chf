@@ -5,16 +5,16 @@ import (
 	"strconv"
 	"time"
 
-	chf_context "github.com/free5gc/chf/internal/context"
-	"github.com/free5gc/chf/pkg/factory"
-
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm/smpeer"
+
 	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/pkg/factory"
 )
 
 func SendAccountDebitRequest(
@@ -25,7 +25,6 @@ func SendAccountDebitRequest(
 	abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
 	addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)
 	conn, err := ue.AbmfClient.DialNetworkTLS(abmfDiameter.Protocol, addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key)
-
 	if err != nil {
 		return nil, err
 	}
@@ -54,8 +53,8 @@ func SendAccountDebitRequest(
 	select {
 	case m := <-ue.AcctChan:
 		var cca charging_datatype.AccountDebitResponse
-		if err := m.Unmarshal(&cca); err != nil {
-			return nil, fmt.Errorf("Failed to parse message from %v", err)
+		if errMarshal := m.Unmarshal(&cca); err != nil {
+			return nil, fmt.Errorf("Failed to parse message from %v", errMarshal)
 		}
 
 		return &cca, nil

@@ -10,7 +10,9 @@ import (
 	"github.com/free5gc/openapi/models"
 )
 
-func MultiUnitUsageToCdr(multiUnitUsageList []models.MultipleUnitUsage) []cdrType.MultipleUnitUsage {
+func MultiUnitUsageToCdr(
+	multiUnitUsageList []models.ChfConvergedChargingMultipleUnitUsage,
+) []cdrType.MultipleUnitUsage {
 	cdrMultiUnitUsageList := make([]cdrType.MultipleUnitUsage, 0, len(multiUnitUsageList))
 
 	for _, multiUnitUsage := range multiUnitUsageList {
@@ -34,7 +36,9 @@ func MultiUnitUsageToCdr(multiUnitUsageList []models.MultipleUnitUsage) []cdrTyp
 
 // TODO
 // Only convert Local Sequence Number, Uplink, Downlink, Total Volumn, Service Specific Units currently.
-func UsedUnitContainerToCdr(usedUnitContainerList []models.UsedUnitContainer) []cdrType.UsedUnitContainer {
+func UsedUnitContainerToCdr(
+	usedUnitContainerList []models.ChfConvergedChargingUsedUnitContainer,
+) []cdrType.UsedUnitContainer {
 	cdrUsedUnitContainerList := make([]cdrType.UsedUnitContainer, 0, len(usedUnitContainerList))
 
 	for _, usedUnitContainer := range usedUnitContainerList {
@@ -61,7 +65,7 @@ func UsedUnitContainerToCdr(usedUnitContainerList []models.UsedUnitContainer) []
 }
 
 // TODO convert type Trigger
-func TriggersToCdr(triggers []models.Trigger) []cdrType.Trigger {
+func TriggersToCdr(triggers []models.ChfConvergedChargingTrigger) []cdrType.Trigger {
 	cdrTriggers := make([]cdrType.Trigger, 0, len(triggers))
 
 	return cdrTriggers
