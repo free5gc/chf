@@ -4,9 +4,9 @@ on:
   push:
     tags:
       - v*
-    branches: [ main ]
+    branches: [ "*"  ]
   pull_request:
-    branches: [ main ]
+    branches: [ "*"  ]
 
 jobs:
   golangci:
