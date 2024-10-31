@@ -310,6 +310,7 @@ func (p *Processor) ChargingDataRelease(
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
+			Cause:  err.Error(),
 		}
 		return problemDetails
 	}

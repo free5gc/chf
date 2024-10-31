@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -202,6 +203,10 @@ func (p *Processor) OpenCDR(
 func (p *Processor) UpdateCDR(
 	record *cdrType.CHFRecord, chargingData models.ChfConvergedChargingChargingDataRequest,
 ) error {
+	if record == nil {
+		return fmt.Errorf("CHFRecord is nil")
+	}
+
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
 
