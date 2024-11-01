@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -453,7 +454,7 @@ func TestParseInt64(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		t.Run(string(tc), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%x", tc), func(t *testing.T) {
 			r, err := parseInt64(tc)
 			require.NoError(t, err)
 			require.Equal(t, origInts[i/3], r)

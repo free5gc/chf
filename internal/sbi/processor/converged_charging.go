@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/exp/constraints"
 
-	"github.com/fiorix/go-diameter/diam/datatype"
+	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/cgf"
@@ -20,6 +20,7 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
+	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
 	"github.com/free5gc/openapi/models"
 )
 
@@ -56,33 +57,20 @@ func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
 	client := util.GetNchfChargingNotificationCallbackClient()
 	logger.NotifyEventLog.Warn("Send Charging Notification  to SMF: uri: ", notifyUri)
-	httpResponse, err := client.DefaultCallbackApi.ChargingNotification(context.Background(), notifyUri, notifyRequest)
+	chargingNotifyRequest := Nchf_ConvergedCharging.NewPostChargingNotificationRequest()
+	chargingNotifyRequest.SetChargingNotifyRequest(notifyRequest)
+	_, err := client.DefaultApi.PostChargingNotification(context.Background(), notifyUri, chargingNotifyRequest)
 	if err != nil {
-		if httpResponse != nil {
-			logger.NotifyEventLog.Warnf("Charging Notification Error[%s]", httpResponse.Status)
-		} else {
-			logger.NotifyEventLog.Warnf("Charging Notification Failed[%s]", err.Error())
-		}
-		return
-	} else if httpResponse == nil {
-		logger.NotifyEventLog.Warnln("Charging Notification[HTTP Response is nil]")
+		logger.NotifyEventLog.Warnf("Charging Notification Failed[%s]", err.Error())
 		return
 	}
-	defer func() {
-		if resCloseErr := httpResponse.Body.Close(); resCloseErr != nil {
-			logger.NotifyEventLog.Errorf("NFInstancesStoreApi response body cannot close: %+v", resCloseErr)
-		}
-	}()
-	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusNoContent {
-		logger.NotifyEventLog.Warnf("Charging Notification Failed")
-	} else {
-		logger.NotifyEventLog.Tracef("Charging Notification Success")
-	}
+
+	logger.NotifyEventLog.Tracef("Charging Notification Success")
 }
 
 func (p *Processor) HandleChargingdataInitial(
 	c *gin.Context,
-	chargingdata models.ChargingDataRequest,
+	chargingdata models.ChfConvergedChargingChargingDataRequest,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
 	response, locationURI, problemDetails := p.ChargingDataCreate(chargingdata)
@@ -104,7 +92,7 @@ func (p *Processor) HandleChargingdataInitial(
 
 func (p *Processor) HandleChargingdataUpdate(
 	c *gin.Context,
-	chargingdata models.ChargingDataRequest,
+	chargingdata models.ChfConvergedChargingChargingDataRequest,
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
@@ -126,7 +114,7 @@ func (p *Processor) HandleChargingdataUpdate(
 
 func (p *Processor) HandleChargingdataRelease(
 	c *gin.Context,
-	chargingdata models.ChargingDataRequest,
+	chargingdata models.ChfConvergedChargingChargingDataRequest,
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
@@ -139,9 +127,13 @@ func (p *Processor) HandleChargingdataRelease(
 	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
-func (p *Processor) ChargingDataCreate(chargingData models.ChargingDataRequest) (*models.ChargingDataResponse,
-	string, *models.ProblemDetails) {
-	var responseBody models.ChargingDataResponse
+func (p *Processor) ChargingDataCreate(
+	chargingData models.ChfConvergedChargingChargingDataRequest,
+) (
+	*models.ChfConvergedChargingChargingDataResponse,
+	string, *models.ProblemDetails,
+) {
+	var responseBody models.ChfConvergedChargingChargingDataResponse
 	var chargingSessionId string
 
 	self := chf_context.GetSelf()
@@ -217,8 +209,8 @@ func (p *Processor) ChargingDataCreate(chargingData models.ChargingDataRequest) 
 }
 
 func (p *Processor) ChargingDataUpdate(
-	chargingData models.ChargingDataRequest, chargingSessionId string,
-) (*models.ChargingDataResponse, *models.ProblemDetails) {
+	chargingData models.ChfConvergedChargingChargingDataRequest, chargingSessionId string,
+) (*models.ChfConvergedChargingChargingDataResponse, *models.ProblemDetails) {
 	var records []*cdrType.CHFRecord
 
 	self := chf_context.GetSelf()
@@ -294,7 +286,8 @@ func (p *Processor) ChargingDataUpdate(
 }
 
 func (p *Processor) ChargingDataRelease(
-	chargingData models.ChargingDataRequest, chargingSessionId string) *models.ProblemDetails {
+	chargingData models.ChfConvergedChargingChargingDataRequest, chargingSessionId string,
+) *models.ProblemDetails {
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
@@ -317,6 +310,7 @@ func (p *Processor) ChargingDataRelease(
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
+			Cause:  err.Error(),
 		}
 		return problemDetails
 	}
@@ -341,14 +335,14 @@ func (p *Processor) ChargingDataRelease(
 }
 
 func (p *Processor) BuildOnlineChargingDataCreateResopone(
-	ue *chf_context.ChfUe, chargingData models.ChargingDataRequest,
-) models.ChargingDataResponse {
+	ue *chf_context.ChfUe, chargingData models.ChfConvergedChargingChargingDataRequest,
+) models.ChfConvergedChargingChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
 	ue.NotifyUri = chargingData.NotifyUri
 
 	multipleUnitInformation, _ := sessionChargingReservation(chargingData)
 
-	responseBody := models.ChargingDataResponse{
+	responseBody := models.ChfConvergedChargingChargingDataResponse{
 		MultipleUnitInformation: multipleUnitInformation,
 	}
 
@@ -356,15 +350,15 @@ func (p *Processor) BuildOnlineChargingDataCreateResopone(
 }
 
 func (p *Processor) BuildConvergedChargingDataUpdateResopone(
-	chargingData models.ChargingDataRequest,
-) (models.ChargingDataResponse, bool) {
+	chargingData models.ChfConvergedChargingChargingDataRequest,
+) (models.ChfConvergedChargingChargingDataResponse, bool) {
 	var partialRecord bool
 
 	logger.ChargingdataPostLog.Info("In BuildConvergedChargingDataUpdateResopone")
 
 	multipleUnitInformation, partialRecord := sessionChargingReservation(chargingData)
 
-	responseBody := models.ChargingDataResponse{
+	responseBody := models.ChfConvergedChargingChargingDataResponse{
 		MultipleUnitInformation: multipleUnitInformation,
 	}
 
@@ -395,7 +389,9 @@ func getUnitCost(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.Service
 }
 
 // 32.296 6.2.2.3.1: Service usage request method with reservation
-func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]models.MultipleUnitInformation, bool) {
+func sessionChargingReservation(
+	chargingData models.ChfConvergedChargingChargingDataRequest,
+) ([]models.MultipleUnitInformation, bool) {
 	var multipleUnitInformation []models.MultipleUnitInformation
 	var partialRecord bool
 	var subscriberIdentifier *charging_datatype.SubscriptionId
@@ -454,8 +450,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			switch usedUnit.QuotaManagementIndicator {
 			case models.QuotaManagementIndicator_OFFLINE_CHARGING:
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.Trigger{
-						TriggerType:     models.TriggerType_QUOTA_THRESHOLD,
+					models.ChfConvergedChargingTrigger{
+						TriggerType:     models.ChfConvergedChargingTriggerType_QUOTA_THRESHOLD,
 						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
 					},
 				)
@@ -469,12 +465,13 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 					// Check if partial record is needed
 					partialRecord = true
 					switch t := trigger; {
-					case t == models.Trigger{
-						TriggerType:     models.TriggerType_VOLUME_LIMIT,
-						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT}:
-					case t.TriggerType == models.TriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
-					case t.TriggerType == models.TriggerType_MANAGEMENT_INTERVENTION:
-					case t.TriggerType == models.TriggerType_FINAL:
+					case t == models.ChfConvergedChargingTrigger{
+						TriggerType:     models.ChfConvergedChargingTriggerType_VOLUME_LIMIT,
+						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					}:
+					case t.TriggerType == models.ChfConvergedChargingTriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
+					case t.TriggerType == models.ChfConvergedChargingTriggerType_MANAGEMENT_INTERVENTION:
+					case t.TriggerType == models.ChfConvergedChargingTriggerType_FINAL:
 						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
 						partialRecord = false
 					}
@@ -572,8 +569,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.Trigger{
-						TriggerType:     models.TriggerType_QUOTA_THRESHOLD,
+					models.ChfConvergedChargingTrigger{
+						TriggerType:     models.ChfConvergedChargingTriggerType_QUOTA_THRESHOLD,
 						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
 					},
 				)
@@ -582,8 +579,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			}
 
 			unitInformation.Triggers = append(unitInformation.Triggers,
-				models.Trigger{
-					TriggerType:     models.TriggerType_QUOTA_EXHAUSTED,
+				models.ChfConvergedChargingTrigger{
+					TriggerType:     models.ChfConvergedChargingTriggerType_QUOTA_EXHAUSTED,
 					TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
 				},
 			)
@@ -598,8 +595,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			// The timer of VolumeLimit is remain in SMF
 			if ue.VolumeLimit != 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.Trigger{
-						TriggerType:     models.TriggerType_VOLUME_LIMIT,
+					models.ChfConvergedChargingTrigger{
+						TriggerType:     models.ChfConvergedChargingTriggerType_VOLUME_LIMIT,
 						TriggerCategory: models.TriggerCategory_DEFERRED_REPORT,
 						VolumeLimit:     ue.VolumeLimit,
 					},
@@ -609,8 +606,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			// VolumeLimit for PDU session only need to add once
 			if ue.VolumeLimitPDU != 0 && unitUsageNum == 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.Trigger{
-						TriggerType:     models.TriggerType_VOLUME_LIMIT,
+					models.ChfConvergedChargingTrigger{
+						TriggerType:     models.ChfConvergedChargingTriggerType_VOLUME_LIMIT,
 						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
 						VolumeLimit:     ue.VolumeLimitPDU,
 					},
@@ -620,8 +617,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			// The timer of QuotaValidityTime is remain in UPF
 			if ue.QuotaValidityTime != 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.Trigger{
-						TriggerType:     models.TriggerType_VALIDITY_TIME,
+					models.ChfConvergedChargingTrigger{
+						TriggerType:     models.ChfConvergedChargingTriggerType_VALIDITY_TIME,
 						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
 					},
 				)
@@ -630,7 +627,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 
 		case charging_datatype.REQ_SUBTYPE_DEBIT:
 			logger.ChargingdataPostLog.Info("Debit mode, will not grant unit")
-			// retrived tarrif for final pricing
+			// retrieved tarrif for final pricing
 			sur.ServiceRating = &charging_datatype.ServiceRating{
 				ServiceIdentifier: datatype.Unsigned32(rg),
 				ConsumedUnits:     datatype.Unsigned32(totalUsedUnit),
@@ -683,8 +680,8 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 			ue.ReservedQuota[rg] = 0
 
 			unitInformation.Triggers = append(unitInformation.Triggers,
-				models.Trigger{
-					TriggerType:     models.TriggerType_QUOTA_EXHAUSTED,
+				models.ChfConvergedChargingTrigger{
+					TriggerType:     models.ChfConvergedChargingTriggerType_QUOTA_EXHAUSTED,
 					TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
 				},
 			)

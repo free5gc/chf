@@ -3,8 +3,9 @@ package logger
 import (
 	golog "github.com/fclairamb/go-log"
 	adapter "github.com/fclairamb/go-log/logrus"
-	logger_util "github.com/free5gc/util/logger"
 	"github.com/sirupsen/logrus"
+
+	logger_util "github.com/free5gc/util/logger"
 )
 
 var (
@@ -16,6 +17,7 @@ var (
 	CtxLog              *logrus.Entry
 	SBILog              *logrus.Entry
 	ConsumerLog         *logrus.Entry
+	ProcLog             *logrus.Entry
 	GinLog              *logrus.Entry
 	ChargingdataPostLog *logrus.Entry
 	NotifyEventLog      *logrus.Entry
@@ -42,6 +44,7 @@ func init() {
 	CtxLog = NfLog.WithField(logger_util.FieldCategory, "CTX")
 	SBILog = NfLog.WithField(logger_util.FieldCategory, "SBI")
 	ConsumerLog = NfLog.WithField(logger_util.FieldCategory, "Consumer")
+	ProcLog = NfLog.WithField(logger_util.FieldCategory, "Proc")
 	GinLog = NfLog.WithField(logger_util.FieldCategory, "GIN")
 	ChargingdataPostLog = NfLog.WithField(logger_util.FieldCategory, "ChargingPost")
 	NotifyEventLog = NfLog.WithField(logger_util.FieldCategory, "NotifyEvent")

@@ -244,7 +244,7 @@ func (cdrf CdrFileHeader) Encoding() []byte {
 		fmt.Println("CdrFileHeader failed:", err)
 	}
 
-	//Number of CDRs in file
+	// Number of CDRs in file
 	if err := binary.Write(buf, binary.BigEndian, cdrf.NumberOfCdrsInFile); err != nil {
 		fmt.Println("CdrFileHeader failed:", err)
 	}
@@ -289,12 +289,12 @@ func (cdrf CdrFileHeader) Encoding() []byte {
 		fmt.Println("CdrFileHeader failed:", err)
 	}
 
-	// "High Release Identifer" extension
+	// "High Release Identifier" extension
 	if err := binary.Write(buf, binary.BigEndian, cdrf.HighReleaseIdentifierExtension); err != nil {
 		fmt.Println("CdrFileHeader failed:", err)
 	}
 
-	// "Low Release Identifer" extension
+	// "Low Release Identifier" extension
 	if err := binary.Write(buf, binary.BigEndian, cdrf.LowReleaseIdentifierExtension); err != nil {
 		fmt.Println("CdrFileHeader failed:", err)
 	}
@@ -379,7 +379,7 @@ func (cdfFile CDRFile) Encoding(fileName string) {
 	}
 
 	// fmt.Printf("Encoded: %b\n", buf.Bytes())
-	err := os.WriteFile(fileName, buf.Bytes(), 0666)
+	err := os.WriteFile(fileName, buf.Bytes(), 0o666)
 	if err != nil {
 		panic(err)
 	}

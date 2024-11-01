@@ -9,19 +9,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/free5gc/chf/pkg/app"
-	"github.com/free5gc/chf/pkg/factory"
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 
-	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi/consumer"
 	"github.com/free5gc/chf/internal/sbi/processor"
 	"github.com/free5gc/chf/internal/util"
+	"github.com/free5gc/chf/pkg/app"
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/httpwrapper"
 	logger_util "github.com/free5gc/util/logger"
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 )
 
 type ServerChf interface {
@@ -45,14 +44,7 @@ func NewServer(chf ServerChf, tlsKeyLogPath string) (*Server, error) {
 		router:    logger_util.NewGinWithLogrus(logger.GinLog),
 	}
 
-	routes := s.getConvergenChargingRoutes()
-	group := s.router.Group(factory.ConvergedChargingResUriPrefix)
-	routerAuthorizationCheck := util.NewRouterAuthorizationCheck(models.ServiceName_NCHF_CONVERGEDCHARGING)
-	group.Use(func(c *gin.Context) {
-		routerAuthorizationCheck.Check(c, chf_context.GetSelf())
-	})
-	applyRoutes(group, routes)
-
+	s.router = newRouter(s)
 	cfg := s.Config()
 	bindAddr := cfg.GetSbiBindingAddr()
 	logger.SBILog.Infof("Binding addr: [%s]", bindAddr)
@@ -64,6 +56,47 @@ func NewServer(chf ServerChf, tlsKeyLogPath string) (*Server, error) {
 	s.httpServer.ErrorLog = log.New(logger.SBILog.WriterLevel(logrus.ErrorLevel), "HTTP2: ", 0)
 
 	return s, nil
+}
+
+func newRouter(s *Server) *gin.Engine {
+	router := logger_util.NewGinWithLogrus(logger.GinLog)
+
+	for _, serviceName := range s.Config().Configuration.ServiceNameList {
+		switch models.ServiceName(serviceName) {
+		case models.ServiceName_NCHF_CONVERGEDCHARGING:
+			chfConvergedChargingGroup := router.Group(factory.ConvergedChargingResUriPrefix)
+			chfConvergedChargingGroup.Use(func(c *gin.Context) {
+				// oauth middleware
+				util.NewRouterAuthorizationCheck(models.ServiceName(serviceName)).Check(c, s.Context())
+			})
+			chfConvergedChargingRoutes := s.getConvergenChargingRoutes()
+			applyRoutes(chfConvergedChargingGroup, chfConvergedChargingRoutes)
+
+		case models.ServiceName_NCHF_OFFLINEONLYCHARGING:
+			chfOfflineOnlyChargingGroup := router.Group(factory.OfflineOnlyChargingResUriPrefix)
+			chfOfflineOnlyChargingGroup.Use(func(c *gin.Context) {
+				// oauth middleware
+				util.NewRouterAuthorizationCheck(models.ServiceName(serviceName)).Check(c, s.Context())
+			})
+
+			chfOfflineOnlyChargingGroupRoutes := s.getOfflineOnlyChargingRoutes()
+			applyRoutes(chfOfflineOnlyChargingGroup, chfOfflineOnlyChargingGroupRoutes)
+
+		case models.ServiceName_NCHF_SPENDINGLIMITCONTROL:
+			chfSpendingLimitControlGroup := router.Group(factory.SpendingLimitControlResUriPrefix)
+			chfSpendingLimitControlGroup.Use(func(c *gin.Context) {
+				// oauth middleware
+				util.NewRouterAuthorizationCheck(models.ServiceName(serviceName)).Check(c, s.Context())
+			})
+			chfSpendingLimitControlRoutes := s.getSpendingLimitControlRoutes()
+			applyRoutes(chfSpendingLimitControlGroup, chfSpendingLimitControlRoutes)
+
+		default:
+			logger.SBILog.Warnf("Unsupported service name: %s", serviceName)
+		}
+	}
+
+	return router
 }
 
 func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
