@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net/http"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 	"golang.org/x/exp/constraints"
 
 	"github.com/fiorix/go-diameter/diam/datatype"
+	"github.com/free5gc/chf/cdr/asn"
+	"github.com/free5gc/chf/cdr/cdrConvert"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/cgf"
@@ -186,6 +189,7 @@ func (p *Processor) ChargingDataCreate(chargingData models.ChargingDataRequest) 
 	}
 
 	ue.Cdr[chargingSessionId] = cdr
+	ue.Records = append(ue.Records, ue.Cdr[chargingSessionId])
 
 	if chargingData.OneTimeEvent {
 		err = p.CloseCDR(cdr, false)
@@ -219,7 +223,6 @@ func (p *Processor) ChargingDataCreate(chargingData models.ChargingDataRequest) 
 func (p *Processor) ChargingDataUpdate(
 	chargingData models.ChargingDataRequest, chargingSessionId string,
 ) (*models.ChargingDataResponse, *models.ProblemDetails) {
-	var records []*cdrType.CHFRecord
 
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
@@ -239,6 +242,34 @@ func (p *Processor) ChargingDataUpdate(
 	responseBody, partialRecord := p.BuildConvergedChargingDataUpdateResopone(chargingData)
 
 	cdr := ue.Cdr[chargingSessionId]
+
+	if len(ue.Records) > 1 {
+		cdr = ue.Records[len(ue.Records)-1]
+	}
+
+	cdrBytes, errBer := asn.BerMarshalWithParams(&cdr, "explicit,choice")
+	if errBer != nil {
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusBadRequest,
+		}
+		return nil, problemDetails
+	}
+
+	var chgDataBytes []byte
+	if chargingData.MultipleUnitUsage != nil && len(chargingData.MultipleUnitUsage) != 0 {
+		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
+		chgDataBytes, _ = asn.BerMarshalWithParams(&cdrMultiUnitUsage, "explicit,choice")
+	}
+
+	if len(cdrBytes)+len(chgDataBytes) > math.MaxUint16 {
+		var newRecord *cdrType.CHFRecord
+		cdrJson, _ := json.Marshal(cdr)
+		json.Unmarshal(cdrJson, &newRecord)
+		newRecord.ChargingFunctionRecord.ListOfMultipleUnitUsage = []cdrType.MultipleUnitUsage{}
+		cdr = newRecord
+		ue.Records = append(ue.Records, cdr)
+	}
+
 	err := p.UpdateCDR(cdr, chargingData)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
@@ -270,10 +301,7 @@ func (p *Processor) ChargingDataUpdate(
 			"CDR Record Sequence Number after Reopen %+v", *cdr.ChargingFunctionRecord.RecordSequenceNumber)
 	}
 
-	for _, cdr := range ue.Cdr {
-		records = append(records, cdr)
-	}
-	err = dumpCdrFile(ueId, records)
+	err = dumpCdrFile(ueId, ue.Records)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,

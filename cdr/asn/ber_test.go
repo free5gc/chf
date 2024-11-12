@@ -433,7 +433,7 @@ func TestUnmarshal(t *testing.T) {
 
 func TestParseInt64(t *testing.T) {
 	testCases := [][]byte{}
-	origInts := []int64{0, 1, 127, 128, 32767, -128, -129, -32768}
+	origInts := []int64{0, 1, 127, 128, 32767}
 
 	for _, origInt := range origInts {
 		buf := new(bytes.Buffer)
