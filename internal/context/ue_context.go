@@ -41,6 +41,7 @@ type ChfUe struct {
 	RatingChan    chan *diam.Message
 	RatingType    map[int32]charging_datatype.RequestSubType
 	RateSessionId uint32
+	Records       []*cdrType.CHFRecord
 
 	// lock
 	Cdr    map[string]*cdrType.CHFRecord
@@ -58,7 +59,7 @@ func (ue *ChfUe) FindRatingGroup(ratingGroup int32) bool {
 
 func (ue *ChfUe) init() {
 	config := factory.ChfConfig
-
+	ue.Records = []*cdrType.CHFRecord{}
 	ue.Cdr = make(map[string]*cdrType.CHFRecord)
 	ue.VolumeLimit = config.Configuration.VolumeLimit
 	ue.VolumeLimitPDU = config.Configuration.VolumeLimitPDU

@@ -267,6 +267,7 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	cdrfile.Hdr.HeaderLength = uint32(54 + cdrfile.Hdr.LengthOfCdrRouteingFilter + cdrfile.Hdr.LengthOfPrivateExtension)
 	cdrfile.Hdr.NumberOfCdrsInFile = uint32(len(records))
 	cdrfile.Hdr.FileLength = cdrfile.Hdr.HeaderLength
+	logger.ChargingdataPostLog.Traceln("cdrfile.Hdr.NumberOfCdrsInFile:", uint32(len(records)))
 
 	for _, record := range records {
 		cdrBytes, err := asn.BerMarshalWithParams(&record, "explicit,choice")
@@ -283,7 +284,7 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 		}
 		cdrfile.CdrList = append(cdrfile.CdrList, tmpCdr)
 
-		cdrfile.Hdr.FileLength += uint32(cdrHdr.CdrLength) + 5
+		cdrfile.Hdr.FileLength += uint32(len(cdrBytes)) + 5
 	}
 
 	cdrfile.Encoding("/tmp/" + ueid + ".cdr")

@@ -68,32 +68,9 @@ func parseInt64(bytes []byte) (r int64, e error) {
 		return r, e
 	}
 
-	minus := false
-	if uint(bytes[0]) > 127 {
-		minus = true
-	}
-
-	for i := 0; i < 8-len(bytes); i++ {
-		extend_byte := byte(0)
-		if minus {
-			extend_byte = byte(255)
-		}
-		bytes = append([]byte{extend_byte}, bytes...)
-	}
-
-	if minus {
-		for i := range bytes {
-			bytes[i] = ^bytes[i]
-		}
-	}
-
 	for _, b := range bytes {
 		r <<= 8
 		r |= int64(b)
-	}
-
-	if minus {
-		r = -r - 1
 	}
 
 	return r, e
