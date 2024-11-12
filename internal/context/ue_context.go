@@ -59,7 +59,7 @@ func (ue *ChfUe) FindRatingGroup(ratingGroup int32) bool {
 
 func (ue *ChfUe) init() {
 	config := factory.ChfConfig
-
+	ue.Records = []*cdrType.CHFRecord{}
 	ue.Cdr = make(map[string]*cdrType.CHFRecord)
 	ue.Records = []*cdrType.CHFRecord{}
 	ue.VolumeLimit = config.Configuration.VolumeLimit
