@@ -487,7 +487,8 @@ func (cdfFile *CDRFile) Decoding(fileName string) {
 
 	// fmt.Println("[Decode]cdrfileheader:\n", cdfFile.Hdr)
 
-	tail := n + 2
+	var tail uint32
+	tail = uint32(n) + 2
 
 	for i := 1; i <= int(numberOfCdrsInFile); i++ {
 		cdrLength := binary.BigEndian.Uint16(data[tail : tail+2])
@@ -506,10 +507,10 @@ func (cdfFile *CDRFile) Decoding(fileName string) {
 
 		cdr := CDR{
 			Hdr:     cdrHeader,
-			CdrByte: data[tail+5 : tail+5+cdrLength],
+			CdrByte: data[tail+5 : tail+5+uint32(cdrLength)],
 		}
 		cdfFile.CdrList = append(cdfFile.CdrList, cdr)
-		tail += 5 + cdrLength
+		tail += 5 + uint32(cdrLength)
 	}
 	// fmt.Println("[Decode]cdrfile:\n", cdfFile)
 	// fmt.Printf("%#v\n", cdfFile)

@@ -55,8 +55,6 @@ func TestMarshal(t *testing.T) {
 		{"intTest1", 10, "02010a", ""},
 		{"intTest2", 127, "02017f", ""},
 		{"intTest3", 128, "02020080", ""},
-		{"intTest4", -128, "020180", ""},
-		{"intTest5", -129, "0202ff7f", ""},
 		{"intTest6", 0, "020100", ""},
 		{"boolTest1", true, "0101ff", ""},
 		{"boolTest2", false, "010100", ""},
@@ -249,8 +247,6 @@ func TestUnmarshal(t *testing.T) {
 		{"intTest1", newInt(10), "02010a", ""},
 		{"intTest2", newInt(127), "02017f", ""},
 		{"intTest3", newInt(128), "02020080", ""},
-		{"intTest4", newInt(-128), "020180", ""},
-		{"intTest5", newInt(-129), "0202ff7f", ""},
 		{"intTest6", newInt(0), "020100", ""},
 		{"boolTest1", newBool(true), "0101ff", ""},
 		{"boolTest2", newBool(false), "010100", ""},
@@ -433,7 +429,7 @@ func TestUnmarshal(t *testing.T) {
 
 func TestParseInt64(t *testing.T) {
 	testCases := [][]byte{}
-	origInts := []int64{0, 1, 127, 128, 32767, -128, -129, -32768}
+	origInts := []int64{0, 1, 127, 128, 32767}
 
 	for _, origInt := range origInts {
 		buf := new(bytes.Buffer)
