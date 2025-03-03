@@ -238,24 +238,42 @@ func (p *Processor) ChargingDataUpdate(
 		cdr = ue.Records[len(ue.Records)-1]
 	}
 
-	cdrBytes, errBer := asn.BerMarshalWithParams(&cdr, "explicit,choice")
-	if errBer != nil {
+	cdrBytes, errCdrBer := asn.BerMarshalWithParams(&cdr, "explicit,choice")
+	if errCdrBer != nil {
+		logger.ChargingdataPostLog.Error(errCdrBer)
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
+			Detail: errCdrBer.Error(),
 		}
 		return nil, problemDetails
 	}
 
 	var chgDataBytes []byte
+	var errChgDataBer error
 	if chargingData.MultipleUnitUsage != nil && len(chargingData.MultipleUnitUsage) != 0 {
 		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
-		chgDataBytes, _ = asn.BerMarshalWithParams(&cdrMultiUnitUsage, "explicit,choice")
+		chgDataBytes, errChgDataBer = asn.BerMarshalWithParams(&cdrMultiUnitUsage, "explicit,choice")
+		if errChgDataBer != nil {
+			logger.ChargingdataPostLog.Error(errChgDataBer)
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusBadRequest,
+				Detail: errChgDataBer.Error(),
+			}
+			return nil, problemDetails
+		}
 	}
 
 	if len(cdrBytes)+len(chgDataBytes) > math.MaxUint16 {
 		var newRecord *cdrType.CHFRecord
-		cdrJson, _ := json.Marshal(cdr)
-		json.Unmarshal(cdrJson, &newRecord)
+		cdrJson, err := json.Marshal(cdr)
+		if err != nil {
+			logger.ChargingdataPostLog.Error(err)
+		}
+		err = json.Unmarshal(cdrJson, &newRecord)
+		if err != nil {
+			logger.ChargingdataPostLog.Error(err)
+		}
+
 		newRecord.ChargingFunctionRecord.ListOfMultipleUnitUsage = []cdrType.MultipleUnitUsage{}
 		cdr = newRecord
 		ue.Records = append(ue.Records, cdr)
