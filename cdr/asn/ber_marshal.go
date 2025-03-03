@@ -278,7 +278,7 @@ func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 					tempParams := parseFieldParameters(structType.Field(i).Tag.Get("ber"))
 					if tempParams.optional {
 						if v.Field(i).IsNil() {
-							//berTrace(
+							// berTrace(
 							// 3, fmt.Sprintf("Field \"%s\" in %s is OPTIONAL and not present", structType.Field(i).Name, structType)
 							// )
 							s[i] = bytesEncoder(nil)

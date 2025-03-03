@@ -2,10 +2,9 @@ package cdrFile
 
 import (
 	"fmt"
-	// "reflect"
-	"testing"
-	"strconv"
 	"os"
+	"strconv"
+	"testing"
 
 	"github.com/stretchr/testify/require"
 )
@@ -26,26 +25,28 @@ func TestCdrFile(t *testing.T) {
 			NumberOfCdrsInFile:                    1,
 			FileSequenceNumber:                    11,
 			FileClosureTriggerReason:              4,
-			IpAddressOfNodeThatGeneratedFile:      [20]byte{0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb},
-			LostCdrIndicator:          4,
-			LengthOfCdrRouteingFilter: 4,
-			CDRRouteingFilter:                     []byte("abcd"),
-			LengthOfPrivateExtension: 5,
-			PrivateExtension:                      []byte("fghjk"), // vendor specific
+			IpAddressOfNodeThatGeneratedFile: [20]byte{
+				0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb, 0xa, 0xb,
+			},
+			LostCdrIndicator:               4,
+			LengthOfCdrRouteingFilter:      4,
+			CDRRouteingFilter:              []byte("abcd"),
+			LengthOfPrivateExtension:       5,
+			PrivateExtension:               []byte("fghjk"), // vendor specific
 			HighReleaseIdentifierExtension: 2,
 			LowReleaseIdentifierExtension:  3,
 		},
 		CdrList: []CDR{{
-			Hdr:CdrHeader {
-				CdrLength                  :3,
-				ReleaseIdentifier          :Rel6, // octet 3 bit 6..8
-				VersionIdentifier          :3,                // otcet 3 bit 1..5
-				DataRecordFormat           :UnalignedPackedEncodingRules,  // octet 4 bit 6..8
-				TsNumber                   : TS32253,   // octet 4 bit 1..5
-				ReleaseIdentifierExtension :4,
+			Hdr: CdrHeader{
+				CdrLength:                  3,
+				ReleaseIdentifier:          Rel6,                         // octet 3 bit 6..8
+				VersionIdentifier:          3,                            // otcet 3 bit 1..5
+				DataRecordFormat:           UnalignedPackedEncodingRules, // octet 4 bit 6..8
+				TsNumber:                   TS32253,                      // octet 4 bit 1..5
+				ReleaseIdentifierExtension: 4,
 			},
-			CdrByte:[]byte("abc"),
-		},},
+			CdrByte: []byte("abc"),
+		}},
 	}
 
 	cdrFile2 := CDRFile{
@@ -61,55 +62,57 @@ func TestCdrFile(t *testing.T) {
 			NumberOfCdrsInFile:                    3,
 			FileSequenceNumber:                    65,
 			FileClosureTriggerReason:              2,
-			IpAddressOfNodeThatGeneratedFile:      [20]byte{0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd},
-			LostCdrIndicator:          			   4,
-			LengthOfCdrRouteingFilter: 			   5,
-			CDRRouteingFilter:                     []byte("gfdss"),
-			LengthOfPrivateExtension:    	       7,
-			PrivateExtension:                      []byte("abcdefg"), // vendor specific
-			HighReleaseIdentifierExtension: 	   1,
-			LowReleaseIdentifierExtension:  	   2,
+			IpAddressOfNodeThatGeneratedFile: [20]byte{
+				0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd, 0xc, 0xd,
+			},
+			LostCdrIndicator:               4,
+			LengthOfCdrRouteingFilter:      5,
+			CDRRouteingFilter:              []byte("gfdss"),
+			LengthOfPrivateExtension:       7,
+			PrivateExtension:               []byte("abcdefg"), // vendor specific
+			HighReleaseIdentifierExtension: 1,
+			LowReleaseIdentifierExtension:  2,
 		},
 		CdrList: []CDR{
 			{
-				Hdr:CdrHeader {
-					CdrLength                  :3,
-					ReleaseIdentifier          :Rel6, 
-					VersionIdentifier          :3,            
-					DataRecordFormat           :UnalignedPackedEncodingRules,  
-					TsNumber                   : TS32253,   
-					ReleaseIdentifierExtension :4,
+				Hdr: CdrHeader{
+					CdrLength:                  3,
+					ReleaseIdentifier:          Rel6,
+					VersionIdentifier:          3,
+					DataRecordFormat:           UnalignedPackedEncodingRules,
+					TsNumber:                   TS32253,
+					ReleaseIdentifierExtension: 4,
 				},
-				CdrByte:[]byte("abc"),
+				CdrByte: []byte("abc"),
 			},
 			{
-				Hdr:CdrHeader {
-					CdrLength                  :6,
-					ReleaseIdentifier          :Rel5,
-					VersionIdentifier          :2,               
-					DataRecordFormat           :AlignedPackedEncodingRules1,  
-					TsNumber                   : TS32205,   
-					ReleaseIdentifierExtension :2,
+				Hdr: CdrHeader{
+					CdrLength:                  6,
+					ReleaseIdentifier:          Rel5,
+					VersionIdentifier:          2,
+					DataRecordFormat:           AlignedPackedEncodingRules1,
+					TsNumber:                   TS32205,
+					ReleaseIdentifierExtension: 2,
 				},
-				CdrByte:[]byte("ghjklm"),
+				CdrByte: []byte("ghjklm"),
 			},
 			{
-				Hdr:CdrHeader {
-					CdrLength                  :2,
-					ReleaseIdentifier          :Rel9,
-					VersionIdentifier          :3,               
-					DataRecordFormat           :AlignedPackedEncodingRules1,  
-					TsNumber                   : TS32225,  
-					ReleaseIdentifierExtension :1,
+				Hdr: CdrHeader{
+					CdrLength:                  2,
+					ReleaseIdentifier:          Rel9,
+					VersionIdentifier:          3,
+					DataRecordFormat:           AlignedPackedEncodingRules1,
+					TsNumber:                   TS32225,
+					ReleaseIdentifierExtension: 1,
 				},
-				CdrByte:[]byte("cv"),
+				CdrByte: []byte("cv"),
 			},
 		},
 	}
 
 	testCases := []struct {
-		name  string
-		in    CDRFile
+		name string
+		in   CDRFile
 	}{
 		{"cdrfile1", cdrFile1},
 		{"cdrfile2", cdrFile2},
@@ -117,7 +120,7 @@ func TestCdrFile(t *testing.T) {
 
 	for i, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			fileName := "encoding"+strconv.Itoa(i)+".txt"
+			fileName := "encoding" + strconv.Itoa(i) + ".txt"
 			tc.in.Encoding(fileName)
 			newCdrFile := CDRFile{}
 			newCdrFile.Decoding(fileName)

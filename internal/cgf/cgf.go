@@ -16,9 +16,10 @@ import (
 	"github.com/fclairamb/ftpserver/config"
 	"github.com/fclairamb/ftpserver/server"
 	ftpserver "github.com/fclairamb/ftpserverlib"
+	"github.com/jlaffaye/ftp"
+
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
-	"github.com/jlaffaye/ftp"
 )
 
 type Cgf struct {
@@ -52,6 +53,7 @@ type FtpConfig struct {
 }
 
 var cgf *Cgf
+
 var CGFEnable bool = false
 
 func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
@@ -92,8 +94,8 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(cgf.ftpConfig); err != nil {
-		panic(err)
+	if errEncode := encoder.Encode(cgf.ftpConfig); errEncode != nil {
+		panic(errEncode)
 	}
 
 	conf, errConfig := config.NewConfig("/tmp/config.json", logger.FtpServerLog)
@@ -165,7 +167,6 @@ func SendCDR(supi string) error {
 
 	if cgf.conn == nil {
 		err := Login()
-
 		if err != nil {
 			return err
 		}
@@ -176,7 +177,6 @@ func SendCDR(supi string) error {
 	if ping_err != nil {
 		logger.CgfLog.Infof("Faile to ping FTP server, relogin...")
 		err := Login()
-
 		if err != nil {
 			return err
 		}
@@ -225,8 +225,10 @@ func SendCDR(supi string) error {
 	return nil
 }
 
-const FTP_LOGIN_RETRY_NUMBER = 3
-const FTP_LOGIN_RETRY_WAITING_TIME = 1 * time.Second // second
+const (
+	FTP_LOGIN_RETRY_NUMBER       = 3
+	FTP_LOGIN_RETRY_WAITING_TIME = 1 * time.Second // second
+)
 
 func (f *Cgf) Serve(ctx context.Context, wg *sync.WaitGroup) {
 	go func() {
@@ -288,9 +290,9 @@ func (f *Cgf) Terminate() {
 	}
 
 	for _, file := range files {
-		if _, err := os.Stat(file); err == nil {
+		if _, errStat := os.Stat(file); errStat == nil {
 			logger.CgfLog.Infof("Remove CDR file: " + file)
-			if err := os.Remove(file); err != nil {
+			if errRemove := os.Remove(file); errRemove != nil {
 				logger.CgfLog.Warnf("Failed to remove CDR file: %s\n", file)
 			}
 		}

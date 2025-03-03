@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,7 +15,10 @@ import (
 )
 
 func (p *Processor) OpenCDR(
-	chargingData models.ChargingDataRequest, ue *chf_context.ChfUe, sessionId string, partialRecord bool,
+	chargingData models.ChfConvergedChargingChargingDataRequest,
+	ue *chf_context.ChfUe,
+	sessionId string,
+	partialRecord bool,
 ) (*cdrType.CHFRecord, error) {
 	// 32.298 5.1.5.0.1 for CHF CDR field
 	var chfCdr cdrType.ChargingRecord
@@ -126,7 +130,6 @@ func (p *Processor) OpenCDR(
 		consumerInfo.NetworkFunctionPLMNIdentifier = &cdrType.PLMNId{
 			Value: plmnIdByte.Value,
 		}
-
 	}
 	logger.ChargingdataPostLog.Infof("%s charging event", chargingData.NfConsumerIdentification.NodeFunctionality)
 	switch chargingData.NfConsumerIdentification.NodeFunctionality {
@@ -197,7 +200,13 @@ func (p *Processor) OpenCDR(
 	return &cdr, nil
 }
 
-func (p *Processor) UpdateCDR(record *cdrType.CHFRecord, chargingData models.ChargingDataRequest) error {
+func (p *Processor) UpdateCDR(
+	record *cdrType.CHFRecord, chargingData models.ChfConvergedChargingChargingDataRequest,
+) error {
+	if record == nil {
+		return fmt.Errorf("CHFRecord is nil")
+	}
+
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
 
