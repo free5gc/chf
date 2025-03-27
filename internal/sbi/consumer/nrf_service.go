@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 
 	chf_context "github.com/free5gc/chf/internal/context"
@@ -246,7 +247,8 @@ func (s *nnrfService) buildNfProfile(
 		nfService.ApiPrefix = "/nchf-convergedcharging/v1"
 		nfService.Fqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
 		nfService.InterPlmnFqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
-		nfService.ServiceInstanceId = chfContext.NfId
+		serviceId := uuid.New().String()
+		nfService.ServiceInstanceId = serviceId
 		nfService.ServiceName = "/nchf-convergedcharging"
 		nfService.SupportedFeatures = "1"
 		// nfService.Versions.
