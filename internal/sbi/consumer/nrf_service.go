@@ -235,20 +235,23 @@ func (s *nnrfService) buildNfProfile(
 
 	profile.AllowedNfTypes = nfList
 	profile.AllowedPlmns = allowedplmindlist
-	profile.Fqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
-	profile.InterPlmnFqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
+	profile.Fqdn = "chf.5gc.mnc01.mcc001.3gppnetwork.org"
+	profile.InterPlmnFqdn = "chf.5gc.mnc01.mcc001.3gppnetwork.org"
 	profile.NfInstanceId = chfContext.NfId
 	services := []models.NrfNfManagementNfService{}
 	serviceId := uuid.New().String()
 	for _, nfService := range chfContext.NfService {
 		nfService.AllowedNfTypes = nfList
-		// nfService.AllowedOperationsPerNfType=
+		nfService.AllowedOperationsPerNfType = map[string]string{
+			"AMF": "nchf-convergedcharging",
+			"CHF": "nchf-convergedcharging",
+		}
 		nfService.AllowedPlmns = allowedplmindlist
 		nfService.ApiPrefix = "/nchf-convergedcharging/v1"
-		nfService.Fqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
-		nfService.InterPlmnFqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
+		nfService.Fqdn = "service-enterprise1-slice1-convergedcharging.ns-enterprise1.svc.cluster.local:8080"
+		nfService.InterPlmnFqdn = "chf.convergedcharging.5gc.mnc01.mcc001.3gppnetwork.org"
 		nfService.ServiceInstanceId = serviceId
-		nfService.ServiceName = "/nchf-convergedcharging"
+		nfService.ServiceName = "nchf-convergedcharging"
 		nfService.SupportedFeatures = "1"
 		// nfService.Versions.
 		services = append(services, nfService)
