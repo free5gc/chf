@@ -240,6 +240,15 @@ func (s *nnrfService) buildNfProfile(
 	services := []models.NrfNfManagementNfService{}
 
 	for _, nfService := range chfContext.NfService {
+		nfService.AllowedNfTypes = nfList
+		// nfService.AllowedOperationsPerNfType=
+		nfService.AllowedPlmns = allowedplmindlist
+		nfService.Fqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
+		nfService.InterPlmnFqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
+		nfService.ServiceInstanceId = chfContext.NfId
+		nfService.ServiceName = "nchf-convergedcharging"
+		nfService.SupportedFeatures = "1"
+		// nfService.Versions.
 		services = append(services, nfService)
 	}
 	if len(services) > 0 {
