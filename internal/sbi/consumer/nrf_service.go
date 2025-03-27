@@ -252,7 +252,7 @@ func (s *nnrfService) buildNfProfile(
 	if len(services) > 0 {
 		profile.NfServices = services
 		profile.NfServiceList = map[string]models.NrfNfManagementNfService{
-			chfContext.NfId: services[1],
+			chfContext.NfId: services[0],
 		}
 	}
 	profile.ChfInfo = &models.ChfInfo{
