@@ -231,19 +231,11 @@ func (s *nnrfService) buildNfProfile(
 	// nfservice.ServiceName = "nchf-comm"
 	// nfservice.SupportedFeatures = "1"
 
-	profile.NfInstanceId = chfContext.NfId
-	profile.NfType = models.NrfNfManagementNfType_CHF
-	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED
-	profile.Ipv4Addresses = append(profile.Ipv4Addresses, chfContext.RegisterIPv4)
 	profile.AllowedNfTypes = nfList
 	profile.AllowedPlmns = allowedplmindlist
-	// profile.ChfInfo =
 	profile.Fqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
 	profile.InterPlmnFqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
-	profile.PerPlmnSnssaiList = perplmnsnssailist
-	profile.PlmnList = allowedplmindlist
-	profile.SNssais = snssailist
-
+	profile.NfInstanceId = chfContext.NfId
 	services := []models.NrfNfManagementNfService{}
 
 	for _, nfService := range chfContext.NfService {
@@ -256,6 +248,8 @@ func (s *nnrfService) buildNfProfile(
 		}
 	}
 	profile.ChfInfo = &models.ChfInfo{
+		GroupId:            chfContext.NfId,
+		PrimaryChfInstance: chfContext.NfId,
 		// Todo
 		// SupiRanges: &[]models.SupiRange{
 		// 	{
@@ -267,5 +261,12 @@ func (s *nnrfService) buildNfProfile(
 		// 	},
 		// },
 	}
+	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED
+	profile.NfType = models.NrfNfManagementNfType_CHF
+	profile.PerPlmnSnssaiList = perplmnsnssailist
+	profile.PlmnList = allowedplmindlist
+	profile.SNssais = snssailist
+	// profile.Ipv4Addresses = append(profile.Ipv4Addresses, chfContext.RegisterIPv4)
+
 	return
 }
