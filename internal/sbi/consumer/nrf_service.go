@@ -211,6 +211,26 @@ func (s *nnrfService) buildNfProfile(
 	plmnsnssai.PlmnId = &allowedplmnid
 	perplmnsnssailist = append(perplmnsnssailist, plmnsnssai)
 
+	// var nfservicelist map[string]models.NrfNfManagementNfService
+	// map [2b31b20b-ba79-4010-915b-4fd3a4d69842 : ]
+
+	// var nfservice models.NrfNfManagementNfService
+
+	// nfservice.AllowedNfTypes=nfList
+	// nfservice.AllowedOperationsPerNfType= map[string][]string{
+	// 	SMF: {nsmf-comm},
+	// 	AMF: {namf-comm},
+	// }
+	// nfservice.AllowedPlmns = allowedplmindlist
+	// nfservice.ApiPrefix = "/nchf-comm/v1"
+	// nfservice.Fqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
+	// nfservice.InterPlmnFqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
+	// nfservice.NfServiceStatus = models.NrfNfManagementNfStatus_REGISTERED
+	// nfservice.Scheme = "http"
+	// nfservice.ServiceInstanceId = "2b31b20b-ba79-4010-915b-4fd3a4d69842"
+	// nfservice.ServiceName = "nchf-comm"
+	// nfservice.SupportedFeatures = "1"
+
 	profile.NfInstanceId = chfContext.NfId
 	profile.NfType = models.NrfNfManagementNfType_CHF
 	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED
@@ -220,17 +240,20 @@ func (s *nnrfService) buildNfProfile(
 	// profile.ChfInfo =
 	profile.Fqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
 	profile.InterPlmnFqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
-	// profile.NfServiceList =
 	profile.PerPlmnSnssaiList = perplmnsnssailist
 	profile.PlmnList = allowedplmindlist
 	profile.SNssais = snssailist
 
 	services := []models.NrfNfManagementNfService{}
+
 	for _, nfService := range chfContext.NfService {
 		services = append(services, nfService)
 	}
 	if len(services) > 0 {
 		profile.NfServices = services
+		profile.NfServiceList = map[string]models.NrfNfManagementNfService{
+			chfContext.NfId: services[1],
+		}
 	}
 	profile.ChfInfo = &models.ChfInfo{
 		// Todo
