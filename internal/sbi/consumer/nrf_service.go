@@ -239,7 +239,7 @@ func (s *nnrfService) buildNfProfile(
 	profile.InterPlmnFqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
 	profile.NfInstanceId = chfContext.NfId
 	services := []models.NrfNfManagementNfService{}
-
+	serviceId := uuid.New().String()
 	for _, nfService := range chfContext.NfService {
 		nfService.AllowedNfTypes = nfList
 		// nfService.AllowedOperationsPerNfType=
@@ -247,7 +247,6 @@ func (s *nnrfService) buildNfProfile(
 		nfService.ApiPrefix = "/nchf-convergedcharging/v1"
 		nfService.Fqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
 		nfService.InterPlmnFqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
-		serviceId := uuid.New().String()
 		nfService.ServiceInstanceId = serviceId
 		nfService.ServiceName = "/nchf-convergedcharging"
 		nfService.SupportedFeatures = "1"
@@ -257,7 +256,7 @@ func (s *nnrfService) buildNfProfile(
 	if len(services) > 0 {
 		profile.NfServices = services
 		profile.NfServiceList = map[string]models.NrfNfManagementNfService{
-			chfContext.NfId: services[0],
+			serviceId: services[0],
 		}
 	}
 	profile.ChfInfo = &models.ChfInfo{
