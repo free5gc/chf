@@ -209,6 +209,7 @@ func (s *nnrfService) buildNfProfile(
 	snssailist = append(snssailist, snssai2)
 
 	plmnsnssai.PlmnId = &allowedplmnid
+	plmnsnssai.SNssaiList = snssailist
 	perplmnsnssailist = append(perplmnsnssailist, plmnsnssai)
 
 	// var nfservicelist map[string]models.NrfNfManagementNfService
