@@ -183,10 +183,48 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 func (s *nnrfService) buildNfProfile(
 	chfContext *chf_context.CHFContext,
 ) (profile models.NrfNfManagementNfProfile, err error) {
+
+	var nfList []models.NrfNfManagementNfType
+	nfList = append(nfList, models.NrfNfManagementNfType_AMF)
+	nfList = append(nfList, models.NrfNfManagementNfType_SMF)
+
+	var allowedplmindlist []models.PlmnId
+	var allowedplmnid models.PlmnId
+	allowedplmnid.Mcc = "001"
+	allowedplmnid.Mnc = "01"
+	allowedplmindlist = append(allowedplmindlist, allowedplmnid)
+
+	var perplmnsnssailist []models.PlmnSnssai
+	var plmnsnssai models.PlmnSnssai
+	var snssailist []models.ExtSnssai
+	var snssai models.ExtSnssai
+	var snssai2 models.ExtSnssai
+
+	snssai.Sd = "19CDE1"
+	snssai.Sst = 1
+	snssailist = append(snssailist, snssai)
+
+	snssai2.Sst = 1
+	snssai2.WildcardSd = true
+	snssailist = append(snssailist, snssai2)
+
+	plmnsnssai.PlmnId = &allowedplmnid
+	perplmnsnssailist = append(perplmnsnssailist, plmnsnssai)
+
 	profile.NfInstanceId = chfContext.NfId
 	profile.NfType = models.NrfNfManagementNfType_CHF
 	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED
 	profile.Ipv4Addresses = append(profile.Ipv4Addresses, chfContext.RegisterIPv4)
+	profile.AllowedNfTypes = nfList
+	profile.AllowedPlmns = allowedplmindlist
+	// profile.ChfInfo =
+	profile.Fqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
+	profile.InterPlmnFqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
+	// profile.NfServiceList =
+	profile.PerPlmnSnssaiList = perplmnsnssailist
+	profile.PlmnList = allowedplmindlist
+	profile.SNssais = snssailist
+
 	services := []models.NrfNfManagementNfService{}
 	for _, nfService := range chfContext.NfService {
 		services = append(services, nfService)
