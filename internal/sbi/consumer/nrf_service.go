@@ -242,10 +242,10 @@ func (s *nnrfService) buildNfProfile(
 	serviceId := uuid.New().String()
 	for _, nfService := range chfContext.NfService {
 		nfService.AllowedNfTypes = nfList
-		nfService.AllowedOperationsPerNfType = map[string][]string{
-			"AMF": {"nchf-convergedcharging"},
-			"CHF": {"nchf-convergedcharging"},
-		}
+		// nfService.AllowedOperationsPerNfType = map[string][]string{
+		// 	"AMF": {"nchf-convergedcharging"},
+		// 	"CHF": {"nchf-convergedcharging"},
+		// }
 		nfService.AllowedPlmns = allowedplmindlist
 		nfService.ApiPrefix = "/nchf-convergedcharging/v1"
 		nfService.Fqdn = "service-enterprise1-slice1-convergedcharging.ns-enterprise1.svc.cluster.local:8080"
