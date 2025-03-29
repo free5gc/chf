@@ -46,6 +46,7 @@ type CHFContext struct {
 	RatingCfg       *sm.Settings
 	AbmfCfg         *sm.Settings
 	PlmnSupportList []factory.PlmnSupportItem
+	Fqdn            string
 
 	RatingSessionIdGenerator  *idgenerator.IDGenerator
 	AccountSessionIdGenerator *idgenerator.IDGenerator
