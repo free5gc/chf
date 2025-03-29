@@ -240,7 +240,7 @@ func (s *nnrfService) buildNfProfile(
 			nfService.AllowedPlmns = allowedplmndlist
 		}
 		nfService.ApiPrefix = factory.ConvergedChargingResUriPrefix
-		nfService.Fqdn = chfContext.Fqdn + strconv.Itoa(chfContext.SBIPort)
+		nfService.Fqdn = chfContext.Fqdn + ":" + strconv.Itoa(chfContext.SBIPort)
 		nfService.InterPlmnFqdn = "chf.convergedcharging.5gc.mnc01.mcc001.3gppnetwork.org"
 		nfService.ServiceInstanceId = serviceId
 		nfService.ServiceName = serviceName
