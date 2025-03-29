@@ -139,7 +139,7 @@ type Sbi struct {
 	RegisterIPv4 string `yaml:"registerIPv4,omitempty" valid:"required,host"` // IP that is registered at NRF.
 	BindingIPv4  string `yaml:"bindingIPv4,omitempty" valid:"required,host"`  // IP used to run the server in the node.
 	Port         int    `yaml:"port,omitempty" valid:"required,port"`
-	Fqdn         string `yaml:"fqdn,omitempty" valid:"required,fqdn"`
+	Fqdn         string `yaml:"fqdn,omitempty" valid:"required"`
 	Tls          *Tls   `yaml:"tls,omitempty" valid:"optional"`
 }
 
