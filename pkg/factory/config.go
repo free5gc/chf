@@ -27,7 +27,7 @@ const (
 	ChfSbiDefaultScheme              = "https"
 	ChfDefaultNrfUri                 = "https://127.0.0.10:8000"
 	CgfDefaultCdrFilePath            = "/tmp"
-	ConvergedChargingResUriPrefix    = "/nchf-convergedcharging/v3"
+	ConvergedChargingResUriPrefix    = "/nchf-convergedcharging/v1"
 	OfflineOnlyChargingResUriPrefix  = "/nchf-offlineonlycharging/v1"
 	SpendingLimitControlResUriPrefix = "/nchf-spendinglimitcontrol/v1"
 )
