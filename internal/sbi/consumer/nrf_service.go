@@ -192,20 +192,25 @@ func (s *nnrfService) buildNfProfile(
 	nfList = append(nfList, models.NrfNfManagementNfType_SMF)
 
 	var allowedplmndlist []models.PlmnId
-	// var snssaimap map[models.PlmnId][]models.Snssai
 	var snssailist []models.ExtSnssai
 	var perPlmnSnssaiList []models.PlmnSnssai
 
 	for _, allowedPlmn := range chfContext.PlmnSupportList {
 		var perPlmnSnssai models.PlmnSnssai
 		allowedplmndlist = append(allowedplmndlist, *allowedPlmn.PlmnId)
-		// snssaimap[*allowedPlmn.PlmnId] = allowedPlmn.SNssaiList
-
+		perPlmnSnssai.PlmnId = allowedPlmn.PlmnId
+		perPlmnSnssai.SNssaiList = allowedPlmn.SNssaiList
+		perPlmnSnssaiList = append(perPlmnSnssaiList, perPlmnSnssai)
 		for _, snssaiItem := range allowedPlmn.SNssaiList {
-			perPlmnSnssai.PlmnId = allowedPlmn.PlmnId
-			perPlmnSnssai.SNssaiList = allowedPlmn.SNssaiList
-			perPlmnSnssaiList = append(perPlmnSnssaiList, perPlmnSnssai)
-			snssailist = append(snssailist, snssaiItem)
+			if snssaiItem.Sst != 0 {
+				switch snssaiItem.Sd {
+				case "":
+					snssaiItem.WildcardSd = true
+					snssailist = append(snssailist, snssaiItem)
+				default:
+					snssailist = append(snssailist, snssaiItem)
+				}
+			}
 		}
 	}
 
@@ -213,9 +218,6 @@ func (s *nnrfService) buildNfProfile(
 
 	if len(allowedplmndlist) > 0 {
 		profile.AllowedPlmns = allowedplmndlist
-		// for x, snssaiItem := range chfContext.PlmnSupportList[x].SNssaiList {
-		// 	snssailist = append(snssailist, util.SnssaiModelsToExtSnssai(snssaiItem))
-		// }
 	}
 
 	profile.Fqdn = "chf.5gc.mnc01.mcc001.3gppnetwork.org"
