@@ -9,6 +9,7 @@ import (
 	"github.com/fiorix/go-diameter/diam/sm"
 
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/openapi/oauth"
 	"github.com/free5gc/util/idgenerator"
@@ -42,8 +43,9 @@ type CHFContext struct {
 	UePool                    sync.Map
 	OAuth2Required            bool
 
-	RatingCfg *sm.Settings
-	AbmfCfg   *sm.Settings
+	RatingCfg       *sm.Settings
+	AbmfCfg         *sm.Settings
+	PlmnSupportList []factory.PlmnSupportItem
 
 	RatingSessionIdGenerator  *idgenerator.IDGenerator
 	AccountSessionIdGenerator *idgenerator.IDGenerator

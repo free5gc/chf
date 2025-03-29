@@ -14,6 +14,7 @@ import (
 	"github.com/asaskevich/govalidator"
 
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/openapi/models"
 )
 
 const (
@@ -55,20 +56,21 @@ type Info struct {
 }
 
 type Configuration struct {
-	ChfName             string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
-	Sbi                 *Sbi      `yaml:"sbi,omitempty" valid:"required"`
-	ServiceNameList     []string  `yaml:"serviceNameList,omitempty" valid:"required"`
-	NrfUri              string    `yaml:"nrfUri,omitempty" valid:"required, url"`
-	NrfCertPem          string    `yaml:"nrfCertPem,omitempty" valid:"optional"`
-	Mongodb             *Mongodb  `yaml:"mongodb" valid:"required"`
-	VolumeLimit         int32     `yaml:"volumeLimit,omitempty" valid:"optional"`
-	VolumeLimitPDU      int32     `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
-	ReserveQuotaRatio   int32     `yaml:"reserveQuotaRatio,omitempty" valid:"optional"`
-	VolumeThresholdRate float32   `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
-	QuotaValidityTime   int32     `yaml:"quotaValidityTime,omitempty" valid:"optional"`
-	RfDiameter          *Diameter `yaml:"rfDiameter,omitempty" valid:"required"`
-	AbmfDiameter        *Diameter `yaml:"abmfDiameter,omitempty" valid:"required"`
-	Cgf                 *Cgf      `yaml:"cgf,omitempty" valid:"required"`
+	ChfName             string            `yaml:"chfName,omitempty" valid:"required, type(string)"`
+	Sbi                 *Sbi              `yaml:"sbi,omitempty" valid:"required"`
+	ServiceNameList     []string          `yaml:"serviceNameList,omitempty" valid:"required"`
+	NrfUri              string            `yaml:"nrfUri,omitempty" valid:"required, url"`
+	NrfCertPem          string            `yaml:"nrfCertPem,omitempty" valid:"optional"`
+	Mongodb             *Mongodb          `yaml:"mongodb" valid:"required"`
+	VolumeLimit         int32             `yaml:"volumeLimit,omitempty" valid:"optional"`
+	VolumeLimitPDU      int32             `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
+	ReserveQuotaRatio   int32             `yaml:"reserveQuotaRatio,omitempty" valid:"optional"`
+	VolumeThresholdRate float32           `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
+	QuotaValidityTime   int32             `yaml:"quotaValidityTime,omitempty" valid:"optional"`
+	RfDiameter          *Diameter         `yaml:"rfDiameter,omitempty" valid:"required"`
+	AbmfDiameter        *Diameter         `yaml:"abmfDiameter,omitempty" valid:"required"`
+	Cgf                 *Cgf              `yaml:"cgf,omitempty" valid:"required"`
+	PlmnSupportList     []PlmnSupportItem `yaml:"plmnSupportList,omitempty" valid:"required"`
 }
 
 type Logger struct {
@@ -81,6 +83,18 @@ func (c *Configuration) validate() (bool, error) {
 	if sbi := c.Sbi; sbi != nil {
 		if result, err := sbi.validate(); err != nil {
 			return result, err
+		}
+	}
+
+	if c.PlmnSupportList != nil {
+		var errs govalidator.Errors
+		for _, v := range c.PlmnSupportList {
+			if _, err := v.validate(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if len(errs) > 0 {
+			return false, error(errs)
 		}
 	}
 
@@ -319,4 +333,50 @@ func (c *Config) GetCertKeyPath() string {
 	c.RLock()
 	defer c.RUnlock()
 	return c.Configuration.Sbi.Tls.Key
+}
+
+type PlmnSupportItem struct {
+	PlmnId     *models.PlmnId  `yaml:"plmnId" valid:"required"`
+	SNssaiList []models.Snssai `yaml:"snssaiList,omitempty" valid:"required"`
+}
+
+func (p *PlmnSupportItem) validate() (bool, error) {
+	var errs govalidator.Errors
+
+	if _, err := govalidator.ValidateStruct(p); err != nil {
+		return false, appendInvalid(err)
+	}
+
+	mcc := p.PlmnId.Mcc
+	if result := govalidator.StringMatches(mcc, "^[0-9]{3}$"); !result {
+		err := fmt.Errorf("Invalid mcc: %s, should be a 3-digit number", mcc)
+		errs = append(errs, err)
+	}
+
+	mnc := p.PlmnId.Mnc
+	if result := govalidator.StringMatches(mnc, "^[0-9]{2,3}$"); !result {
+		err := fmt.Errorf("invalid mnc: %s, should be a 2 or 3-digit number", mnc)
+		errs = append(errs, err)
+	}
+
+	for _, snssai := range p.SNssaiList {
+		sst := snssai.Sst
+		sd := snssai.Sd
+		if result := govalidator.InRangeInt(sst, 0, 255); !result {
+			err := fmt.Errorf("invalid sst: %d, should be in the range of 0~255", sst)
+			errs = append(errs, err)
+		}
+		if sd != "" {
+			if result := govalidator.StringMatches(sd, "^[A-Fa-f0-9]{6}$"); !result {
+				err := fmt.Errorf("invalid sd: %s, should be 3 bytes hex string, range: 000000~FFFFFF", sd)
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return false, error(errs)
+	}
+
+	return true, nil
 }

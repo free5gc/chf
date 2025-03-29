@@ -84,6 +84,7 @@ func InitChfContext(context *CHFContext) {
 			datatype.Address(abmfDiameter.HostIPv4),
 		},
 	}
+	context.PlmnSupportList = configuration.PlmnSupportList
 
 	context.Url = string(context.UriScheme) + "://" + context.RegisterIPv4 + ":" + strconv.Itoa(context.SBIPort)
 

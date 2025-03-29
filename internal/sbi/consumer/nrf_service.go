@@ -11,6 +11,8 @@ import (
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/chf/internal/util"
+	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
 	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDiscovery"
@@ -189,71 +191,58 @@ func (s *nnrfService) buildNfProfile(
 	nfList = append(nfList, models.NrfNfManagementNfType_AMF)
 	nfList = append(nfList, models.NrfNfManagementNfType_SMF)
 
-	var allowedplmindlist []models.PlmnId
-	var allowedplmnid models.PlmnId
-	allowedplmnid.Mcc = "001"
-	allowedplmnid.Mnc = "01"
-	allowedplmindlist = append(allowedplmindlist, allowedplmnid)
-
-	var perplmnsnssailist []models.PlmnSnssai
-	var plmnsnssai models.PlmnSnssai
+	var allowedplmndlist []models.PlmnId
+	// var snssaimap map[models.PlmnId][]models.Snssai
 	var snssailist []models.ExtSnssai
-	var snssai models.ExtSnssai
-	var snssai2 models.ExtSnssai
+	var perPlmnSnssaiList []models.PlmnSnssai
 
-	snssai.Sd = "19CDE1"
-	snssai.Sst = 1
-	snssailist = append(snssailist, snssai)
+	for _, allowedPlmn := range chfContext.PlmnSupportList {
+		var perPlmnSnssai models.PlmnSnssai
+		allowedplmndlist = append(allowedplmndlist, *allowedPlmn.PlmnId)
+		// snssaimap[*allowedPlmn.PlmnId] = allowedPlmn.SNssaiList
 
-	snssai2.Sst = 1
-	snssai2.WildcardSd = true
-	snssailist = append(snssailist, snssai2)
-
-	plmnsnssai.PlmnId = &allowedplmnid
-	plmnsnssai.SNssaiList = snssailist
-	perplmnsnssailist = append(perplmnsnssailist, plmnsnssai)
-
-	// var nfservicelist map[string]models.NrfNfManagementNfService
-	// map [2b31b20b-ba79-4010-915b-4fd3a4d69842 : ]
-
-	// var nfservice models.NrfNfManagementNfService
-
-	// nfservice.AllowedNfTypes=nfList
-	// nfservice.AllowedOperationsPerNfType= map[string][]string{
-	// 	SMF: {nsmf-comm},
-	// 	AMF: {namf-comm},
-	// }
-	// nfservice.AllowedPlmns = allowedplmindlist
-	// nfservice.ApiPrefix = "/nchf-comm/v1"
-	// nfservice.Fqdn = "service-enterprise1-slice1-chf.ns-enterprise1.svc.cluster.local:8080"
-	// nfservice.InterPlmnFqdn = "0200c1.chf.5gc.mnc01.mcc001.3gppnetwork.org"
-	// nfservice.NfServiceStatus = models.NrfNfManagementNfStatus_REGISTERED
-	// nfservice.Scheme = "http"
-	// nfservice.ServiceInstanceId = "2b31b20b-ba79-4010-915b-4fd3a4d69842"
-	// nfservice.ServiceName = "nchf-comm"
-	// nfservice.SupportedFeatures = "1"
+		for x, snssaiItem := range allowedPlmn.SNssaiList {
+			perPlmnSnssai.PlmnId = allowedPlmn.PlmnId
+			perPlmnSnssai.SNssaiList[x] = util.SnssaiModelsToExtSnssai(snssaiItem)
+			perPlmnSnssaiList = append(perPlmnSnssaiList, perPlmnSnssai)
+			snssailist = append(snssailist, util.SnssaiModelsToExtSnssai(snssaiItem))
+		}
+	}
 
 	profile.AllowedNfTypes = nfList
-	profile.AllowedPlmns = allowedplmindlist
+
+	if len(allowedplmndlist) > 0 {
+		profile.AllowedPlmns = allowedplmndlist
+		// for x, snssaiItem := range chfContext.PlmnSupportList[x].SNssaiList {
+		// 	snssailist = append(snssailist, util.SnssaiModelsToExtSnssai(snssaiItem))
+		// }
+	}
+
 	profile.Fqdn = "chf.5gc.mnc01.mcc001.3gppnetwork.org"
 	profile.InterPlmnFqdn = "chf.5gc.mnc01.mcc001.3gppnetwork.org"
 	profile.NfInstanceId = chfContext.NfId
+	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED
+	profile.NfType = models.NrfNfManagementNfType_CHF
+	profile.PerPlmnSnssaiList = perPlmnSnssaiList
+	if len(allowedplmndlist) > 0 {
+		profile.PlmnList = allowedplmndlist
+	}
+	profile.SNssais = snssailist
+	// profile.Ipv4Addresses = append(profile.Ipv4Addresses, chfContext.RegisterIPv4)
 	services := []models.NrfNfManagementNfService{}
 	serviceId := uuid.New().String()
-	for _, nfService := range chfContext.NfService {
+
+	for serviceName, nfService := range chfContext.NfService {
 		nfService.AllowedNfTypes = nfList
-		// nfService.AllowedOperationsPerNfType = map[string][]string{
-		// 	"AMF": {"nchf-convergedcharging"},
-		// 	"CHF": {"nchf-convergedcharging"},
-		// }
-		nfService.AllowedPlmns = allowedplmindlist
-		nfService.ApiPrefix = "/nchf-convergedcharging/v1"
+		if len(allowedplmndlist) > 0 {
+			nfService.AllowedPlmns = allowedplmndlist
+		}
+		nfService.ApiPrefix = factory.ConvergedChargingResUriPrefix
 		nfService.Fqdn = "service-enterprise1-slice1-convergedcharging.ns-enterprise1.svc.cluster.local:8080"
 		nfService.InterPlmnFqdn = "chf.convergedcharging.5gc.mnc01.mcc001.3gppnetwork.org"
 		nfService.ServiceInstanceId = serviceId
-		nfService.ServiceName = "nchf-convergedcharging"
+		nfService.ServiceName = serviceName
 		nfService.SupportedFeatures = "1"
-		// nfService.Versions.
 		services = append(services, nfService)
 	}
 	if len(services) > 0 {
@@ -276,12 +265,5 @@ func (s *nnrfService) buildNfProfile(
 		// 	},
 		// },
 	}
-	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED
-	profile.NfType = models.NrfNfManagementNfType_CHF
-	profile.PerPlmnSnssaiList = perplmnsnssailist
-	profile.PlmnList = allowedplmindlist
-	profile.SNssais = snssailist
-	// profile.Ipv4Addresses = append(profile.Ipv4Addresses, chfContext.RegisterIPv4)
-
 	return
 }
