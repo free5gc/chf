@@ -337,8 +337,8 @@ func (c *Config) GetCertKeyPath() string {
 }
 
 type PlmnSupportItem struct {
-	PlmnId     *models.PlmnId  `yaml:"plmnId" valid:"required"`
-	SNssaiList []models.Snssai `yaml:"snssaiList,omitempty" valid:"required"`
+	PlmnId     *models.PlmnId     `yaml:"plmnId" valid:"required"`
+	SNssaiList []models.ExtSnssai `yaml:"snssaiList,omitempty" valid:"required"`
 }
 
 func (p *PlmnSupportItem) validate() (bool, error) {

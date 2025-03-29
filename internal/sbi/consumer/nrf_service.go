@@ -12,7 +12,6 @@ import (
 
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/chf/internal/util"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
@@ -202,11 +201,11 @@ func (s *nnrfService) buildNfProfile(
 		allowedplmndlist = append(allowedplmndlist, *allowedPlmn.PlmnId)
 		// snssaimap[*allowedPlmn.PlmnId] = allowedPlmn.SNssaiList
 
-		for x, snssaiItem := range allowedPlmn.SNssaiList {
+		for _, snssaiItem := range allowedPlmn.SNssaiList {
 			perPlmnSnssai.PlmnId = allowedPlmn.PlmnId
-			perPlmnSnssai.SNssaiList[x] = util.SnssaiModelsToExtSnssai(snssaiItem)
+			perPlmnSnssai.SNssaiList = allowedPlmn.SNssaiList
 			perPlmnSnssaiList = append(perPlmnSnssaiList, perPlmnSnssai)
-			snssailist = append(snssailist, util.SnssaiModelsToExtSnssai(snssaiItem))
+			snssailist = append(snssailist, snssaiItem)
 		}
 	}
 
