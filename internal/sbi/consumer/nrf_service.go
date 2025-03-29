@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -239,9 +240,8 @@ func (s *nnrfService) buildNfProfile(
 			nfService.AllowedPlmns = allowedplmndlist
 		}
 		nfService.ApiPrefix = factory.ConvergedChargingResUriPrefix
-		// nfService.Fqdn = chfContext.Fqdn + ":" + strconv.Itoa(chfContext.SBIPort)
-		// nfService.Fqdn = chfContext.Fqdn
-		nfService.Fqdn = "service-enterprise1-slice1-convergedcharging.ns-enterprise1.svc.cluster.local:8080"
+		nfService.Fqdn = chfContext.Fqdn + ":" + strconv.Itoa(chfContext.SBIPort)
+		// nfService.Fqdn = "service-enterprise1-slice1-convergedcharging.ns-enterprise1.svc.cluster.local:8080"
 		nfService.InterPlmnFqdn = "chf.convergedcharging.5gc.mnc01.mcc001.3gppnetwork.org"
 		nfService.ServiceInstanceId = serviceId
 		nfService.ServiceName = serviceName
