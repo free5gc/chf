@@ -16,9 +16,10 @@ import (
 	"github.com/fclairamb/ftpserver/config"
 	"github.com/fclairamb/ftpserver/server"
 	ftpserver "github.com/fclairamb/ftpserverlib"
+	"github.com/jlaffaye/ftp"
+
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
-	"github.com/jlaffaye/ftp"
 )
 
 type Cgf struct {
@@ -60,6 +61,15 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 
 	cgfConfig := factory.ChfConfig.Configuration.Cgf
 	cgf.addr = cgfConfig.HostIPv4 + ":" + strconv.Itoa(cgfConfig.Port)
+	// set default port value
+	startPort := 2123
+	endPort := 2130
+	if cgfConfig.PassiveTransferPortRange.Start != 0 {
+		startPort = cgfConfig.PassiveTransferPortRange.Start
+	}
+	if cgfConfig.PassiveTransferPortRange.End != 0 {
+		endPort = cgfConfig.PassiveTransferPortRange.End
+	}
 
 	cgf.ftpConfig = FtpConfig{
 		Version: 1,
@@ -74,8 +84,8 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 			},
 		},
 		Passive_transfer_port_range: PortRange{
-			Start: 2123,
-			End:   2130,
+			Start: startPort,
+			End:   endPort,
 		},
 		ListenAddress: factory.ChfConfig.Configuration.Sbi.BindingIPv4 + ":" + strconv.Itoa(cgfConfig.ListenPort),
 	}
