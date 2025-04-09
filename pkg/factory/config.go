@@ -113,10 +113,14 @@ type Diameter struct {
 }
 
 type Cgf struct {
-	Enable      bool   `yaml:"enable,omitempty" valid:"type(bool)"`
-	HostIPv4    string `yaml:"hostIPv4,omitempty" valid:"required,host"`
-	Port        int    `yaml:"port,omitempty" valid:"required,port"`
-	ListenPort  int    `yaml:"listenPort,omitempty" valid:"required,port"`
+	Enable                   bool   `yaml:"enable,omitempty" valid:"type(bool)"`
+	HostIPv4                 string `yaml:"hostIPv4,omitempty" valid:"required,host"`
+	Port                     int    `yaml:"port,omitempty" valid:"required,port"`
+	ListenPort               int    `yaml:"listenPort,omitempty" valid:"required,port"`
+	PassiveTransferPortRange struct {
+		Start int `yaml:"start" valid:"required,port"`
+		End   int `yaml:"end" valid:"required,port"`
+	} `yaml:"passiveTransferPortRange,omitempty" valid:"optional"`
 	Tls         *Tls   `yaml:"tls,omitempty" valid:"optional"`
 	CdrFilePath string `yaml:"cdrFilePath,omitempty" valid:"optional"`
 }
