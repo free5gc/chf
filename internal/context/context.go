@@ -47,6 +47,7 @@ type CHFContext struct {
 
 	RatingSessionIdGenerator  *idgenerator.IDGenerator
 	AccountSessionIdGenerator *idgenerator.IDGenerator
+	sync.Mutex
 }
 
 func (c *CHFContext) AuthorizationCheck(token string, serviceName models.ServiceName) error {

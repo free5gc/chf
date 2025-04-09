@@ -156,8 +156,6 @@ func (p *Processor) ChargingDataCreate(
 	}
 
 	ue.CULock.Lock()
-	defer ue.CULock.Unlock()
-
 	ue.NotifyUri = chargingData.NotifyUri
 
 	consumerId := chargingData.NfConsumerIdentification.NFName
@@ -166,6 +164,7 @@ func (p *Processor) ChargingDataCreate(
 	}
 	cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
+		ue.CULock.Unlock()
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
@@ -174,6 +173,7 @@ func (p *Processor) ChargingDataCreate(
 
 	err = p.UpdateCDR(cdr, chargingData)
 	if err != nil {
+		ue.CULock.Unlock()
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
@@ -182,6 +182,7 @@ func (p *Processor) ChargingDataCreate(
 
 	ue.Cdr[chargingSessionId] = cdr
 	ue.Records = append(ue.Records, ue.Cdr[chargingSessionId])
+	ue.CULock.Unlock()
 
 	if chargingData.OneTimeEvent {
 		err = p.CloseCDR(cdr, false)
