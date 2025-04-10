@@ -17,6 +17,7 @@ type CDR struct {
 	CdrByte []byte
 }
 
+// TS 32.297 6.1.1 CDR file header format
 type CdrFileHeader struct {
 	FileLength                            uint32
 	HeaderLength                          uint32

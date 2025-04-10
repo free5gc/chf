@@ -61,10 +61,12 @@ func (p *Processor) OpenCDR(
 
 	// 32.298 5.1.5.1.5 Local Record Sequence Number
 	// TODO determine local record sequnece number
+	self.Lock()
 	self.LocalRecordSequenceNumber++
 	chfCdr.LocalRecordSequenceNumber = &cdrType.LocalSequenceNumber{
 		Value: int64(self.LocalRecordSequenceNumber),
 	}
+	self.Unlock()
 	// Skip Record Extensions: operator/manufacturer specific extensions
 
 	supiType := strings.Split(ue.Supi, "-")[0]
@@ -210,13 +212,13 @@ func (p *Processor) UpdateCDR(
 	// map SBI IE to CDR field
 	chfCdr := record.ChargingFunctionRecord
 
-	if chargingData.MultipleUnitUsage != nil && len(chargingData.MultipleUnitUsage) != 0 {
+	if len(chargingData.MultipleUnitUsage) != 0 {
 		// NOTE: quota info needn't be encoded to cdr, refer 32.291 Ch7.1
 		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
 		chfCdr.ListOfMultipleUnitUsage = append(chfCdr.ListOfMultipleUnitUsage, cdrMultiUnitUsage...)
 	}
 
-	if chargingData.Triggers != nil && len(chargingData.Triggers) != 0 {
+	if len(chargingData.Triggers) != 0 {
 		triggers := cdrConvert.TriggersToCdr(chargingData.Triggers)
 		chfCdr.Triggers = append(chfCdr.Triggers, triggers...)
 	}
