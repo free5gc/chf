@@ -208,6 +208,12 @@ func (p *Processor) ChargingDataCreate(
 
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
+	responseBody.PDUSessionChargingInformation = chargingData.PDUSessionChargingInformation
+	responseBody.MultipleUnitInformation[0].RatingGroup = chargingData.MultipleUnitUsage[0].RatingGroup
+	responseBody.MultipleUnitInformation[0].Triggers = chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].Triggers
+	responseBody.MultipleUnitInformation[0].Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
+	responseBody.Triggers = chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].Triggers
+	responseBody.Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
 
 	return &responseBody, locationURI, nil
 }
