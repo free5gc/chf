@@ -209,11 +209,21 @@ func (p *Processor) ChargingDataCreate(
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 	responseBody.PDUSessionChargingInformation = chargingData.PDUSessionChargingInformation
-	responseBody.MultipleUnitInformation[0].RatingGroup = chargingData.MultipleUnitUsage[0].RatingGroup
-	responseBody.MultipleUnitInformation[0].Triggers = chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].Triggers
-	responseBody.MultipleUnitInformation[0].Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
-	responseBody.Triggers = chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].Triggers
-	responseBody.Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
+	var multipleunitinfolist []models.MultipleUnitInformation
+	multipleunitinfo := models.MultipleUnitInformation{
+		RatingGroup: chargingData.MultipleUnitUsage[0].RatingGroup,
+		Triggers:    chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].Triggers,
+	}
+	if len(multipleunitinfo.Triggers) > 0 { // Ensure Triggers slice is not empty
+		multipleunitinfo.Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
+		multipleunitinfo.Triggers[0].VolumeLimit64 = 1000
+		multipleunitinfo.ResultCode = models.ChfConvergedChargingResultCode_SUCCESS
+	}
+
+	multipleunitinfolist = append(multipleunitinfolist, multipleunitinfo)
+	responseBody.MultipleUnitInformation = multipleunitinfolist
+
+	responseBody.Triggers = multipleunitinfo.Triggers
 
 	return &responseBody, locationURI, nil
 }
