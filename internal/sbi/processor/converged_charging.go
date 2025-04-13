@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson"
 	"golang.org/x/exp/constraints"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
@@ -25,6 +27,11 @@ import (
 	"github.com/free5gc/chf/internal/util"
 	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
 	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/util/mongoapi"
+)
+
+const (
+	chargingDataColl = "policyData.ues.chargingData"
 )
 
 func min[T constraints.Ordered](a, b T) T {
@@ -138,92 +145,130 @@ func (p *Processor) ChargingDataCreate(
 ) {
 	var responseBody models.ChfConvergedChargingChargingDataResponse
 	var chargingSessionId string
+	var multipleunitinfolist []models.MultipleUnitInformation
+	multipleunitinfo := models.MultipleUnitInformation{}
 
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 
-	// Open CDR
-	// ChargingDataRef(charging session id):
-	// A unique identifier for a charging data resource in a PLMN
-	// TODO determine charging session id(string type) supi+consumerid+localseq?
-	ue, err := self.NewCHFUe(ueId)
+	sd := self.PlmnSupportList[0].SNssaiList[0].Sd
+	sst := self.PlmnSupportList[0].SNssaiList[0].Sst
+	decimalsd, err := strconv.ParseInt(sd, 16, 64)
 	if err != nil {
-		logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
+		logger.ChargingdataPostLog.Warningf("Cannot change HEX Snsssi to Decimal err: %+v", err)
+	}
+	stringdecimalsd := strconv.Itoa(int(decimalsd))
+
+	sststring := fmt.Sprintf("%02d", sst)
+	snsssi := sststring + stringdecimalsd
+
+	filter := bson.M{
+		"ueId": ueId,
+		// "dnn":           chargingData.PDUSessionChargingInformation.PduSessionInformation.DnnId,
+		"servingPlmnId": self.PlmnSupportList[0].PlmnId.Mcc + self.PlmnSupportList[0].PlmnId.Mnc,
+		"snssai":        snsssi,
+	}
+
+	logger.ChargingdataPostLog.Printf("filter : %v", filter)
+	chargingDataInterfaceDocuments, err_get := mongoapi.RestfulAPIGetMany(chargingDataColl, filter)
+	if err_get != nil {
+		logger.ChargingdataPostLog.Warningf("GetSubscriberByUEID err: %+v", err_get)
+	}
+	if chargingDataInterfaceDocuments == nil || len(chargingDataInterfaceDocuments) == 0 {
+		logger.ChargingdataPostLog.Warningf("Did not find document in Database")
+		multipleunitinfo.ResultCode = models.ChfConvergedChargingResultCode_USER_UNKNOWN
+
+	} else {
+
+		multipleunitinfo.RatingGroup = chargingData.MultipleUnitUsage[0].RatingGroup
+		multipleunitinfo.Triggers = chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].Triggers
+
+		for _, chargingDataInterfaceDocument := range chargingDataInterfaceDocuments {
+			chargingDataInterfaceDocument["ratingGroup"] = chargingData.MultipleUnitUsage[0].RatingGroup
+			chk_err, err := mongoapi.RestfulAPIPutOne(chargingDataColl, chargingDataInterfaceDocument, chargingDataInterfaceDocument)
+			if err != nil || chk_err {
+				logger.ChargingdataPostLog.Warningf("Error updating rating group in Database, Error:%v", err)
+			}
 		}
-		return nil, "", problemDetails
-	}
 
-	ue.CULock.Lock()
-	defer ue.CULock.Unlock()
+		multipleunitinfo.ResultCode = models.ChfConvergedChargingResultCode_SUCCESS
 
-	ue.NotifyUri = chargingData.NotifyUri
-
-	consumerId := chargingData.NfConsumerIdentification.NFName
-	if !chargingData.OneTimeEvent {
-		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
-	}
-	cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
+		if len(multipleunitinfo.Triggers) > 0 { // Ensure Triggers slice is not empty
+			multipleunitinfo.Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
+			multipleunitinfo.Triggers[0].VolumeLimit64 = 1000
 		}
-		return nil, "", problemDetails
-	}
-
-	err = p.UpdateCDR(cdr, chargingData)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
+		// Open CDR
+		// ChargingDataRef(charging session id):
+		// A unique identifier for a charging data resource in a PLMN
+		// TODO determine charging session id(string type) supi+consumerid+localseq?
+		ue, err := self.NewCHFUe(ueId)
+		if err != nil {
+			logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusBadRequest,
+			}
+			return nil, "", problemDetails
 		}
-		return nil, "", problemDetails
-	}
 
-	ue.Cdr[chargingSessionId] = cdr
-	ue.Records = append(ue.Records, ue.Cdr[chargingSessionId])
+		ue.CULock.Lock()
+		defer ue.CULock.Unlock()
 
-	if chargingData.OneTimeEvent {
-		err = p.CloseCDR(cdr, false)
+		ue.NotifyUri = chargingData.NotifyUri
+
+		consumerId := chargingData.NfConsumerIdentification.NFName
+		if !chargingData.OneTimeEvent {
+			chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
+		}
+		cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
 		if err != nil {
 			problemDetails := &models.ProblemDetails{
 				Status: http.StatusBadRequest,
 			}
 			return nil, "", problemDetails
 		}
-	}
 
-	// CDR Transfer
-	err = cgf.SendCDR(chargingData.SubscriberIdentifier)
-	if err != nil {
-		logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain %v", err)
-	}
+		err = p.UpdateCDR(cdr, chargingData)
+		if err != nil {
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusBadRequest,
+			}
+			return nil, "", problemDetails
+		}
 
-	logger.ChargingdataPostLog.Infof("Open CDR for UE %s", ueId)
+		ue.Cdr[chargingSessionId] = cdr
+		ue.Records = append(ue.Records, ue.Cdr[chargingSessionId])
+
+		if chargingData.OneTimeEvent {
+			err = p.CloseCDR(cdr, false)
+			if err != nil {
+				problemDetails := &models.ProblemDetails{
+					Status: http.StatusBadRequest,
+				}
+				return nil, "", problemDetails
+			}
+		}
+
+		// CDR Transfer
+		err = cgf.SendCDR(chargingData.SubscriberIdentifier)
+		if err != nil {
+			logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain %v", err)
+		}
+
+		logger.ChargingdataPostLog.Infof("Open CDR for UE %s", ueId)
+
+		responseBody.Triggers = multipleunitinfo.Triggers
+		responseBody.PDUSessionChargingInformation = chargingData.PDUSessionChargingInformation
+		logger.ChargingdataPostLog.Infof("NewChfUe %s", ueId)
+	}
 
 	// build response
-	logger.ChargingdataPostLog.Infof("NewChfUe %s", ueId)
+
 	locationURI := self.Url + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
 	timeStamp := time.Now()
-
-	responseBody.InvocationTimeStamp = &timeStamp
-	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
-	responseBody.PDUSessionChargingInformation = chargingData.PDUSessionChargingInformation
-	var multipleunitinfolist []models.MultipleUnitInformation
-	multipleunitinfo := models.MultipleUnitInformation{
-		RatingGroup: chargingData.MultipleUnitUsage[0].RatingGroup,
-		Triggers:    chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].Triggers,
-	}
-	if len(multipleunitinfo.Triggers) > 0 { // Ensure Triggers slice is not empty
-		multipleunitinfo.Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
-		multipleunitinfo.Triggers[0].VolumeLimit64 = 1000
-		multipleunitinfo.ResultCode = models.ChfConvergedChargingResultCode_SUCCESS
-	}
-
 	multipleunitinfolist = append(multipleunitinfolist, multipleunitinfo)
 	responseBody.MultipleUnitInformation = multipleunitinfolist
-
-	responseBody.Triggers = multipleunitinfo.Triggers
+	responseBody.InvocationTimeStamp = &timeStamp
+	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
 	return &responseBody, locationURI, nil
 }
