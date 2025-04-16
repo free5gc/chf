@@ -169,7 +169,6 @@ func (p *Processor) ChargingDataCreate(
 		"snssai":        snsssi,
 	}
 
-	logger.ChargingdataPostLog.Printf("filter : %v", filter)
 	chargingDataInterfaceDocuments, err_get := mongoapi.RestfulAPIGetMany(chargingDataColl, filter)
 	if err_get != nil {
 		logger.ChargingdataPostLog.Warningf("GetSubscriberByUEID err: %+v", err_get)
@@ -187,7 +186,7 @@ func (p *Processor) ChargingDataCreate(
 			chargingDataInterfaceDocument["ratingGroup"] = chargingData.MultipleUnitUsage[0].RatingGroup
 			chk_err, err := mongoapi.RestfulAPIPutOne(chargingDataColl, chargingDataInterfaceDocument, chargingDataInterfaceDocument)
 			if err != nil || chk_err {
-				logger.ChargingdataPostLog.Warningf("Error updating rating group in Database, Error:%v", err)
+				logger.ChargingdataPostLog.Debugf("Found rating group in Database, Error:%v", err)
 			}
 		}
 
@@ -363,6 +362,14 @@ func (p *Processor) ChargingDataUpdate(
 			return nil, problemDetails
 		}
 
+		err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
+		if err != nil {
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusBadRequest,
+			}
+			return nil, problemDetails
+		}
+
 		_, oper_err := p.OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
 		if oper_err != nil {
 			logger.ChargingdataPostLog.Error("OpenCDR error:", oper_err)
@@ -372,6 +379,14 @@ func (p *Processor) ChargingDataUpdate(
 	}
 
 	err = dumpCdrFile(ueId, ue.Records)
+	if err != nil {
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusBadRequest,
+		}
+		return nil, problemDetails
+	}
+
+	err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
