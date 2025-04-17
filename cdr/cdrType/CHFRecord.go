@@ -7,7 +7,9 @@ const (
 	CHFRecordPresentChargingFunctionRecord
 )
 
+// TS 32.298 5.1.5.0 CHF record (CHF-CDR)
 type CHFRecord struct {
-	Present                int             /* Choice Type */
+	Present int /* Choice Type */
+	// For CHF CDR parameters, see 3GPP TS 32.298 5.1.5.1
 	ChargingFunctionRecord *ChargingRecord `ber:"tagNum:200"`
 }
