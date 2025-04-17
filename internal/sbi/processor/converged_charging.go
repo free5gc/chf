@@ -164,6 +164,7 @@ func (p *Processor) ChargingDataCreate(
 	}
 	cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
+		// Lock in line 158
 		ue.CULock.Unlock()
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -173,6 +174,7 @@ func (p *Processor) ChargingDataCreate(
 
 	err = p.UpdateCDR(cdr, chargingData)
 	if err != nil {
+		// Lock in line 158
 		ue.CULock.Unlock()
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
