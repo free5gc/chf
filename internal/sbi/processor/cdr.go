@@ -266,7 +266,13 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	var cdrfile cdrFile.CDRFile
 	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
 	cdrfile.Hdr.LengthOfPrivateExtension = 0
-	cdrfile.Hdr.HeaderLength = uint32(54 + cdrfile.Hdr.LengthOfCdrRouteingFilter + cdrfile.Hdr.LengthOfPrivateExtension)
+	cdrfile.Hdr.HeaderLength = uint32(52 + cdrfile.Hdr.LengthOfCdrRouteingFilter + cdrfile.Hdr.LengthOfPrivateExtension)
+	if cdrfile.Hdr.HighReleaseIdentifier == 7 {
+		cdrfile.Hdr.HeaderLength++
+	}
+	if cdrfile.Hdr.LowReleaseIdentifier == 7 {
+		cdrfile.Hdr.HeaderLength++
+	}
 	cdrfile.Hdr.NumberOfCdrsInFile = uint32(len(records))
 	cdrfile.Hdr.FileLength = cdrfile.Hdr.HeaderLength
 	logger.ChargingdataPostLog.Traceln("cdrfile.Hdr.NumberOfCdrsInFile:", uint32(len(records)))
@@ -286,7 +292,10 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 		}
 		cdrfile.CdrList = append(cdrfile.CdrList, tmpCdr)
 
-		cdrfile.Hdr.FileLength += uint32(len(cdrBytes)) + 5
+		cdrfile.Hdr.FileLength += uint32(len(cdrBytes)) + 4
+		if cdrHdr.ReleaseIdentifier == 7 {
+			cdrfile.Hdr.FileLength++
+		}
 	}
 
 	cdrfile.Encoding("/tmp/" + ueid + ".cdr")
