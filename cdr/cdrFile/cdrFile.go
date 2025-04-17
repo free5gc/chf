@@ -291,13 +291,17 @@ func (cdrf CdrFileHeader) Encoding() []byte {
 	}
 
 	// "High Release Identifier" extension
-	if err := binary.Write(buf, binary.BigEndian, cdrf.HighReleaseIdentifierExtension); err != nil {
-		fmt.Println("CdrFileHeader failed:", err)
+	if cdrf.HighReleaseIdentifier == 7 {
+		if err := binary.Write(buf, binary.BigEndian, cdrf.HighReleaseIdentifierExtension); err != nil {
+			fmt.Println("CdrFileHeader failed:", err)
+		}
 	}
 
 	// "Low Release Identifier" extension
-	if err := binary.Write(buf, binary.BigEndian, cdrf.LowReleaseIdentifierExtension); err != nil {
-		fmt.Println("CdrFileHeader failed:", err)
+	if cdrf.LowReleaseIdentifier == 7 {
+		if err := binary.Write(buf, binary.BigEndian, cdrf.LowReleaseIdentifierExtension); err != nil {
+			fmt.Println("CdrFileHeader failed:", err)
+		}
 	}
 
 	// fmt.Printf("Encoded: % b\n", buf.Bytes())
@@ -340,8 +344,10 @@ func (header CdrHeader) Encoding() []byte {
 	}
 
 	// Release Identifier extension
-	if err := binary.Write(buf, binary.BigEndian, header.ReleaseIdentifierExtension); err != nil {
-		fmt.Println("CdrHeader failed:", err)
+	if header.ReleaseIdentifier == 7 {
+		if err := binary.Write(buf, binary.BigEndian, header.ReleaseIdentifierExtension); err != nil {
+			fmt.Println("CdrHeader failed:", err)
+		}
 	}
 
 	// fmt.Printf("Encoded: % b\n", buf.Bytes())
@@ -482,36 +488,52 @@ func (cdfFile *CDRFile) Decoding(fileName string) {
 		CDRRouteingFilter:                     data[50:xy],
 		LengthOfPrivateExtension:              LengthOfPrivateExtension,
 		PrivateExtension:                      data[xy+2 : n],
-		HighReleaseIdentifierExtension:        data[n],
-		LowReleaseIdentifierExtension:         data[n+1],
+	}
+
+	tail := uint32(n)
+
+	if cdfFile.Hdr.HighReleaseIdentifier == 7 {
+		cdfFile.Hdr.HighReleaseIdentifierExtension = data[n]
+		tail++
+	}
+	if cdfFile.Hdr.LowReleaseIdentifier == 7 {
+		cdfFile.Hdr.LowReleaseIdentifierExtension = data[n+1]
+		tail++
 	}
 
 	// fmt.Println("[Decode]cdrfileheader:\n", cdfFile.Hdr)
 
-	var tail uint32
-	tail = uint32(n) + 2
-
 	for i := 1; i <= int(numberOfCdrsInFile); i++ {
 		cdrLength := binary.BigEndian.Uint16(data[tail : tail+2])
-		if len(data) < int(tail)+5+int(cdrLength) {
+		releaseIdentifier := ReleaseIdentifierType(data[tail+2] >> 5)
+		expectedLength := int(tail) + 4 + int(cdrLength)
+		if releaseIdentifier == 7 {
+			expectedLength += 1
+		}
+		if len(data) < expectedLength {
 			fmt.Println("[Decoding Error]Length of cdrfile is wrong. cdr:", i)
 		}
 
 		cdrHeader := CdrHeader{
-			CdrLength:                  cdrLength,
-			ReleaseIdentifier:          ReleaseIdentifierType(data[tail+2] >> 5),
-			VersionIdentifier:          data[tail+2] & 0b11111,
-			DataRecordFormat:           DataRecordFormatType(data[tail+3] >> 5),
-			TsNumber:                   TsNumberIdentifier(data[tail+3] & 0b11111),
-			ReleaseIdentifierExtension: data[tail+4],
+			CdrLength:         cdrLength,
+			ReleaseIdentifier: ReleaseIdentifierType(data[tail+2] >> 5),
+			VersionIdentifier: data[tail+2] & 0b11111,
+			DataRecordFormat:  DataRecordFormatType(data[tail+3] >> 5),
+			TsNumber:          TsNumberIdentifier(data[tail+3] & 0b11111),
+		}
+
+		i := uint32(4)
+		if cdrHeader.ReleaseIdentifier == 7 {
+			cdrHeader.ReleaseIdentifierExtension = data[tail+4]
+			i++
 		}
 
 		cdr := CDR{
 			Hdr:     cdrHeader,
-			CdrByte: data[tail+5 : tail+5+uint32(cdrLength)],
+			CdrByte: data[tail+i : tail+i+uint32(cdrLength)],
 		}
 		cdfFile.CdrList = append(cdfFile.CdrList, cdr)
-		tail += 5 + uint32(cdrLength)
+		tail += i + uint32(cdrLength)
 	}
 	// fmt.Println("[Decode]cdrfile:\n", cdfFile)
 	// fmt.Printf("%#v\n", cdfFile)
