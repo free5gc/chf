@@ -16,9 +16,9 @@ func TestCdrFile(t *testing.T) {
 		Hdr: CdrFileHeader{
 			FileLength:                            71,
 			HeaderLength:                          63,
-			HighReleaseIdentifier:                 2,
-			HighVersionIdentifier:                 3,
-			LowReleaseIdentifier:                  4,
+			HighReleaseIdentifier:                 7,
+			HighVersionIdentifier:                 4,
+			LowReleaseIdentifier:                  7,
 			LowVersionIdentifier:                  5,
 			FileOpeningTimestamp:                  CdrHdrTimeStamp{4, 28, 17, 18, 1, 8, 0},
 			TimestampWhenLastCdrWasAppendedToFIle: CdrHdrTimeStamp{1, 2, 3, 4, 1, 6, 30},
@@ -39,7 +39,7 @@ func TestCdrFile(t *testing.T) {
 		CdrList: []CDR{{
 			Hdr: CdrHeader{
 				CdrLength:                  3,
-				ReleaseIdentifier:          Rel6,                         // octet 3 bit 6..8
+				ReleaseIdentifier:          BeyondRel9,                   // octet 3 bit 6..8
 				VersionIdentifier:          3,                            // otcet 3 bit 1..5
 				DataRecordFormat:           UnalignedPackedEncodingRules, // octet 4 bit 6..8
 				TsNumber:                   TS32253,                      // octet 4 bit 1..5
@@ -53,9 +53,9 @@ func TestCdrFile(t *testing.T) {
 		Hdr: CdrFileHeader{
 			FileLength:                            92,
 			HeaderLength:                          66,
-			HighReleaseIdentifier:                 4,
+			HighReleaseIdentifier:                 7,
 			HighVersionIdentifier:                 5,
-			LowReleaseIdentifier:                  5,
+			LowReleaseIdentifier:                  7,
 			LowVersionIdentifier:                  6,
 			FileOpeningTimestamp:                  CdrHdrTimeStamp{1, 2, 11, 56, 1, 7, 30},
 			TimestampWhenLastCdrWasAppendedToFIle: CdrHdrTimeStamp{4, 3, 2, 1, 0, 4, 0},
@@ -77,7 +77,7 @@ func TestCdrFile(t *testing.T) {
 			{
 				Hdr: CdrHeader{
 					CdrLength:                  3,
-					ReleaseIdentifier:          Rel6,
+					ReleaseIdentifier:          BeyondRel9,
 					VersionIdentifier:          3,
 					DataRecordFormat:           UnalignedPackedEncodingRules,
 					TsNumber:                   TS32253,
@@ -88,7 +88,7 @@ func TestCdrFile(t *testing.T) {
 			{
 				Hdr: CdrHeader{
 					CdrLength:                  6,
-					ReleaseIdentifier:          Rel5,
+					ReleaseIdentifier:          BeyondRel9,
 					VersionIdentifier:          2,
 					DataRecordFormat:           AlignedPackedEncodingRules1,
 					TsNumber:                   TS32205,
@@ -99,7 +99,7 @@ func TestCdrFile(t *testing.T) {
 			{
 				Hdr: CdrHeader{
 					CdrLength:                  2,
-					ReleaseIdentifier:          Rel9,
+					ReleaseIdentifier:          BeyondRel9,
 					VersionIdentifier:          3,
 					DataRecordFormat:           AlignedPackedEncodingRules1,
 					TsNumber:                   TS32225,
