@@ -191,15 +191,6 @@ func (p *Processor) ChargingDataCreate(
 		}
 
 		multipleunitinfo.ResultCode = models.ChfConvergedChargingResultCode_SUCCESS
-
-		if len(multipleunitinfo.Triggers) > 0 { // Ensure Triggers slice is not empty
-			multipleunitinfo.Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
-			multipleunitinfo.Triggers[0].VolumeLimit64 = 1000
-		}
-		// Open CDR
-		// ChargingDataRef(charging session id):
-		// A unique identifier for a charging data resource in a PLMN
-		// TODO determine charging session id(string type) supi+consumerid+localseq?
 		ue, err := self.NewCHFUe(ueId)
 		if err != nil {
 			logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
@@ -211,6 +202,26 @@ func (p *Processor) ChargingDataCreate(
 
 		ue.CULock.Lock()
 		defer ue.CULock.Unlock()
+
+		switch chargingData.MultipleUnitUsage[0].UsedUnitContainer[0].QuotaManagementIndicator {
+		case models.QuotaManagementIndicator_OFFLINE_CHARGING:
+			if len(multipleunitinfo.Triggers) > 0 { // Ensure Triggers slice is not empty
+				multipleunitinfo.Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
+				multipleunitinfo.Triggers[0].VolumeLimit64 = int32(30000000)
+			}
+		case models.QuotaManagementIndicator_ONLINE_CHARGING:
+			var gratntedunit = &models.GrantedUnit{}
+			gratntedunit.DownlinkVolume = 1000
+			gratntedunit.UplinkVolume = 1000
+			gratntedunit.TotalVolume = 1000
+			multipleunitinfo.GrantedUnit = gratntedunit
+			multipleunitinfo.VolumeQuotaThreshold = int32(float32(gratntedunit.TotalVolume) * ue.VolumeThresholdRate)
+		}
+
+		// Open CDR
+		// ChargingDataRef(charging session id):
+		// A unique identifier for a charging data resource in a PLMN
+		// TODO determine charging session id(string type) supi+consumerid+localseq?
 
 		ue.NotifyUri = chargingData.NotifyUri
 
@@ -639,7 +650,12 @@ func sessionChargingReservation(
 			ue.ReservedQuota[rg] -= int64(usedQuota)
 			NeedReserveQuota := !(ue.ReservedQuota[rg] > 0)
 
+			if requestedQuota == 0 {
+				requestedQuota = 1000
+			}
+
 			if NeedReserveQuota {
+				logger.ChargingdataPostLog.Tracef("inside NeedReserveQuota")
 				reserveQuota := -uint64(ue.ReservedQuota[rg]) + requestedQuota
 				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
@@ -685,6 +701,10 @@ func sessionChargingReservation(
 			}
 
 			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
+
+			if unitUsage.RequestedUnit.TotalVolume == 0 {
+				unitUsage.RequestedUnit.TotalVolume = 1000
+			}
 
 			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), uint32(unitUsage.RequestedUnit.TotalVolume))
 
@@ -812,6 +832,7 @@ func sessionChargingReservation(
 				UplinkVolume:   int32(0),
 			}
 		}
+		unitInformation.ResultCode = models.ChfConvergedChargingResultCode_SUCCESS
 		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
 
 		ue.AcctRequestNum[rg]++
