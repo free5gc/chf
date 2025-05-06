@@ -104,7 +104,7 @@ func PlmnIdToCdr(modelsPlmnid models.PlmnId) cdrType.PLMNId {
 	if len(modelsPlmnid.Mnc) == 2 {
 		hexString = mcc[1] + mcc[0] + "f" + mcc[2] + mnc[1] + mnc[0]
 	} else {
-		hexString = mcc[1] + mcc[0] + mnc[0] + mcc[2] + mnc[2] + mnc[1]
+		hexString = mcc[1] + mcc[0] + mnc[2] + mcc[2] + mnc[1] + mnc[0]
 	}
 
 	var cdrPlmnId cdrType.PLMNId
