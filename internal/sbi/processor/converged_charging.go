@@ -207,15 +207,16 @@ func (p *Processor) ChargingDataCreate(
 		case models.QuotaManagementIndicator_OFFLINE_CHARGING:
 			if len(multipleunitinfo.Triggers) > 0 { // Ensure Triggers slice is not empty
 				multipleunitinfo.Triggers[0].TriggerType = models.ChfConvergedChargingTriggerType_VOLUME_LIMIT
-				multipleunitinfo.Triggers[0].VolumeLimit64 = int32(30000000)
+				multipleunitinfo.Triggers[0].VolumeLimit64 = 1000
 			}
 		case models.QuotaManagementIndicator_ONLINE_CHARGING:
 			var gratntedunit = &models.GrantedUnit{}
-			gratntedunit.DownlinkVolume = 1000
-			gratntedunit.UplinkVolume = 1000
-			gratntedunit.TotalVolume = 1000
+			gratntedunit.DownlinkVolume = 100000
+			gratntedunit.UplinkVolume = 100000
+			gratntedunit.TotalVolume = 100000
 			multipleunitinfo.GrantedUnit = gratntedunit
-			multipleunitinfo.VolumeQuotaThreshold = int32(float32(gratntedunit.TotalVolume) * ue.VolumeThresholdRate)
+			// multipleunitinfo.VolumeQuotaThreshold = int32(float32(gratntedunit.TotalVolume) * ue.VolumeThresholdRate)
+			multipleunitinfo.VolumeQuotaThreshold = 90000
 		}
 
 		// Open CDR
@@ -256,6 +257,14 @@ func (p *Processor) ChargingDataCreate(
 				}
 				return nil, "", problemDetails
 			}
+		}
+
+		err = dumpCdrToCSV(ueId, ue.Records)
+		if err != nil {
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusBadRequest,
+			}
+			return nil, "", problemDetails
 		}
 
 		// CDR Transfer
@@ -397,7 +406,7 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, problemDetails
 	}
 
-	err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
+	err = dumpCdrToCSV(ueId, ue.Records)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -456,6 +465,14 @@ func (p *Processor) ChargingDataRelease(
 	}
 
 	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
+	if err != nil {
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusBadRequest,
+		}
+		return problemDetails
+	}
+
+	err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,

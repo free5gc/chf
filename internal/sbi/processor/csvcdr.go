@@ -127,13 +127,9 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord) error {
 			upfid = string(multiUnitUsage.UPFID.Value)
 
 			for _, details := range detailsList {
-				tv, _ := strconv.ParseInt(details.TotalVolume, 10, 64)
-				ul, _ := strconv.ParseInt(details.UplinkVolume, 10, 64)
-				dl, _ := strconv.ParseInt(details.DownlinkVolume, 10, 64)
-
-				totalVolume += tv
-				uplinkVolume += ul
-				downlinkVolume += dl
+				totalVolume, _ = strconv.ParseInt(details.TotalVolume, 10, 64)
+				uplinkVolume, _ = strconv.ParseInt(details.UplinkVolume, 10, 64)
+				downlinkVolume, _ = strconv.ParseInt(details.DownlinkVolume, 10, 64)
 			}
 		}
 
@@ -188,7 +184,7 @@ func getSubscriptionIDTypeName(value asn.Enumerated) string {
 	case 4:
 		return "PRIVATE"
 	default:
-		return "UNKNOWN"
+		return ""
 	}
 }
 
@@ -196,7 +192,7 @@ func getServiceSpecificationInformation(info *asn.OctetString) string {
 	if info != nil {
 		return string(*info)
 	}
-	return "UNKNOWN"
+	return ""
 }
 
 func getNetworkFunctionality(value asn.Enumerated) string {
@@ -224,7 +220,7 @@ func getNetworkFunctionality(value asn.Enumerated) string {
 	case 10:
 		return "MnSProducer"
 	default:
-		return "UNKNOWN"
+		return ""
 	}
 }
 
@@ -241,20 +237,20 @@ func getRegistrationMessageType(value asn.Enumerated) string {
 	case 4:
 		return "Deregistration"
 	default:
-		return "UNKNOWN"
+		return ""
 	}
 }
 
 func getRegistrationMessageTypeCheck(info *cdrType.RegistrationChargingInformation) string {
 	if info == nil {
-		return "UNKNOWN"
+		return ""
 	}
 	return getRegistrationMessageType(info.RegistrationMessagetype.Value)
 }
 
 func decodeRecordOpeningTime(value asn.OctetString) string {
 	if value == nil || len(value) < 9 {
-		return "UNKNOWN"
+		return ""
 	}
 
 	year := 2000 + int((value[0]>>4)*10+(value[0]&0x0F))
