@@ -253,7 +253,7 @@ func (p *Processor) ChargingDataUpdate(
 
 	var chgDataBytes []byte
 	var errChgDataBer error
-	if chargingData.MultipleUnitUsage != nil && len(chargingData.MultipleUnitUsage) != 0 {
+	if len(chargingData.MultipleUnitUsage) != 0 {
 		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
 		chgDataBytes, errChgDataBer = asn.BerMarshalWithParams(&cdrMultiUnitUsage, "explicit,choice")
 		if errChgDataBer != nil {
