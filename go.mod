@@ -9,7 +9,7 @@ require (
 	github.com/fclairamb/ftpserverlib v0.21.0
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
-	github.com/free5gc/openapi v1.2.0
+	github.com/free5gc/openapi v1.2.1
 	github.com/free5gc/util v1.2.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.3.0

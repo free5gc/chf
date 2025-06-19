@@ -25,6 +25,7 @@ import (
 	"github.com/free5gc/chf/internal/util"
 	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
 	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/util/metrics/sbi"
 )
 
 func min[T constraints.Ordered](a, b T) T {
@@ -83,6 +84,7 @@ func (p *Processor) HandleChargingdataInitial(
 		c.JSON(http.StatusCreated, response)
 		return
 	} else if problemDetails != nil {
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
 		c.JSON(int(problemDetails.Status), problemDetails)
 		return
 	}
@@ -90,6 +92,7 @@ func (p *Processor) HandleChargingdataInitial(
 		Status: http.StatusForbidden,
 		Cause:  "UNSPECIFIED",
 	}
+	c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
 	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
@@ -105,6 +108,7 @@ func (p *Processor) HandleChargingdataUpdate(
 		c.JSON(http.StatusOK, response)
 		return
 	} else if problemDetails != nil {
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
 		c.JSON(int(problemDetails.Status), problemDetails)
 		return
 	}
@@ -112,6 +116,7 @@ func (p *Processor) HandleChargingdataUpdate(
 		Status: http.StatusForbidden,
 		Cause:  "UNSPECIFIED",
 	}
+	c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
 	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
@@ -127,6 +132,7 @@ func (p *Processor) HandleChargingdataRelease(
 		c.Status(http.StatusBadRequest)
 		return
 	}
+	c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
 	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
