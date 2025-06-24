@@ -259,7 +259,7 @@ func (p *Processor) ChargingDataCreate(
 			}
 		}
 
-		err = dumpCdrToCSV(ueId, ue.Records)
+		err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
 		if err != nil {
 			problemDetails := &models.ProblemDetails{
 				Status: http.StatusBadRequest,
@@ -406,7 +406,7 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, problemDetails
 	}
 
-	err = dumpCdrToCSV(ueId, ue.Records)
+	err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,

@@ -27,7 +27,7 @@ type UsedUnitContainerDetails struct {
 }
 
 func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord) error {
-	file, err := os.Create("/tmp/" + ueid + ".csv")
+	file, err := os.OpenFile("/tmp/"+"cdr"+".csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
@@ -36,46 +36,49 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord) error {
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	headers := []string{
-		"RecordType",
-		"RecordingNetworkFunctionID",
-		"RecordOpeningTime",
-		"Duration",
-		"LocalRecordSequenceNumber",
-		"SubscriptionIDType",
-		"SubscriptionIDData",
-		"ChargingSessionIdentifier_sessionId",
-		"ChargingID",
-		"ConsumerName",
-		"ConsumerV4Addr",
-		"ConsumerV6Addr",
-		"ConsumerFqdn",
-		"ConsumerPlmnId",
-		"ConsumerNetworkFunctionality",
-		"ServiceSpecificationInformation",
-		"RegistrationMessagetype",
-		"PDUSessionChargingID",
-		"PDUSessionId",
-		"NetworkSliceInstanceID_SST",
-		"NetworkSliceInstanceID_SD",
-		"DataNetworkNameIdentifier",
-		"RatingGroup",
-		"UPFID",
-		"TotalVolume",
-		"UplinkVolume",
-		"DownlinkVolume",
-		// "TimeOfFirstUsage",
-		// "TimeOfLastUsage",
-		// "CallDuration",
-		// "MaxBitrateUL",
-		// "MaxBitrateDL",
-		// "GuaranteedBitrateUL",
-		// "GuaranteedBitrateDL",
-		// "UserLocationInfo",
-		// "RATType",
-	}
-	if err := writer.Write(headers); err != nil {
-		return err
+	fi, err := file.Stat() // Write header only if file is new
+	if err == nil && fi.Size() == 0 {
+		headers := []string{
+			"RecordType",
+			"RecordingNetworkFunctionID",
+			"RecordOpeningTime",
+			"Duration",
+			"LocalRecordSequenceNumber",
+			"SubscriptionIDType",
+			"SubscriptionIDData",
+			"ChargingSessionIdentifier_sessionId",
+			"ChargingID",
+			"ConsumerName",
+			"ConsumerV4Addr",
+			"ConsumerV6Addr",
+			"ConsumerFqdn",
+			"ConsumerPlmnId",
+			"ConsumerNetworkFunctionality",
+			"ServiceSpecificationInformation",
+			"RegistrationMessagetype",
+			"PDUSessionChargingID",
+			"PDUSessionId",
+			"NetworkSliceInstanceID_SST",
+			"NetworkSliceInstanceID_SD",
+			"DataNetworkNameIdentifier",
+			"RatingGroup",
+			"UPFID",
+			"TotalVolume",
+			"UplinkVolume",
+			"DownlinkVolume",
+			// "TimeOfFirstUsage",
+			// "TimeOfLastUsage",
+			// "CallDuration",
+			// "MaxBitrateUL",
+			// "MaxBitrateDL",
+			// "GuaranteedBitrateUL",
+			// "GuaranteedBitrateDL",
+			// "UserLocationInfo",
+			// "RATType",
+		}
+		if err := writer.Write(headers); err != nil {
+			return err
+		}
 	}
 
 	for _, record := range records {
@@ -96,17 +99,17 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord) error {
 		if chfCdr.NFunctionConsumerInformation.NetworkFunctionIPv4Address != nil {
 			ipTextV4Address = string(*chfCdr.NFunctionConsumerInformation.NetworkFunctionIPv4Address.IPTextV4Address)
 		} else {
-			ipTextV4Address = "UNKNOWN"
+			ipTextV4Address = ""
 		}
 		if chfCdr.NFunctionConsumerInformation.NetworkFunctionIPv6Address != nil {
 			ipTextV6Address = string(*chfCdr.NFunctionConsumerInformation.NetworkFunctionIPv6Address.IPTextV6Address)
 		} else {
-			ipTextV6Address = "UNKNOWN"
+			ipTextV6Address = ""
 		}
 		if chfCdr.NFunctionConsumerInformation.NetworkFunctionFQDN != nil {
 			consumerFQDN = string(*chfCdr.NFunctionConsumerInformation.NetworkFunctionFQDN.DomainName)
 		} else {
-			consumerFQDN = "UNKNOWN"
+			consumerFQDN = ""
 		}
 
 		consumerPlmnID := CdrToPlmnId(*chfCdr.NFunctionConsumerInformation.NetworkFunctionPLMNIdentifier)
