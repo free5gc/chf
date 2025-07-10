@@ -17,7 +17,6 @@ require (
 	github.com/jlaffaye/ftp v0.1.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
-	github.com/urfave/cli v1.22.5
 	go.mongodb.org/mongo-driver v1.11.3
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -25,6 +24,7 @@ require (
 require (
 	github.com/h2non/gock v1.2.0
 	github.com/pkg/errors v0.9.1
+	github.com/urfave/cli/v2 v2.27.7
 	go.uber.org/mock v0.4.0
 	golang.org/x/exp v0.0.0-20231127185646-65229373498e
 )
@@ -33,7 +33,7 @@ require (
 	github.com/aws/aws-sdk-go v1.44.177 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
-	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
+	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dropbox/dropbox-sdk-go-unofficial v5.6.0+incompatible // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
@@ -88,6 +88,7 @@ require (
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.1 // indirect
 	github.com/xdg-go/stringprep v1.0.3 // indirect
+	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.49.0 // indirect
