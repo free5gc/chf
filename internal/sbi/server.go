@@ -3,6 +3,7 @@ package sbi
 import (
 	"context"
 	"fmt"
+	"github.com/free5gc/util/metrics"
 	"log"
 	"net/http"
 	"runtime/debug"
@@ -60,6 +61,7 @@ func NewServer(chf ServerChf, tlsKeyLogPath string) (*Server, error) {
 
 func newRouter(s *Server) *gin.Engine {
 	router := logger_util.NewGinWithLogrus(logger.GinLog)
+	router.Use(metrics.InboundMetrics())
 
 	for _, serviceName := range s.Config().Configuration.ServiceNameList {
 		switch models.ServiceName(serviceName) {
