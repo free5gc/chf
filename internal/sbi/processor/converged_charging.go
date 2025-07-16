@@ -130,11 +130,11 @@ func (p *Processor) HandleChargingdataRelease(
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
 
 	problemDetails := p.ChargingDataRelease(chargingdata, chargingSessionId)
-	if problemDetails == nil {
-		c.Status(http.StatusBadRequest)
-		return
+	if problemDetails != nil {
+		c.JSON(int(problemDetails.Status), problemDetails)
+	} else {
+		c.Status(http.StatusNoContent)
 	}
-	c.JSON(int(problemDetails.Status), problemDetails)
 }
 
 func (p *Processor) ChargingDataCreate(
