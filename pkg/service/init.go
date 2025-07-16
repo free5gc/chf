@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/free5gc/chf/internal/cgf"
@@ -19,6 +20,8 @@ import (
 	"github.com/free5gc/chf/pkg/app"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/rf"
+	"github.com/free5gc/util/metrics"
+	"github.com/free5gc/util/metrics/utils"
 )
 
 var CHF *ChfApp
@@ -33,9 +36,10 @@ type ChfApp struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	sbiServer *sbi.Server
-	consumer  *consumer.Consumer
-	processor *processor.Processor
+	sbiServer     *sbi.Server
+	metricsServer *metrics.Server
+	consumer      *consumer.Consumer
+	processor     *processor.Processor
 }
 
 func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*ChfApp, error) {
@@ -66,9 +70,38 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 	if chf.sbiServer, err = sbi.NewServer(chf, tlsKeyLogPath); err != nil {
 		return nil, err
 	}
+
+	features := map[utils.MetricTypeEnabled]bool{utils.SBI: true}
+	customMetrics := make(map[utils.MetricTypeEnabled][]prometheus.Collector)
+	if cfg.AreMetricsEnabled() {
+		if chf.metricsServer, err = metrics.NewServer(
+			getInitMetrics(cfg, features, customMetrics), tlsKeyLogPath, logger.InitLog); err != nil {
+			return nil, err
+		}
+	}
+
 	CHF = chf
 
 	return chf, nil
+}
+
+func getInitMetrics(
+	cfg *factory.Config,
+	features map[utils.MetricTypeEnabled]bool,
+	customMetrics map[utils.MetricTypeEnabled][]prometheus.Collector,
+) metrics.InitMetrics {
+	metricsInfo := metrics.Metrics{
+		BindingIPv4: cfg.GetMetricsBindingAddr(),
+		Scheme:      cfg.GetMetricsScheme(),
+		Namespace:   cfg.GetMetricsNamespace(),
+		Port:        cfg.GetMetricsPort(),
+		Tls: metrics.Tls{
+			Key: cfg.GetMetricsCertKeyPath(),
+			Pem: cfg.GetMetricsCertPemPath(),
+		},
+	}
+
+	return metrics.NewInitMetrics(metricsInfo, "chf", features, customMetrics)
 }
 
 func (a *ChfApp) CancelContext() context.Context {
@@ -154,6 +187,12 @@ func (a *ChfApp) Start() {
 		logger.MainLog.Fatalf("Run SBI server failed: %+v", err)
 	}
 
+	if a.cfg.AreMetricsEnabled() && a.metricsServer != nil {
+		go func() {
+			a.metricsServer.Run(&a.wg)
+		}()
+	}
+
 	a.WaitRoutineStopped()
 }
 
@@ -193,6 +232,11 @@ func (c *ChfApp) terminateProcedure() {
 func (a *ChfApp) CallServerStop() {
 	if a.sbiServer != nil {
 		a.sbiServer.Stop()
+	}
+
+	if a.metricsServer != nil {
+		a.metricsServer.Stop()
+		logger.MainLog.Infof("CHF Metrics Server terminated")
 	}
 }
 
