@@ -147,6 +147,7 @@ func (p *Processor) ChargingDataCreate(
 	var chargingSessionId string
 	var multipleunitinfolist []models.MultipleUnitInformation
 	multipleunitinfo := models.MultipleUnitInformation{}
+	var startTimeStamp time.Time
 
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
@@ -259,7 +260,9 @@ func (p *Processor) ChargingDataCreate(
 			}
 		}
 
-		err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
+		startTimeStamp = time.Now()
+
+		err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr}, CDRCreate, startTimeStamp)
 		if err != nil {
 			problemDetails := &models.ProblemDetails{
 				Status: http.StatusBadRequest,
@@ -282,11 +285,13 @@ func (p *Processor) ChargingDataCreate(
 
 	// build response
 
+	if startTimeStamp.IsZero() {
+		startTimeStamp = time.Now()
+	}
 	locationURI := self.Url + "/nchf-convergedcharging/v3/chargingdata/" + chargingSessionId
-	timeStamp := time.Now()
 	multipleunitinfolist = append(multipleunitinfolist, multipleunitinfo)
 	responseBody.MultipleUnitInformation = multipleunitinfolist
-	responseBody.InvocationTimeStamp = &timeStamp
+	responseBody.InvocationTimeStamp = &startTimeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
 	return &responseBody, locationURI, nil
@@ -382,7 +387,7 @@ func (p *Processor) ChargingDataUpdate(
 			return nil, problemDetails
 		}
 
-		err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
+		err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr}, CDRUpdate, time.Time{})
 		if err != nil {
 			problemDetails := &models.ProblemDetails{
 				Status: http.StatusBadRequest,
@@ -406,7 +411,7 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, problemDetails
 	}
 
-	err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
+	err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr}, CDRUpdate, time.Time{})
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
@@ -472,7 +477,9 @@ func (p *Processor) ChargingDataRelease(
 		return problemDetails
 	}
 
-	err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr})
+	stopTimeStamp := *chargingData.PDUSessionChargingInformation.PduSessionInformation.StopTime
+
+	err = dumpCdrToCSV(ueId, []*cdrType.CHFRecord{cdr}, CDRRelease, stopTimeStamp)
 	if err != nil {
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
