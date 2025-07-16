@@ -26,7 +26,15 @@ type UsedUnitContainerDetails struct {
 	// RATType             string
 }
 
-func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord) error {
+type ChargingDataAction int
+
+const (
+	CDRCreate ChargingDataAction = iota
+	CDRUpdate
+	CDRRelease
+)
+
+func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingDataAction, timeStamp time.Time) error {
 	file, err := os.OpenFile("/tmp/"+"cdr"+".csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -42,6 +50,9 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord) error {
 			"RecordType",
 			"RecordingNetworkFunctionID",
 			"RecordOpeningTime",
+			"StartTime",
+			"EndTime",
+			"ActionType",
 			"Duration",
 			"LocalRecordSequenceNumber",
 			"SubscriptionIDType",
@@ -87,6 +98,21 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord) error {
 		recordType := strconv.Itoa(int(chfCdr.RecordType.Value))
 		recordingNetworkFunctionID := string(chfCdr.RecordingNetworkFunctionID.Value)
 		recordOpeningTime := decodeRecordOpeningTime(chfCdr.RecordOpeningTime.Value)
+
+		var actionType, startTime, endTime string
+		switch action {
+		case CDRCreate:
+			actionType = "Create"
+			startTime = timeStamp.UTC().Format(time.RFC3339)
+		case CDRUpdate:
+			actionType = "Update"
+		case CDRRelease:
+			actionType = "Release"
+			endTime = timeStamp.UTC().Format(time.RFC3339)
+		default:
+			return fmt.Errorf("unknown action type: %d", action)
+		}
+
 		duration := strconv.Itoa(int(chfCdr.Duration.Value))
 		localRecordSequenceNumber := strconv.Itoa(int(chfCdr.LocalRecordSequenceNumber.Value))
 		subscriptionIDType := getSubscriptionIDTypeName(chfCdr.SubscriberIdentifier.SubscriptionIDType.Value)
@@ -140,6 +166,9 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord) error {
 			recordType,
 			recordingNetworkFunctionID,
 			recordOpeningTime,
+			startTime,
+			endTime,
+			actionType,
 			duration,
 			localRecordSequenceNumber,
 			subscriptionIDType,
