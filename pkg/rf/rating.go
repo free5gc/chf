@@ -117,7 +117,7 @@ func buildTaffif(unitCostStr string) *charging_datatype.MonetaryTariff {
 			unitCost.ValueDigits = datatype.Integer64(digit)
 		}
 	} else {
-		if digit, err := strconv.Atoi(strings.Replace(unitCostStr, ".", "", -1)); err == nil {
+		if digit, err := strconv.Atoi(strings.ReplaceAll(unitCostStr, ".", "")); err == nil {
 			unitCost.ValueDigits = datatype.Integer64(digit)
 		}
 		unitCost.Exponent = datatype.Integer32(len(unitCostStr) - dotPos - 1)

@@ -39,12 +39,12 @@ func SendServiceUsageRequest(
 	msg := diam.NewRequest(charging_code.ServiceUsageMessage, charging_code.Re_interface, dict.Default)
 	err = msg.Marshal(sur)
 	if err != nil {
-		return nil, fmt.Errorf("Marshal SUR Failed: %s\n", err)
+		return nil, fmt.Errorf("marshal SUR Failed: %s", err)
 	}
 
 	_, err = msg.WriteTo(conn)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to send message from %s: %s\n",
+		return nil, fmt.Errorf("failed to send message from %s: %s",
 			conn.RemoteAddr(), err)
 	}
 
@@ -52,7 +52,7 @@ func SendServiceUsageRequest(
 	case m := <-ue.RatingChan:
 		var sua charging_datatype.ServiceUsageResponse
 		if errMarshal := m.Unmarshal(&sua); errMarshal != nil {
-			return nil, fmt.Errorf("Failed to parse message from %v", errMarshal)
+			return nil, fmt.Errorf("failed to parse message from %v", errMarshal)
 		}
 		return &sua, nil
 	case <-time.After(5 * time.Second):

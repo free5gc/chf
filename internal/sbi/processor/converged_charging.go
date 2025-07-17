@@ -253,7 +253,7 @@ func (p *Processor) ChargingDataUpdate(
 
 	var chgDataBytes []byte
 	var errChgDataBer error
-	if chargingData.MultipleUnitUsage != nil && len(chargingData.MultipleUnitUsage) != 0 {
+	if len(chargingData.MultipleUnitUsage) != 0 {
 		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
 		chgDataBytes, errChgDataBer = asn.BerMarshalWithParams(&cdrMultiUnitUsage, "explicit,choice")
 		if errChgDataBer != nil {
@@ -564,7 +564,7 @@ func sessionChargingReservation(
 			usedQuota := uint64(totalUsedUnit * ue.UnitCost[rg])
 			requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
 			ue.ReservedQuota[rg] -= int64(usedQuota)
-			NeedReserveQuota := !(ue.ReservedQuota[rg] > 0)
+			NeedReserveQuota := ue.ReservedQuota[rg] <= 0
 
 			if NeedReserveQuota {
 				reserveQuota := -uint64(ue.ReservedQuota[rg]) + requestedQuota

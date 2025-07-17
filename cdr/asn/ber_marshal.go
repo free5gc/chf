@@ -195,7 +195,7 @@ func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 		tag.tagNumber = TagBitString
 		berType.value = bitStringEncoder(v.Interface().(BitString))
 	case ObjectIdentifierType:
-		err := fmt.Errorf("Unsupport ObjectIdenfier type")
+		err := fmt.Errorf("unsupport ObjectIdenfier type")
 		return bytesEncoder(nil), err
 	case OctetStringType:
 		tag.class = ClassUniversal
@@ -246,10 +246,10 @@ func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 				if present == 0 {
 					return nil, fmt.Errorf("CHOICE or OpenType present is 0(present's field number)")
 				} else if present >= structType.NumField() {
-					return nil, fmt.Errorf("Present is bigger than number of struct field")
+					return nil, fmt.Errorf("present is bigger than number of struct field")
 				} else if params.openType {
 					// TODO openType
-					return nil, fmt.Errorf("Open Type is not implemented")
+					return nil, fmt.Errorf("open Type is not implemented")
 				} else {
 					// Chioce type
 					// fmt.Println("Chioce type")
@@ -290,7 +290,7 @@ func makeField(v reflect.Value, params fieldParameters) (encoder, error) {
 
 					if tempParams.openType {
 						// TODO
-						return nil, fmt.Errorf("Open Type is not implemented")
+						return nil, fmt.Errorf("open Type is not implemented")
 					}
 
 					var err error
