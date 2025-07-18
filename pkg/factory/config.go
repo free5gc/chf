@@ -85,10 +85,10 @@ func (c *Configuration) validate() (bool, error) {
 	}
 
 	for index, serviceName := range c.ServiceNameList {
-		switch {
-		case serviceName == "nchf-convergedcharging":
-		case serviceName == "nchf-offlineonlycharging":
-		case serviceName == "nchf-spendinglimitcontrol":
+		switch serviceName {
+		case "nchf-convergedcharging":
+		case "nchf-offlineonlycharging":
+		case "nchf-spendinglimitcontrol":
 		default:
 			err := errors.New("Invalid serviceNameList[" + strconv.Itoa(index) + "]: " +
 				serviceName + ", should be nchf-convergedcharging.")
@@ -182,7 +182,7 @@ func appendInvalid(err error) error {
 
 	es := err.(govalidator.Errors).Errors()
 	for _, e := range es {
-		errs = append(errs, fmt.Errorf("Invalid %w", e))
+		errs = append(errs, fmt.Errorf("invalid %w", e))
 	}
 
 	return error(errs)

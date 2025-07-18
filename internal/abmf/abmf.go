@@ -41,12 +41,12 @@ func SendAccountDebitRequest(
 
 	err = msg.Marshal(ccr)
 	if err != nil {
-		return nil, fmt.Errorf("Marshal CCR Failed: %s\n", err)
+		return nil, fmt.Errorf("marshal CCR Failed: %s", err)
 	}
 
 	_, err = msg.WriteTo(conn)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to send message from %s: %s\n",
+		return nil, fmt.Errorf("failed to send message from %s: %s",
 			conn.RemoteAddr(), err)
 	}
 
@@ -54,7 +54,7 @@ func SendAccountDebitRequest(
 	case m := <-ue.AcctChan:
 		var cca charging_datatype.AccountDebitResponse
 		if errMarshal := m.Unmarshal(&cca); err != nil {
-			return nil, fmt.Errorf("Failed to parse message from %v", errMarshal)
+			return nil, fmt.Errorf("failed to parse message from %v", errMarshal)
 		}
 
 		return &cca, nil

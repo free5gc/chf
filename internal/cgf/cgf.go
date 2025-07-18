@@ -300,7 +300,7 @@ func (f *Cgf) Terminate() {
 
 	for _, file := range files {
 		if _, errStat := os.Stat(file); errStat == nil {
-			logger.CgfLog.Infof("Remove CDR file: " + file)
+			logger.CgfLog.Infof("Remove CDR file: %s", file)
 			if errRemove := os.Remove(file); errRemove != nil {
 				logger.CgfLog.Warnf("Failed to remove CDR file: %s\n", file)
 			}

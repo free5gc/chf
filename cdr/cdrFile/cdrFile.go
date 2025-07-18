@@ -155,7 +155,7 @@ func (cdrf CdrFileHeader) Encoding() []byte {
 	// 	}
 	// }
 
-	var highIdentifier uint8 = (cdrf.HighReleaseIdentifier << 5) | cdrf.HighVersionIdentifier
+	highIdentifier := (cdrf.HighReleaseIdentifier << 5) | cdrf.HighVersionIdentifier
 
 	if err := binary.Write(buf, binary.BigEndian, highIdentifier); err != nil {
 		fmt.Println("CdrFileHeader highIdentifier failed:", err)
@@ -176,7 +176,7 @@ func (cdrf CdrFileHeader) Encoding() []byte {
 	// 	}
 	// }
 
-	var lowIdentifier uint8 = (cdrf.LowReleaseIdentifier << 5) | cdrf.LowVersionIdentifier
+	lowIdentifier := (cdrf.LowReleaseIdentifier << 5) | cdrf.LowVersionIdentifier
 
 	if err := binary.Write(buf, binary.BigEndian, lowIdentifier); err != nil {
 		fmt.Println("CdrFileHeader lowIdentifier failed:", err)
@@ -202,7 +202,7 @@ func (cdrf CdrFileHeader) Encoding() []byte {
 	// 	uint32(offsetHour)<<6 |
 	// 	uint32(offsetMin)
 
-	var ts uint32 = uint32(cdrf.FileOpeningTimestamp.MonthLocal)<<28 |
+	ts := uint32(cdrf.FileOpeningTimestamp.MonthLocal)<<28 |
 		uint32(cdrf.FileOpeningTimestamp.DateLocal)<<23 |
 		uint32(cdrf.FileOpeningTimestamp.HourLocal)<<18 |
 		uint32(cdrf.FileOpeningTimestamp.MinuteLocal)<<12 |
@@ -329,7 +329,7 @@ func (header CdrHeader) Encoding() []byte {
 	}
 
 	// Release/Version Identifier
-	var identifier uint8 = uint8(header.ReleaseIdentifier)<<5 |
+	identifier := uint8(header.ReleaseIdentifier)<<5 |
 		uint8(header.VersionIdentifier)
 
 	if err := binary.Write(buf, binary.BigEndian, identifier); err != nil {
@@ -337,7 +337,7 @@ func (header CdrHeader) Encoding() []byte {
 	}
 
 	// Data Record Format / TS number
-	var oct4 uint8 = uint8(header.DataRecordFormat)<<5 | uint8(header.TsNumber)
+	oct4 := uint8(header.DataRecordFormat)<<5 | uint8(header.TsNumber)
 
 	if err := binary.Write(buf, binary.BigEndian, oct4); err != nil {
 		fmt.Println("CdrHeader failed:", err)

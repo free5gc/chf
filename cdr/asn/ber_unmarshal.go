@@ -112,14 +112,14 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		v.Set(reflect.ValueOf(val))
 		return nil
 	case ObjectIdentifierType:
-		return fmt.Errorf("Unsupport ObjectIdenfier type")
+		return fmt.Errorf("unsppport ObjectIdenfier type")
 	case OctetStringType:
 		val := bytes[talOff:]
 		v.Set(reflect.ValueOf(val))
 		return nil
 	case EnumeratedType:
 		val, parse_err := parseInt64(bytes[talOff:])
-		if err != nil {
+		if parse_err != nil {
 			return parse_err
 		}
 
@@ -132,14 +132,14 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 	}
 	switch val := v; val.Kind() {
 	case reflect.Bool:
-		if parsedBool, parse_err := parseBool(bytes[talOff]); err != nil {
+		if parsedBool, parse_err := parseBool(bytes[talOff]); parse_err != nil {
 			return parse_err
 		} else {
 			val.SetBool(parsedBool)
 			return nil
 		}
 	case reflect.Int, reflect.Int32, reflect.Int64:
-		if parsedInt, parse_err := parseInt64(bytes[talOff:]); err != nil {
+		if parsedInt, parse_err := parseInt64(bytes[talOff:]); parse_err != nil {
 			return parse_err
 		} else {
 			val.SetInt(parsedInt)
@@ -163,7 +163,7 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		// parse parameters
 		for i := 0; i < structType.NumField(); i++ {
 			if structType.Field(i).PkgPath != "" {
-				return fmt.Errorf("struct contains unexported fields : " + structType.Field(i).PkgPath)
+				return fmt.Errorf("struct contains unexported fields : %s", structType.Field(i).PkgPath)
 			}
 			tempParams := parseFieldParameters(structType.Field(i).Tag.Get("ber"))
 			structParams = append(structParams, tempParams)
@@ -171,10 +171,10 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 
 		// CHOICE or OpenType
 		if structType.NumField() > 0 && structType.Field(0).Name == "Present" {
-			var present int = 0
+			present := 0
 
 			if params.openType {
-				return fmt.Errorf("OpenType is not implemented")
+				return fmt.Errorf("openType is not implemented")
 			} else {
 				offset := 0
 				// embed choice type
@@ -233,7 +233,7 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 				for ; current < structType.NumField(); current++ {
 					// for open type reference
 					if params.openType {
-						return fmt.Errorf("OpenType is not implemented")
+						return fmt.Errorf("openType is not implemented")
 					}
 					if *structParams[current].tagNumber == talNow.tagNumber {
 						if err = ParseField(val.Field(current), bytes[offset:next], structParams[current]); err != nil {
@@ -263,7 +263,7 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 				for ; current < structType.NumField(); current++ {
 					// for open type reference
 					if params.openType {
-						return fmt.Errorf("OpenType is not implemented")
+						return fmt.Errorf("openType is not implemented")
 					}
 					if *structParams[current].tagNumber == talNow.tagNumber {
 						if parse_err1 := ParseField(val.Field(current), bytes[offset:next], structParams[current]); parse_err1 != nil {
@@ -310,7 +310,7 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		return nil
 	}
 
-	return fmt.Errorf("unsupported: " + v.Type().String())
+	return fmt.Errorf("unsupported: %s", v.Type().String())
 }
 
 // Unmarshal parses the BER-encoded ASN.1 data structure b
