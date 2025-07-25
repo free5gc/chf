@@ -124,7 +124,7 @@ func (p *Processor) HandleChargingdataRelease(
 
 	problemDetails := p.ChargingDataRelease(chargingdata, chargingSessionId)
 	if problemDetails == nil {
-		c.Status(http.StatusBadRequest)
+		c.Status(http.StatusNoContent)
 		return
 	}
 	c.JSON(int(problemDetails.Status), problemDetails)
