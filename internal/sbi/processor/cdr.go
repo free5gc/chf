@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -188,8 +189,28 @@ func (p *Processor) OpenCDR(
 				Value: asn.IA5String(pduSessionInfo.PduSessionInformation.DnnId),
 			},
 		}
-	}
+		if userLocationinfo := pduSessionInfo.UserLocationinfo; userLocationinfo != nil {
+			userlocationinfojson, _ := json.Marshal(*userLocationinfo)
+			chfCdr.PDUSessionChargingInformation.UserLocationInformation = &cdrType.UserLocationInformation{
+				Value: asn.OctetString(userlocationinfojson),
+			}
+		}
+		if pduSessionInfo.PduSessionInformation.ChargingCharacteristicsSelectionMode != "" {
+			var selectionmode asn.Enumerated
+			switch pduSessionInfo.PduSessionInformation.ChargingCharacteristicsSelectionMode {
+			case "HOME_DEFAULT":
+				selectionmode = cdrType.ChChSelectionModePresentHomeDefault
+			case "ROAMING_DEFAULT":
+				selectionmode = cdrType.ChChSelectionModePresentRoamingDefault
+			case "VISITING_DEFAULT":
+				selectionmode = cdrType.ChChSelectionModePresentVisitingDefault
+			}
+			chfCdr.PDUSessionChargingInformation.ChChSelectionMode = &cdrType.ChChSelectionMode{
+				Value: selectionmode,
+			}
 
+		}
+	}
 	chfCdr.ChargingID.Value = int64(chargingData.ChargingId)
 
 	cdr := cdrType.CHFRecord{

@@ -2,6 +2,7 @@ package processor
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/free5gc/chf/cdr/asn"
 	"github.com/free5gc/chf/cdr/cdrType"
+	"github.com/free5gc/openapi/models"
 )
 
 type UsedUnitContainerDetails struct {
@@ -73,6 +75,10 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			"NetworkSliceInstanceID_SD",
 			"DataNetworkNameIdentifier",
 			"RatingGroup",
+			"cellID",
+			"PLMNID",
+			"TAC",
+			"SelectionMode",
 			"UPFID",
 			"TotalVolume",
 			"UplinkVolume",
@@ -162,6 +168,43 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			}
 		}
 
+		var cellID, plmnID, tac string
+		if chfCdr.PDUSessionChargingInformation.UserLocationInformation != nil {
+			var userLocationinfo models.UserLocation
+			if err := json.Unmarshal(chfCdr.PDUSessionChargingInformation.UserLocationInformation.Value, &userLocationinfo); err != nil {
+				return fmt.Errorf("failed to unmarshal UserLocationInformation: %v", err)
+			}
+			if userLocationinfo.NrLocation != nil {
+				if userLocationinfo.NrLocation.Ncgi != nil {
+					cellID = userLocationinfo.NrLocation.Ncgi.NrCellId
+					plmnID = userLocationinfo.NrLocation.Ncgi.PlmnId.Mcc + userLocationinfo.NrLocation.Ncgi.PlmnId.Mnc
+				}
+				if userLocationinfo.NrLocation.Tai != nil {
+					tac = userLocationinfo.NrLocation.Tai.Tac
+				}
+			}
+			if userLocationinfo.EutraLocation != nil {
+				if userLocationinfo.EutraLocation.Ecgi != nil {
+					cellID = userLocationinfo.EutraLocation.Ecgi.EutraCellId
+					plmnID = userLocationinfo.EutraLocation.Ecgi.PlmnId.Mcc + userLocationinfo.EutraLocation.Ecgi.PlmnId.Mnc
+				}
+				if userLocationinfo.EutraLocation.Tai != nil {
+					tac = userLocationinfo.EutraLocation.Tai.Tac
+				}
+			}
+		}
+		var selectionmode string
+		if chfCdr.PDUSessionChargingInformation.ChChSelectionMode != nil {
+			switch chfCdr.PDUSessionChargingInformation.ChChSelectionMode.Value {
+			case cdrType.ChChSelectionModePresentHomeDefault:
+				selectionmode = "HOME_DEFAULT"
+			case cdrType.ChChSelectionModePresentRoamingDefault:
+				selectionmode = "ROAMING_DEFAULT"
+			case cdrType.ChChSelectionModePresentVisitingDefault:
+				selectionmode = "VISITING_DEFAULT"
+			}
+		}
+
 		row := []string{
 			recordType,
 			recordingNetworkFunctionID,
@@ -189,6 +232,10 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			networkSliceInstanceID_SD,
 			dataNetworkNameIdentifier,
 			ratingGroup,
+			cellID,
+			plmnID,
+			tac,
+			selectionmode,
 			upfid,
 			strconv.FormatInt(totalVolume, 10),
 			strconv.FormatInt(uplinkVolume, 10),
