@@ -20,6 +20,7 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/util/metrics/sbi"
 )
 
 func (s *Server) getConvergenChargingRoutes() []Route {
@@ -72,6 +73,7 @@ func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
 			Cause:  "SYSTEM_FAILURE",
 		}
 		logger.ChargingdataPostLog.Errorf("Get Request Body error: %+v", err)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetail.Cause)
 		c.JSON(http.StatusInternalServerError, problemDetail)
 		return
 	}
@@ -85,6 +87,7 @@ func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
 			Detail: problemDetail,
 		}
 		logger.ChargingdataPostLog.Errorln(problemDetail)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, http.StatusText(http.StatusBadRequest))
 		c.JSON(http.StatusBadRequest, rsp)
 		return
 	}
@@ -106,6 +109,7 @@ func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
 			Cause:  "SYSTEM_FAILURE",
 		}
 		logger.ChargingdataPostLog.Errorf("Get Request Body error: %+v", err)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetail.Cause)
 		c.JSON(http.StatusInternalServerError, problemDetail)
 		return
 	}
@@ -119,6 +123,7 @@ func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
 			Detail: problemDetail,
 		}
 		logger.ChargingdataPostLog.Errorln(problemDetail)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, http.StatusText(http.StatusBadRequest))
 		c.JSON(http.StatusBadRequest, rsp)
 		return
 	}
@@ -140,6 +145,7 @@ func (s *Server) ChargingdataPost(c *gin.Context) {
 			Cause:  "SYSTEM_FAILURE",
 		}
 		logger.ChargingdataPostLog.Errorf("Get Request Body error: %+v", err)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetail.Cause)
 		c.JSON(http.StatusInternalServerError, problemDetail)
 		return
 	}
@@ -153,6 +159,7 @@ func (s *Server) ChargingdataPost(c *gin.Context) {
 			Detail: problemDetail,
 		}
 		logger.ChargingdataPostLog.Errorln(problemDetail)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, http.StatusText(http.StatusBadRequest))
 		c.JSON(http.StatusBadRequest, rsp)
 		return
 	}
