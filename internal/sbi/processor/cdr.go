@@ -189,6 +189,47 @@ func (p *Processor) OpenCDR(
 				Value: asn.IA5String(pduSessionInfo.PduSessionInformation.DnnId),
 			},
 		}
+		if pduSessionInfo.PduSessionInformation.PduType != "" {
+			var pduType asn.Enumerated
+			switch pduSessionInfo.PduSessionInformation.PduType {
+			case "IPv4v6":
+				pduType = cdrType.PDUSessionTypePresentIPv4v6
+			case "IPv4":
+				pduType = cdrType.PDUSessionTypePresentIPv4
+			case "IPv6":
+				pduType = cdrType.PDUSessionTypePresentIPv6
+			case "Unstructured":
+				pduType = cdrType.PDUSessionTypePresentUnstructured
+			case "Ethernet":
+				pduType = cdrType.PDUSessionTypePresentEthernet
+			}
+			chfCdr.PDUSessionChargingInformation.PDUType = &cdrType.PDUSessionType{
+				Value: pduType,
+			}
+		}
+		pduAddress := &cdrType.PDUAddress{}
+		// Check and set IPv4 address if present
+		if pduSessionInfo.PduSessionInformation.PduAddress.PduIPv4Address != "" {
+			pduAddress.PDUIPv4Address = &cdrType.IPAddress{
+				IPTextV4Address: (*asn.IA5String)(&pduSessionInfo.PduSessionInformation.PduAddress.PduIPv4Address),
+			}
+			pduAddress.IPV4dynamicAddressFlag = &cdrType.DynamicAddressFlag{
+				Value: pduSessionInfo.PduSessionInformation.PduAddress.IPv4dynamicAddressFlag,
+			}
+		}
+		// Check and set IPv6 address if present
+		if pduSessionInfo.PduSessionInformation.PduAddress.PduIPv6AddresswithPrefix != "" {
+			pduAddress.PDUIPv6AddresswithPrefix = &cdrType.IPAddress{
+				IPTextV6Address: (*asn.IA5String)(&pduSessionInfo.PduSessionInformation.PduAddress.PduIPv6AddresswithPrefix),
+			}
+			pduAddress.IPV6dynamicPrefixFlag = &cdrType.DynamicAddressFlag{
+				Value: pduSessionInfo.PduSessionInformation.PduAddress.IPv6dynamicPrefixFlag,
+			}
+		}
+		// Assign only if at least one address is set
+		if pduAddress.PDUIPv4Address != nil || pduAddress.PDUIPv6AddresswithPrefix != nil {
+			chfCdr.PDUSessionChargingInformation.PDUAddress = pduAddress
+		}
 		if userLocationinfo := pduSessionInfo.UserLocationinfo; userLocationinfo != nil {
 			userlocationinfojson, _ := json.Marshal(*userLocationinfo)
 			chfCdr.PDUSessionChargingInformation.UserLocationInformation = &cdrType.UserLocationInformation{

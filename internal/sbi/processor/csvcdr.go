@@ -64,11 +64,11 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			"ConsumerName",
 			"ConsumerV4Addr",
 			"ConsumerV6Addr",
-			"ConsumerFqdn",
+			// "ConsumerFqdn",
 			"ConsumerPlmnId",
 			"ConsumerNetworkFunctionality",
-			"ServiceSpecificationInformation",
-			"RegistrationMessagetype",
+			// "ServiceSpecificationInformation",
+			// "RegistrationMessagetype",
 			"PDUSessionChargingID",
 			"PDUSessionId",
 			"NetworkSliceInstanceID_SST",
@@ -79,7 +79,12 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			"PLMNID",
 			"TAC",
 			"SelectionMode",
-			"UPFID",
+			// "UPFID",
+			"PduType",
+			"PduIPV4Address",
+			"PduIPV4dynamicAddressFlag",
+			"PduIPV6Address",
+			"PduIPV6dynamicPrefixFlag",
 			"TotalVolume",
 			"UplinkVolume",
 			"DownlinkVolume",
@@ -127,7 +132,8 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 		chargingID := strconv.Itoa(int(chfCdr.ChargingID.Value))
 		consumerName := string(chfCdr.NFunctionConsumerInformation.NetworkFunctionName.Value)
 
-		var ipTextV4Address, ipTextV6Address, consumerFQDN string
+		var ipTextV4Address, ipTextV6Address string
+		// var consumerFQDN string
 		if chfCdr.NFunctionConsumerInformation.NetworkFunctionIPv4Address != nil {
 			ipTextV4Address = string(*chfCdr.NFunctionConsumerInformation.NetworkFunctionIPv4Address.IPTextV4Address)
 		} else {
@@ -138,28 +144,34 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 		} else {
 			ipTextV6Address = ""
 		}
-		if chfCdr.NFunctionConsumerInformation.NetworkFunctionFQDN != nil {
-			consumerFQDN = string(*chfCdr.NFunctionConsumerInformation.NetworkFunctionFQDN.DomainName)
-		} else {
-			consumerFQDN = ""
-		}
+		// if chfCdr.NFunctionConsumerInformation.NetworkFunctionFQDN != nil {
+		// 	consumerFQDN = string(*chfCdr.NFunctionConsumerInformation.NetworkFunctionFQDN.DomainName)
+		// } else {
+		// 	consumerFQDN = ""
+		// }
 
 		consumerPlmnID := CdrToPlmnId(*chfCdr.NFunctionConsumerInformation.NetworkFunctionPLMNIdentifier)
 		consumerNetworkFunctionality := getNetworkFunctionality(chfCdr.NFunctionConsumerInformation.NetworkFunctionality.Value)
-		serviceSpecificationInfo := getServiceSpecificationInformation(chfCdr.ServiceSpecificationInformation)
-		registrationMessageType := getRegistrationMessageTypeCheck(chfCdr.RegistrationChargingInformation)
+		// serviceSpecificationInfo := getServiceSpecificationInformation(chfCdr.ServiceSpecificationInformation)
+		// registrationMessageType := getRegistrationMessageTypeCheck(chfCdr.RegistrationChargingInformation)
 		pduSessionChargingID := strconv.Itoa(int(chfCdr.PDUSessionChargingInformation.PDUSessionChargingID.Value))
 		pduSessionID := strconv.Itoa(int(chfCdr.PDUSessionChargingInformation.PDUSessionId.Value))
 		networkSliceInstanceID_SST := strconv.Itoa(int(chfCdr.PDUSessionChargingInformation.NetworkSliceInstanceID.SST.Value))
 		networkSliceInstanceID_SD := string(chfCdr.PDUSessionChargingInformation.NetworkSliceInstanceID.SD.Value)
 		dataNetworkNameIdentifier := string(chfCdr.PDUSessionChargingInformation.DataNetworkNameIdentifier.Value)
+		pduType := getPduType(chfCdr.PDUSessionChargingInformation.PDUType.Value)
+		PduIPV4Address := string(*chfCdr.PDUSessionChargingInformation.PDUAddress.PDUIPv4Address.IPTextV4Address)
+		PduIPV4dynamicAddressFlag := getPduAddressFlag(chfCdr.PDUSessionChargingInformation.PDUAddress.IPV4dynamicAddressFlag.Value)
+		PduIPV6Address := string(*chfCdr.PDUSessionChargingInformation.PDUAddress.PDUIPv6AddresswithPrefix.IPTextV6Address)
+		PduIPV6dynamicPrefixFlag := getPduAddressFlag(chfCdr.PDUSessionChargingInformation.PDUAddress.IPV6dynamicPrefixFlag.Value)
 
 		var totalVolume, uplinkVolume, downlinkVolume int64
-		var ratingGroup, upfid string
+		var ratingGroup string
+		// var upfid string
 		for _, multiUnitUsage := range chfCdr.ListOfMultipleUnitUsage {
 			detailsList := extractUsedUnitContainerDetails(multiUnitUsage.UsedUnitContainers)
 			ratingGroup = strconv.FormatInt(multiUnitUsage.RatingGroup.Value, 10)
-			upfid = string(multiUnitUsage.UPFID.Value)
+			// upfid = string(multiUnitUsage.UPFID.Value)
 
 			for _, details := range detailsList {
 				totalVolume, _ = strconv.ParseInt(details.TotalVolume, 10, 64)
@@ -221,11 +233,11 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			consumerName,
 			ipTextV4Address,
 			ipTextV6Address,
-			consumerFQDN,
+			// consumerFQDN,
 			consumerPlmnID,
 			consumerNetworkFunctionality,
-			serviceSpecificationInfo,
-			registrationMessageType,
+			// serviceSpecificationInfo,
+			// registrationMessageType,
 			pduSessionChargingID,
 			pduSessionID,
 			networkSliceInstanceID_SST,
@@ -236,7 +248,12 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			plmnID,
 			tac,
 			selectionmode,
-			upfid,
+			// upfid,
+			pduType,
+			PduIPV4Address,
+			PduIPV4dynamicAddressFlag,
+			PduIPV6Address,
+			PduIPV6dynamicPrefixFlag,
 			strconv.FormatInt(totalVolume, 10),
 			strconv.FormatInt(uplinkVolume, 10),
 			strconv.FormatInt(downlinkVolume, 10),
@@ -267,12 +284,36 @@ func getSubscriptionIDTypeName(value asn.Enumerated) string {
 	}
 }
 
-func getServiceSpecificationInformation(info *asn.OctetString) string {
-	if info != nil {
-		return string(*info)
+func getPduType(value asn.Enumerated) string {
+	switch value {
+	case 0:
+		return "IPv4v6"
+	case 1:
+		return "IPv4"
+	case 2:
+		return "IPv6"
+	case 3:
+		return "Unstructured"
+	case 4:
+		return "Ethernet"
+	default:
+		return ""
 	}
-	return ""
 }
+
+func getPduAddressFlag(value bool) string {
+	if value {
+		return "True"
+	}
+	return "False"
+}
+
+// func getServiceSpecificationInformation(info *asn.OctetString) string {
+// 	if info != nil {
+// 		return string(*info)
+// 	}
+// 	return ""
+// }
 
 func getNetworkFunctionality(value asn.Enumerated) string {
 	switch value {
@@ -303,29 +344,29 @@ func getNetworkFunctionality(value asn.Enumerated) string {
 	}
 }
 
-func getRegistrationMessageType(value asn.Enumerated) string {
-	switch value {
-	case 0:
-		return "Initial"
-	case 1:
-		return "Mobility"
-	case 2:
-		return "Periodic"
-	case 3:
-		return "Emergency"
-	case 4:
-		return "Deregistration"
-	default:
-		return ""
-	}
-}
+// func getRegistrationMessageType(value asn.Enumerated) string {
+// 	switch value {
+// 	case 0:
+// 		return "Initial"
+// 	case 1:
+// 		return "Mobility"
+// 	case 2:
+// 		return "Periodic"
+// 	case 3:
+// 		return "Emergency"
+// 	case 4:
+// 		return "Deregistration"
+// 	default:
+// 		return ""
+// 	}
+// }
 
-func getRegistrationMessageTypeCheck(info *cdrType.RegistrationChargingInformation) string {
-	if info == nil {
-		return ""
-	}
-	return getRegistrationMessageType(info.RegistrationMessagetype.Value)
-}
+// func getRegistrationMessageTypeCheck(info *cdrType.RegistrationChargingInformation) string {
+// 	if info == nil {
+// 		return ""
+// 	}
+// 	return getRegistrationMessageType(info.RegistrationMessagetype.Value)
+// }
 
 func decodeRecordOpeningTime(value asn.OctetString) string {
 	if value == nil || len(value) < 9 {
