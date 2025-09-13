@@ -160,11 +160,11 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 		networkSliceInstanceID_SD := string(chfCdr.PDUSessionChargingInformation.NetworkSliceInstanceID.SD.Value)
 		dataNetworkNameIdentifier := string(chfCdr.PDUSessionChargingInformation.DataNetworkNameIdentifier.Value)
 		pduType := getPduType(chfCdr.PDUSessionChargingInformation.PDUType.Value)
-		PduIPV4Address := string(*chfCdr.PDUSessionChargingInformation.PDUAddress.PDUIPv4Address.IPTextV4Address)
-		PduIPV4dynamicAddressFlag := getPduAddressFlag(chfCdr.PDUSessionChargingInformation.PDUAddress.IPV4dynamicAddressFlag.Value)
-		PduIPV6Address := string(*chfCdr.PDUSessionChargingInformation.PDUAddress.PDUIPv6AddresswithPrefix.IPTextV6Address)
-		PduIPV6dynamicPrefixFlag := getPduAddressFlag(chfCdr.PDUSessionChargingInformation.PDUAddress.IPV6dynamicPrefixFlag.Value)
-
+		// PduIPV4Address := getPduIPAddress(chfCdr.PDUSessionChargingInformation.PDUAddress.PDUIPv4Address.IPTextV4Address, nil)
+		// PduIPV6Address := getPduIPAddress(nil, chfCdr.PDUSessionChargingInformation.PDUAddress.PDUIPv6AddresswithPrefix.IPTextV6Address)
+		// PduIPV4dynamicAddressFlag := getPduAddressFlag(chfCdr.PDUSessionChargingInformation.PDUAddress.IPV4dynamicAddressFlag.Value)
+		// PduIPV6dynamicPrefixFlag := getPduAddressFlag(chfCdr.PDUSessionChargingInformation.PDUAddress.IPV6dynamicPrefixFlag.Value)
+		PduIPV4Address, PduIPV6Address, PduIPV4dynamicAddressFlag, PduIPV6dynamicPrefixFlag := getPduIPAddresses(chfCdr.PDUSessionChargingInformation.PDUAddress)
 		var totalVolume, uplinkVolume, downlinkVolume int64
 		var ratingGroup string
 		// var upfid string
@@ -287,11 +287,11 @@ func getSubscriptionIDTypeName(value asn.Enumerated) string {
 func getPduType(value asn.Enumerated) string {
 	switch value {
 	case 0:
-		return "IPv4v6"
+		return "IPV4V6"
 	case 1:
-		return "IPv4"
+		return "IPV4"
 	case 2:
-		return "IPv6"
+		return "IPV6"
 	case 3:
 		return "Unstructured"
 	case 4:
@@ -299,13 +299,6 @@ func getPduType(value asn.Enumerated) string {
 	default:
 		return ""
 	}
-}
-
-func getPduAddressFlag(value bool) string {
-	if value {
-		return "True"
-	}
-	return "False"
 }
 
 // func getServiceSpecificationInformation(info *asn.OctetString) string {
@@ -462,4 +455,30 @@ func extractUsedUnitContainerDetails(usedUnitContainers []cdrType.UsedUnitContai
 	}
 
 	return detailsList
+}
+
+func getPduIPAddresses(addr *cdrType.PDUAddress) (ipv4, ipv6, ipv4Flag, ipv6Flag string) {
+	if addr != nil {
+		if addr.PDUIPv4Address != nil && addr.PDUIPv4Address.IPTextV4Address != nil {
+			ipv4 = string(*addr.PDUIPv4Address.IPTextV4Address)
+		}
+		if addr.PDUIPv6AddresswithPrefix != nil && addr.PDUIPv6AddresswithPrefix.IPTextV6Address != nil {
+			ipv6 = string(*addr.PDUIPv6AddresswithPrefix.IPTextV6Address)
+		}
+		if addr.IPV4dynamicAddressFlag != nil {
+			if addr.IPV4dynamicAddressFlag.Value {
+				ipv4Flag = "True"
+			} else {
+				ipv4Flag = "False"
+			}
+		}
+		if addr.IPV6dynamicPrefixFlag != nil {
+			if addr.IPV6dynamicPrefixFlag.Value {
+				ipv6Flag = "True"
+			} else {
+				ipv6Flag = "False"
+			}
+		}
+	}
+	return
 }

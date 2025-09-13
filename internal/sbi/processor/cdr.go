@@ -192,11 +192,11 @@ func (p *Processor) OpenCDR(
 		if pduSessionInfo.PduSessionInformation.PduType != "" {
 			var pduType asn.Enumerated
 			switch pduSessionInfo.PduSessionInformation.PduType {
-			case "IPv4v6":
+			case "IPV4V6":
 				pduType = cdrType.PDUSessionTypePresentIPv4v6
-			case "IPv4":
+			case "IPV4":
 				pduType = cdrType.PDUSessionTypePresentIPv4
-			case "IPv6":
+			case "IPV6":
 				pduType = cdrType.PDUSessionTypePresentIPv6
 			case "Unstructured":
 				pduType = cdrType.PDUSessionTypePresentUnstructured
