@@ -207,29 +207,34 @@ func (p *Processor) OpenCDR(
 				Value: pduType,
 			}
 		}
-		pduAddress := &cdrType.PDUAddress{}
-		// Check and set IPv4 address if present
-		if pduSessionInfo.PduSessionInformation.PduAddress.PduIPv4Address != "" {
-			pduAddress.PDUIPv4Address = &cdrType.IPAddress{
-				IPTextV4Address: (*asn.IA5String)(&pduSessionInfo.PduSessionInformation.PduAddress.PduIPv4Address),
+		if pduAddr := pduSessionInfo.PduSessionInformation.PduAddress; pduAddr != nil {
+			var cdrPduAddr cdrType.PDUAddress
+
+			// IPv4 address (as text)
+			if v4 := pduAddr.PduIPv4Address; v4 != "" {
+				cdrPduAddr.PDUIPv4Address = &cdrType.IPAddress{
+					Present:         cdrType.IPAddressPresentIPTextV4Address, // 3
+					IPTextV4Address: (*asn.IA5String)(&v4),
+				}
 			}
-			pduAddress.IPV4dynamicAddressFlag = &cdrType.DynamicAddressFlag{
-				Value: pduSessionInfo.PduSessionInformation.PduAddress.IPv4dynamicAddressFlag,
+
+			// Optional: IPv6 address-with-prefix (as text, if available in your model)
+			// Adapt the source field name if your model uses a different one.
+			if v6 := pduAddr.PduIPv6AddresswithPrefix; v6 != "" {
+				cdrPduAddr.PDUIPv6AddresswithPrefix = &cdrType.IPAddress{
+					Present:         cdrType.IPAddressPresentIPTextV6Address, // 4
+					IPTextV6Address: (*asn.IA5String)(&v6),
+				}
 			}
+
+			// Dynamic flags (assuming pointer-to-bool fields in your request model)
+			cdrPduAddr.IPV4dynamicAddressFlag = &cdrType.DynamicAddressFlag{Value: pduAddr.IPv4dynamicAddressFlag}
+			cdrPduAddr.IPV6dynamicPrefixFlag = &cdrType.DynamicAddressFlag{Value: pduAddr.IPv6dynamicPrefixFlag}
+
+			// Attach to the PDUSessionChargingInformation
+			chfCdr.PDUSessionChargingInformation.PDUAddress = &cdrPduAddr
 		}
-		// Check and set IPv6 address if present
-		if pduSessionInfo.PduSessionInformation.PduAddress.PduIPv6AddresswithPrefix != "" {
-			pduAddress.PDUIPv6AddresswithPrefix = &cdrType.IPAddress{
-				IPTextV6Address: (*asn.IA5String)(&pduSessionInfo.PduSessionInformation.PduAddress.PduIPv6AddresswithPrefix),
-			}
-			pduAddress.IPV6dynamicPrefixFlag = &cdrType.DynamicAddressFlag{
-				Value: pduSessionInfo.PduSessionInformation.PduAddress.IPv6dynamicPrefixFlag,
-			}
-		}
-		// Assign only if at least one address is set
-		if pduAddress.PDUIPv4Address != nil || pduAddress.PDUIPv6AddresswithPrefix != nil {
-			chfCdr.PDUSessionChargingInformation.PDUAddress = pduAddress
-		}
+
 		if userLocationinfo := pduSessionInfo.UserLocationinfo; userLocationinfo != nil {
 			userlocationinfojson, _ := json.Marshal(*userLocationinfo)
 			chfCdr.PDUSessionChargingInformation.UserLocationInformation = &cdrType.UserLocationInformation{
