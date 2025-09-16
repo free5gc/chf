@@ -211,7 +211,7 @@ func (p *Processor) ChargingDataCreate(
 				multipleunitinfo.Triggers[0].VolumeLimit64 = 1000
 			}
 		case models.QuotaManagementIndicator_ONLINE_CHARGING:
-			var gratntedunit = &models.GrantedUnit{}
+			gratntedunit := &models.GrantedUnit{}
 			gratntedunit.DownlinkVolume = 100000
 			gratntedunit.UplinkVolume = 100000
 			gratntedunit.TotalVolume = 100000
