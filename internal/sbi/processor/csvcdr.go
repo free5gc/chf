@@ -196,7 +196,7 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 		var cellID, plmnID, tac string
 		if chfCdr.PDUSessionChargingInformation.UserLocationInformation != nil {
 			var userLocationinfo models.UserLocation
-			if err := json.Unmarshal(
+			if err = json.Unmarshal(
 				chfCdr.PDUSessionChargingInformation.UserLocationInformation.Value,
 				&userLocationinfo,
 			); err != nil {
