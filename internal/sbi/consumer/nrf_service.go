@@ -248,7 +248,7 @@ func (s *nnrfService) PatchNFupdate(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 			default:
-				logger.ConsumerLog.Errorf("PATCH failed (status %d): %v", status, err)
+				logger.ConsumerLog.Errorf("PATCH failed %v", err)
 
 				// If likely missed the window, re-register
 				if !lastSuccess.IsZero() && time.Since(lastSuccess) > time.Duration(heartbeat)*time.Second {
@@ -329,7 +329,6 @@ func (s *nnrfService) PatchNFInstance(ctx context.Context) error {
 func (s *nnrfService) buildNfProfile(
 	chfContext *chf_context.CHFContext,
 ) (profile models.NrfNfManagementNfProfile, err error) {
-
 	var nfList []models.NrfNfManagementNfType
 	nfList = append(nfList, models.NrfNfManagementNfType_AMF)
 	nfList = append(nfList, models.NrfNfManagementNfType_SMF)
@@ -411,5 +410,5 @@ func (s *nnrfService) buildNfProfile(
 		// 	},
 		// },
 	}
-	return
+	return profile, err
 }

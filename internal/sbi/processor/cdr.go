@@ -236,7 +236,10 @@ func (p *Processor) OpenCDR(
 		}
 
 		if userLocationinfo := pduSessionInfo.UserLocationinfo; userLocationinfo != nil {
-			userlocationinfojson, _ := json.Marshal(*userLocationinfo)
+			userlocationinfojson, err := json.Marshal(*userLocationinfo)
+			if err != nil {
+				return nil, fmt.Errorf("marshal UserLocationInformation failed: %w", err)
+			}
 			chfCdr.PDUSessionChargingInformation.UserLocationInformation = &cdrType.UserLocationInformation{
 				Value: asn.OctetString(userlocationinfojson),
 			}

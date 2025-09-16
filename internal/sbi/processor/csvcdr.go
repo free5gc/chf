@@ -37,11 +37,15 @@ const (
 )
 
 func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingDataAction, timeStamp time.Time) error {
-	file, err := os.OpenFile("/tmp/"+"cdr"+".csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile("/tmp/"+"cdr"+".csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			fmt.Printf("failed to close file: %v\n", cerr)
+		}
+	}()
 
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
@@ -174,9 +178,18 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			// upfid = string(multiUnitUsage.UPFID.Value)
 
 			for _, details := range detailsList {
-				totalVolume, _ = strconv.ParseInt(details.TotalVolume, 10, 64)
-				uplinkVolume, _ = strconv.ParseInt(details.UplinkVolume, 10, 64)
-				downlinkVolume, _ = strconv.ParseInt(details.DownlinkVolume, 10, 64)
+				totalVolume, err = strconv.ParseInt(details.TotalVolume, 10, 64)
+				if err != nil {
+					return fmt.Errorf("invalid TotalVolume %q: %w", details.TotalVolume, err)
+				}
+				uplinkVolume, err = strconv.ParseInt(details.UplinkVolume, 10, 64)
+				if err != nil {
+					return fmt.Errorf("invalid TotalVolume %q: %w", details.TotalVolume, err)
+				}
+				downlinkVolume, err = strconv.ParseInt(details.DownlinkVolume, 10, 64)
+				if err != nil {
+					return fmt.Errorf("invalid TotalVolume %q: %w", details.TotalVolume, err)
+				}
 			}
 		}
 
@@ -267,7 +280,6 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 }
 
 func getSubscriptionIDTypeName(value asn.Enumerated) string {
-
 	switch value {
 	case 0:
 		return "164"
@@ -390,6 +402,7 @@ func decodeRecordOpeningTime(value asn.OctetString) string {
 
 	return parsedTime.Format(time.RFC3339)
 }
+
 func CdrToPlmnId(cdrPlmnId cdrType.PLMNId) string {
 	if len(cdrPlmnId.Value) != 3 {
 		fmt.Println("Invalid PLMNId length")
@@ -480,5 +493,5 @@ func getPduIPAddresses(addr *cdrType.PDUAddress) (ipv4, ipv6, ipv4Flag, ipv6Flag
 			}
 		}
 	}
-	return
+	return ipv4, ipv6, ipv4Flag, ipv6Flag
 }

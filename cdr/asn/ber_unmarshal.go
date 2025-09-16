@@ -59,7 +59,7 @@ func parseTagAndLength(bytes []byte) (r tagAndLen, off int, e error) {
 func parseBitString(bytes []byte) (r BitString, e error) {
 	r.BitLength = uint64((len(bytes)-1)*8 - int(bytes[0]))
 	r.Bytes = bytes[1:]
-	return
+	return r, e
 }
 
 func parseInt64(bytes []byte) (r int64, e error) {
