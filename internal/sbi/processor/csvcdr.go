@@ -155,10 +155,9 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 		// }
 
 		consumerPlmnID := CdrToPlmnId(*chfCdr.NFunctionConsumerInformation.NetworkFunctionPLMNIdentifier)
-		consumerNetworkFunctionality :=
-			getNetworkFunctionality(
-				chfCdr.NFunctionConsumerInformation.NetworkFunctionality.Value,
-			)
+		consumerNetworkFunctionality := getNetworkFunctionality(
+			chfCdr.NFunctionConsumerInformation.NetworkFunctionality.Value,
+		)
 		// serviceSpecificationInfo := getServiceSpecificationInformation(chfCdr.ServiceSpecificationInformation)
 		// registrationMessageType := getRegistrationMessageTypeCheck(chfCdr.RegistrationChargingInformation)
 		pduSessionChargingID := strconv.Itoa(int(chfCdr.PDUSessionChargingInformation.PDUSessionChargingID.Value))
@@ -167,10 +166,9 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 		networkSliceInstanceID_SD := string(chfCdr.PDUSessionChargingInformation.NetworkSliceInstanceID.SD.Value)
 		dataNetworkNameIdentifier := string(chfCdr.PDUSessionChargingInformation.DataNetworkNameIdentifier.Value)
 		pduType := getPduType(chfCdr.PDUSessionChargingInformation.PDUType.Value)
-		PduIPV4Address, PduIPV6Address, PduIPV4dynamicAddressFlag, PduIPV6dynamicPrefixFlag :=
-			getPduIPAddresses(
-				chfCdr.PDUSessionChargingInformation.PDUAddress,
-			)
+		PduIPV4Address, PduIPV6Address, PduIPV4dynamicAddressFlag, PduIPV6dynamicPrefixFlag := getPduIPAddresses(
+			chfCdr.PDUSessionChargingInformation.PDUAddress,
+		)
 		var totalVolume, uplinkVolume, downlinkVolume int64
 		var ratingGroup string
 		// var upfid string
@@ -200,6 +198,15 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			var userLocationinfo models.UserLocation
 			if err := json.Unmarshal(chfCdr.PDUSessionChargingInformation.UserLocationInformation.Value, &userLocationinfo); err != nil {
 				return fmt.Errorf("failed to unmarshal UserLocationInformation: %v", err)
+			}
+			if err := json.Unmarshal(
+				chfCdr.PDUSessionChargingInformation.UserLocationInformation.Value,
+				&userLocationinfo,
+			); err != nil {
+				return fmt.Errorf(
+					"failed to unmarshal UserLocationInformation: %v",
+					err,
+				)
 			}
 			if userLocationinfo.NrLocation != nil {
 				if userLocationinfo.NrLocation.Ncgi != nil {

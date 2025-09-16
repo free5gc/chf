@@ -257,7 +257,6 @@ func (p *Processor) OpenCDR(
 			chfCdr.PDUSessionChargingInformation.ChChSelectionMode = &cdrType.ChChSelectionMode{
 				Value: selectionmode,
 			}
-
 		}
 	}
 	chfCdr.ChargingID.Value = int64(chargingData.ChargingId)

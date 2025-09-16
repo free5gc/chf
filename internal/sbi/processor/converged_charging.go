@@ -174,7 +174,7 @@ func (p *Processor) ChargingDataCreate(
 	if getErr != nil {
 		logger.ChargingdataPostLog.Warningf("GetSubscriberByUEID err: %+v", getErr)
 	}
-	if chargingDataInterfaceDocuments == nil || len(chargingDataInterfaceDocuments) == 0 {
+	if len(chargingDataInterfaceDocuments) == 0 {
 		logger.ChargingdataPostLog.Warningf("Did not find document in Database")
 		multipleunitinfo.ResultCode = models.ChfConvergedChargingResultCode_USER_UNKNOWN
 	} else {
@@ -294,6 +294,7 @@ func (p *Processor) ChargingDataCreate(
 
 	return &responseBody, locationURI, nil
 }
+
 func (p *Processor) ChargingDataUpdate(
 	chargingData models.ChfConvergedChargingChargingDataRequest, chargingSessionId string,
 ) (*models.ChfConvergedChargingChargingDataResponse, *models.ProblemDetails) {
