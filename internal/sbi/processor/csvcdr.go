@@ -102,7 +102,7 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			// "UserLocationInfo",
 			// "RATType",
 		}
-		if err := writer.Write(headers); err != nil {
+		if err = writer.Write(headers); err != nil {
 			return err
 		}
 	}
@@ -155,7 +155,10 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 		// }
 
 		consumerPlmnID := CdrToPlmnId(*chfCdr.NFunctionConsumerInformation.NetworkFunctionPLMNIdentifier)
-		consumerNetworkFunctionality := getNetworkFunctionality(chfCdr.NFunctionConsumerInformation.NetworkFunctionality.Value)
+		consumerNetworkFunctionality :=
+			getNetworkFunctionality(
+				chfCdr.NFunctionConsumerInformation.NetworkFunctionality.Value,
+			)
 		// serviceSpecificationInfo := getServiceSpecificationInformation(chfCdr.ServiceSpecificationInformation)
 		// registrationMessageType := getRegistrationMessageTypeCheck(chfCdr.RegistrationChargingInformation)
 		pduSessionChargingID := strconv.Itoa(int(chfCdr.PDUSessionChargingInformation.PDUSessionChargingID.Value))
@@ -164,11 +167,10 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 		networkSliceInstanceID_SD := string(chfCdr.PDUSessionChargingInformation.NetworkSliceInstanceID.SD.Value)
 		dataNetworkNameIdentifier := string(chfCdr.PDUSessionChargingInformation.DataNetworkNameIdentifier.Value)
 		pduType := getPduType(chfCdr.PDUSessionChargingInformation.PDUType.Value)
-		// PduIPV4Address := getPduIPAddress(chfCdr.PDUSessionChargingInformation.PDUAddress.PDUIPv4Address.IPTextV4Address, nil)
-		// PduIPV6Address := getPduIPAddress(nil, chfCdr.PDUSessionChargingInformation.PDUAddress.PDUIPv6AddresswithPrefix.IPTextV6Address)
-		// PduIPV4dynamicAddressFlag := getPduAddressFlag(chfCdr.PDUSessionChargingInformation.PDUAddress.IPV4dynamicAddressFlag.Value)
-		// PduIPV6dynamicPrefixFlag := getPduAddressFlag(chfCdr.PDUSessionChargingInformation.PDUAddress.IPV6dynamicPrefixFlag.Value)
-		PduIPV4Address, PduIPV6Address, PduIPV4dynamicAddressFlag, PduIPV6dynamicPrefixFlag := getPduIPAddresses(chfCdr.PDUSessionChargingInformation.PDUAddress)
+		PduIPV4Address, PduIPV6Address, PduIPV4dynamicAddressFlag, PduIPV6dynamicPrefixFlag :=
+			getPduIPAddresses(
+				chfCdr.PDUSessionChargingInformation.PDUAddress,
+			)
 		var totalVolume, uplinkVolume, downlinkVolume int64
 		var ratingGroup string
 		// var upfid string
@@ -271,7 +273,7 @@ func dumpCdrToCSV(ueid string, records []*cdrType.CHFRecord, action ChargingData
 			strconv.FormatInt(uplinkVolume, 10),
 			strconv.FormatInt(downlinkVolume, 10),
 		}
-		if err := writer.Write(row); err != nil {
+		if err = writer.Write(row); err != nil {
 			return err
 		}
 	}

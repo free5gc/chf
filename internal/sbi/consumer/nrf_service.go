@@ -311,9 +311,14 @@ func (s *nnrfService) PatchNFInstance(ctx context.Context) error {
 
 			resp, doErr := http.DefaultClient.Do(httpReq)
 			if doErr == nil {
-				raw, _ := io.ReadAll(resp.Body)
-				_ = resp.Body.Close()
-
+				raw, err_read := io.ReadAll(resp.Body)
+				if err_read != nil {
+					logger.ConsumerLog.Errorf("HTTP response body cannot be read: %v", err_read)
+				}
+				err_close := resp.Body.Close()
+				if err_close != nil {
+					logger.ConsumerLog.Errorf("HTTP response body cannot be closed: %v", err_close)
+				}
 				apiErr := openapi.GenericOpenAPIError{
 					RawBody:     raw,
 					ErrorStatus: resp.StatusCode,
