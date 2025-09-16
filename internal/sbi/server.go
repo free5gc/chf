@@ -105,6 +105,10 @@ func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
 	if err != nil {
 		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
 	}
+	if s.Context().NfId != "" {
+		wg.Add(1)
+		go s.Consumer().PatchNFupdate(s.CancelContext(), wg)
+	}
 
 	wg.Add(1)
 	go s.startServer(wg)

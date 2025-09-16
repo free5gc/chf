@@ -2,6 +2,8 @@ package consumer
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -153,6 +155,11 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 			continue
 		}
 		nf = res.NrfNfManagementNfProfile
+		if nf.NfInstanceId == "" {
+			chfContext.HeartBeatTimer = 60
+		} else {
+			chfContext.HeartBeatTimer = nf.HeartBeatTimer
+		}
 
 		// http.StatusOK
 		if res.Location == "" {
@@ -181,6 +188,142 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 		}
 	}
 	return resouceNrfUri, retrieveNfInstanceID, err
+}
+
+func (s *nnrfService) PatchNFupdate(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+	chfContext := s.consumer.Context()
+
+	heartbeat := chfContext.HeartBeatTimer
+	if heartbeat <= 0 {
+		heartbeat = 60
+	}
+	periodSec := heartbeat - 5
+	if periodSec < 5 {
+		periodSec = 5
+	}
+	period := time.Duration(periodSec) * time.Second
+
+	timeoutSec := heartbeat / 2
+	if timeoutSec < 3 {
+		timeoutSec = 3
+	}
+	perCallTimeout := time.Duration(timeoutSec) * time.Second
+	lastSuccess := time.Time{}
+	ticker := time.NewTicker(period)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+			cctx, cancel := context.WithTimeout(ctx, perCallTimeout)
+			err := s.PatchNFInstance(cctx)
+			cancel()
+
+			if err == nil {
+				lastSuccess = time.Now()
+				continue
+			}
+
+			// Try to read HTTP status code
+			status := 0
+			var apiErr openapi.GenericOpenAPIError
+			if errors.As(err, &apiErr) {
+				status = apiErr.ErrorStatus
+			}
+			switch status {
+			case 404, 410:
+				logger.ConsumerLog.Warn("NF Instance Missing at NRF Re-registering")
+				if base, nfID, rerr := s.RegisterNFInstance(ctx); rerr != nil {
+					logger.ConsumerLog.Errorf("Re-registration failed: %v", rerr)
+				} else if nfID != "" {
+					if base != "" {
+						chfContext.NrfUri = base
+					}
+					chfContext.NfId = nfID
+					lastSuccess = time.Now()
+				}
+
+			default:
+				logger.ConsumerLog.Errorf("PATCH failed (status %d): %v", status, err)
+
+				// If likely missed the window, re-register
+				if !lastSuccess.IsZero() && time.Since(lastSuccess) > time.Duration(heartbeat)*time.Second {
+					logger.ConsumerLog.Warn("Missed HeartBeat window Re-registering")
+					if base, nfID, rerr := s.RegisterNFInstance(ctx); rerr != nil {
+						logger.ConsumerLog.Errorf("Re-registration failed: %v", rerr)
+					} else if nfID != "" {
+						if base != "" {
+							chfContext.NrfUri = base
+						}
+						chfContext.NfId = nfID
+						lastSuccess = time.Now()
+					}
+				}
+			}
+		}
+	}
+}
+
+func (s *nnrfService) PatchNFInstance(ctx context.Context) error {
+	chf := s.consumer.Context()
+	client := s.getNFManagementClient(chf.NrfUri)
+
+	items := []models.PatchItem{
+		{
+			Op:    models.PatchOperation_REPLACE,
+			Path:  "/nfStatus",
+			Value: models.NrfNfManagementNfStatus_REGISTERED,
+		},
+	}
+
+	req := &Nnrf_NFManagement.UpdateNFInstanceRequest{
+		NfInstanceID: &chf.NfId,
+		PatchItem:    items,
+	}
+
+	res, err := client.NFInstanceIDDocumentApi.UpdateNFInstance(ctx, req)
+	if err == nil {
+		if res != nil && res.NrfNfManagementNfProfile.HeartBeatTimer > 0 {
+			chf.HeartBeatTimer = res.NrfNfManagementNfProfile.HeartBeatTimer
+		}
+		return nil
+	}
+
+	// 1) If the generated client already returned GenericOpenAPIError, pass it through.
+
+	if val, ok := any(err).(openapi.GenericOpenAPIError); ok {
+		return val
+	}
+
+	// 2) If it's the "undefined response type" case, build and return a GenericOpenAPIError (apiErr)
+	//    by probing with a safe, idempotent GET to capture the HTTP status.
+	//  to be removed when the generator is fixed to always return GenericOpenAPIError.
+	if err.Error() == "undefined response type" {
+		getURL := strings.TrimRight(chf.NrfUri, "/") + "/nnrf-nfm/v1/nf-instances/" + chf.NfId
+
+		httpReq, mkErr := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+		if mkErr == nil {
+			httpReq.Header.Set("Accept", "application/json, application/problem+json, text/plain")
+
+			resp, doErr := http.DefaultClient.Do(httpReq)
+			if doErr == nil {
+				raw, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+
+				apiErr := openapi.GenericOpenAPIError{
+					RawBody:     raw,
+					ErrorStatus: resp.StatusCode,
+					ErrorModel:  string(raw),
+				}
+				return apiErr
+			}
+		}
+	}
+	return err
 }
 
 func (s *nnrfService) buildNfProfile(

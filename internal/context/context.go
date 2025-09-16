@@ -42,6 +42,7 @@ type CHFContext struct {
 	NrfCertPem                string
 	UePool                    sync.Map
 	OAuth2Required            bool
+	HeartBeatTimer            int32
 
 	RatingCfg       *sm.Settings
 	AbmfCfg         *sm.Settings
