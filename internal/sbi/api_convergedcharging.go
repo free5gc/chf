@@ -185,5 +185,5 @@ func (s *Server) RechargePut(c *gin.Context) {
 
 	s.Processor().NotifyRecharge(ueId, int32(rg))
 
-	c.JSON(http.StatusNoContent, gin.H{})
+	c.Status(http.StatusNoContent)
 }
