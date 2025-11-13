@@ -52,6 +52,7 @@ func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 	})
 
 	notifyRequest := models.ChargingNotifyRequest{
+		NotificationType:       models.ChfConvergedChargingNotificationType_REAUTHORIZATION,
 		ReauthorizationDetails: reauthorizationDetails,
 	}
 
