@@ -12,7 +12,7 @@ require (
 	github.com/free5gc/openapi v1.2.2
 	github.com/free5gc/util v1.2.0
 	github.com/gin-gonic/gin v1.10.0
-	github.com/google/uuid v1.3.0
+	github.com/google/uuid v1.6.0
 	github.com/ishidawataru/sctp v0.0.0-20230406120618-7ff4192f6ff2 // indirect
 	github.com/jlaffaye/ftp v0.1.0
 	github.com/sirupsen/logrus v1.9.3

@@ -8,7 +8,6 @@ import (
 
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/sm"
-	"github.com/google/uuid"
 
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
@@ -16,7 +15,7 @@ import (
 	"github.com/free5gc/util/idgenerator"
 )
 
-// Init CHF Context from config flie
+// Init CHF Context from config file
 func InitChfContext(context *CHFContext) {
 	config := factory.ChfConfig
 	logger.InitLog.Infof("chfconfig Info: Version[%s] Description[%s]", config.Info.Version, config.Info.Description)
@@ -24,7 +23,7 @@ func InitChfContext(context *CHFContext) {
 	configuration := config.Configuration
 	sbi := configuration.Sbi
 
-	context.NfId = uuid.New().String()
+	context.NfId = config.GetNfInstanceId()
 	context.Name = "CHF"
 	context.NrfUri = configuration.NrfUri
 	context.NrfCertPem = configuration.NrfCertPem

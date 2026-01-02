@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/asaskevich/govalidator"
+	"github.com/google/uuid"
 
 	"github.com/free5gc/chf/internal/logger"
 )
@@ -21,6 +22,7 @@ const (
 	ChfDefaultTLSPemPath             = "./cert/chf.pem"
 	ChfDefaultTLSKeyPath             = "./cert/chf.key"
 	ChfDefaultConfigPath             = "./config/chfcfg.yaml"
+	ChfDefaultNfInstanceIdEnvVar     = "CHF_NF_INSTANCE_ID"
 	ChfSbiDefaultIPv4                = "127.0.0.113"
 	ChfSbiDefaultPort                = 8000
 	ChfSbiDefaultScheme              = "https"
@@ -64,6 +66,7 @@ type Info struct {
 
 type Configuration struct {
 	ChfName             string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
+	NfInstanceId        string    `yaml:"nfInstanceId,omitempty" valid:"optional,uuidv4"`
 	Sbi                 *Sbi      `yaml:"sbi,omitempty" valid:"required"`
 	Metrics             *Metrics  `yaml:"metrics,omitempty" valid:"optional"`
 	ServiceNameList     []string  `yaml:"serviceNameList,omitempty" valid:"required"`
@@ -87,6 +90,10 @@ type Logger struct {
 }
 
 func (c *Configuration) validate() (bool, error) {
+	if c.NfInstanceId == "" {
+		c.NfInstanceId = uuid.New().String()
+	}
+
 	if sbi := c.Sbi; sbi != nil {
 		if result, err := sbi.validate(); err != nil {
 			return result, err
@@ -147,6 +154,32 @@ type Cgf struct {
 	Tls         *Tls   `yaml:"tls,omitempty" valid:"optional"`
 	CdrFilePath string `yaml:"cdrFilePath,omitempty" valid:"optional"`
 }
+
+func (c *Config) GetNfInstanceId() string {
+	c.RLock()
+	defer c.RUnlock()
+
+	var nfInstanceId string
+
+	logger.CfgLog.Debugf("Fetching nfInstanceId from env var \"%s\"", ChfDefaultNfInstanceIdEnvVar)
+
+	if nfInstanceId = os.Getenv(ChfDefaultNfInstanceIdEnvVar); nfInstanceId == "" {
+		logger.CfgLog.Debugf("No value found for \"%s\" env, fallback on config nfInstanceId : %s",
+			ChfDefaultNfInstanceIdEnvVar, c.Configuration.NfInstanceId)
+		return c.Configuration.NfInstanceId
+	}
+
+	if err := uuid.Validate(nfInstanceId); err != nil {
+		logger.CfgLog.Errorf("Env var \"%s\" is not a valid uuid, "+
+			"fallback on configuration nfInstanceId : %s", ChfDefaultNfInstanceIdEnvVar, c.Configuration.NfInstanceId)
+		return c.Configuration.NfInstanceId
+	}
+
+	logger.CfgLog.Debugf("nfInstanceId from %s : %s", ChfDefaultNfInstanceIdEnvVar, nfInstanceId)
+
+	return nfInstanceId
+}
+
 type Sbi struct {
 	Scheme       string `yaml:"scheme" valid:"required,scheme"`
 	RegisterIPv4 string `yaml:"registerIPv4,omitempty" valid:"required,host"` // IP that is registered at NRF.
