@@ -171,23 +171,49 @@ func (p *Processor) OpenCDR(
 	}
 	if pduSessionInfo := chargingData.PDUSessionChargingInformation; pduSessionInfo != nil {
 		logger.ChargingdataPostLog.Debugln("PDU Session Charging Event")
+		pduInfo := pduSessionInfo.PduSessionInformation
+		if pduInfo == nil {
+			logger.ChargingdataPostLog.Warnln("PDU Session Information is nil")
+			return nil, fmt.Errorf("PDU Session Information is not presented")
+		}
+
+		if pduInfo.PduSessionID == 0 {
+			logger.ChargingdataPostLog.Warnln("PDU Session ID is nil")
+			return nil, fmt.Errorf("PDU Session ID is not presented")
+		}
+
+		if pduInfo.DnnId == "" {
+			logger.ChargingdataPostLog.Warnln("DNN ID is nil")
+			return nil, fmt.Errorf("DNN ID is not presented")
+		}
+
+		if pduInfo.NetworkSlicingInfo == nil {
+			logger.ChargingdataPostLog.Warnln("Network Slicing Info is nil")
+			return nil, fmt.Errorf("Network Slicing Info is not presented")
+		}
+
+		if pduInfo.NetworkSlicingInfo.SNSSAI == nil {
+			logger.ChargingdataPostLog.Warnln("SNSSAI is nil")
+			return nil, fmt.Errorf("SNSSAI is not presented")
+		}
+
 		chfCdr.PDUSessionChargingInformation = &cdrType.PDUSessionChargingInformation{
 			PDUSessionChargingID: cdrType.ChargingID{
 				Value: int64(pduSessionInfo.ChargingId),
 			},
 			PDUSessionId: cdrType.PDUSessionId{
-				Value: int64(pduSessionInfo.PduSessionInformation.PduSessionID),
+				Value: int64(pduInfo.PduSessionID),
 			},
 			NetworkSliceInstanceID: &cdrType.SingleNSSAI{
 				SST: cdrType.SliceServiceType{
-					Value: int64(pduSessionInfo.PduSessionInformation.NetworkSlicingInfo.SNSSAI.Sst),
+					Value: int64(pduInfo.NetworkSlicingInfo.SNSSAI.Sst),
 				},
 				SD: &cdrType.SliceDifferentiator{
-					Value: []byte(pduSessionInfo.PduSessionInformation.NetworkSlicingInfo.SNSSAI.Sd),
+					Value: []byte(pduInfo.NetworkSlicingInfo.SNSSAI.Sd),
 				},
 			},
 			DataNetworkNameIdentifier: &cdrType.DataNetworkNameIdentifier{
-				Value: asn.IA5String(pduSessionInfo.PduSessionInformation.DnnId),
+				Value: asn.IA5String(pduInfo.DnnId),
 			},
 		}
 	}

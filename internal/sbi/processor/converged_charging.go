@@ -175,6 +175,7 @@ func (p *Processor) ChargingDataCreate(
 		ue.CULock.Unlock()
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
+			Detail: err.Error(),
 		}
 		return nil, "", problemDetails
 	}
