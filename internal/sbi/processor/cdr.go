@@ -189,7 +189,7 @@ func (p *Processor) OpenCDR(
 
 		if pduInfo.NetworkSlicingInfo == nil {
 			logger.ChargingdataPostLog.Warnln("Network Slicing Info is nil")
-			return nil, fmt.Errorf("Network Slicing Info is not presented")
+			return nil, fmt.Errorf("network Slicing Info is not presented")
 		}
 
 		if pduInfo.NetworkSlicingInfo.SNSSAI == nil {
