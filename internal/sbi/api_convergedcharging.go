@@ -174,14 +174,35 @@ func (s *Server) RechargeGet(c *gin.Context) {
 func (s *Server) RechargePut(c *gin.Context) {
 	rechargingInfo := c.Param("rechargingInfo")
 	ueIdRatingGroup := strings.Split(rechargingInfo, "_")
+
+	if len(ueIdRatingGroup) < 2 {
+		problemDetail := models.ProblemDetails{
+			Title:  "Invalid rechargingInfo format",
+			Status: http.StatusBadRequest,
+			Detail: "rechargingInfo must be in format: {ueId}_{ratingGroup}",
+		}
+		logger.RechargingLog.Errorf("Invalid rechargingInfo format: %s", rechargingInfo)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, http.StatusText(http.StatusBadRequest))
+		c.JSON(http.StatusBadRequest, problemDetail)
+		return
+	}
+
 	ueId := ueIdRatingGroup[0]
 	rgStr := ueIdRatingGroup[1]
 	rg, err := strconv.Atoi(rgStr)
 	if err != nil {
-		logger.RechargingLog.Errorf("UE[%s] fail to recharge for rating group %s", ueId, rgStr)
+		problemDetail := models.ProblemDetails{
+			Title:  "Invalid ratingGroup",
+			Status: http.StatusBadRequest,
+			Detail: "ratingGroup must be a valid integer",
+		}
+		logger.RechargingLog.Errorf("UE[%s] invalid ratingGroup: %s", ueId, rgStr)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, http.StatusText(http.StatusBadRequest))
+		c.JSON(http.StatusBadRequest, problemDetail)
+		return
 	}
 
-	logger.RechargingLog.Warnf("UE[%s] Recharg for rating group %d", ueId, rg)
+	logger.RechargingLog.Warnf("UE[%s] Recharge for rating group %d", ueId, rg)
 
 	s.Processor().NotifyRecharge(ueId, int32(rg))
 
