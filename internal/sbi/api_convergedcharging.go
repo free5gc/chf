@@ -13,7 +13,6 @@ package sbi
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -54,7 +53,7 @@ func (s *Server) getConvergenChargingRoutes() []Route {
 		},
 		{
 			Method:  http.MethodPut,
-			Pattern: "/recharging/:rechargingInfo",
+			Pattern: "/recharging/:ueId",
 			APIFunc: s.RechargePut,
 		},
 	}
@@ -172,23 +171,21 @@ func (s *Server) RechargeGet(c *gin.Context) {
 }
 
 func (s *Server) RechargePut(c *gin.Context) {
-	rechargingInfo := c.Param("rechargingInfo")
-	ueIdRatingGroup := strings.Split(rechargingInfo, "_")
+	ueId := c.Param("ueId")
+	rgStr := c.Query("ratingGroup")
 
-	if len(ueIdRatingGroup) < 2 {
+	if rgStr == "" {
 		problemDetail := models.ProblemDetails{
-			Title:  "Invalid rechargingInfo format",
+			Title:  "Missing ratingGroup",
 			Status: http.StatusBadRequest,
-			Detail: "rechargingInfo must be in format: {ueId}_{ratingGroup}",
+			Detail: "ratingGroup query parameter is required",
 		}
-		logger.RechargingLog.Errorf("Invalid rechargingInfo format: %s", rechargingInfo)
+		logger.RechargingLog.Errorf("Missing ratingGroup for UE: %s", ueId)
 		c.Set(sbi.IN_PB_DETAILS_CTX_STR, http.StatusText(http.StatusBadRequest))
 		c.JSON(http.StatusBadRequest, problemDetail)
 		return
 	}
 
-	ueId := ueIdRatingGroup[0]
-	rgStr := ueIdRatingGroup[1]
 	rg, err := strconv.Atoi(rgStr)
 	if err != nil {
 		problemDetail := models.ProblemDetails{
