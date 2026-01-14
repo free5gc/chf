@@ -13,7 +13,6 @@ package sbi
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -54,7 +53,7 @@ func (s *Server) getConvergenChargingRoutes() []Route {
 		},
 		{
 			Method:  http.MethodPut,
-			Pattern: "/recharging/:rechargingInfo",
+			Pattern: "/recharging/:ueId",
 			APIFunc: s.RechargePut,
 		},
 	}
@@ -172,16 +171,35 @@ func (s *Server) RechargeGet(c *gin.Context) {
 }
 
 func (s *Server) RechargePut(c *gin.Context) {
-	rechargingInfo := c.Param("rechargingInfo")
-	ueIdRatingGroup := strings.Split(rechargingInfo, "_")
-	ueId := ueIdRatingGroup[0]
-	rgStr := ueIdRatingGroup[1]
-	rg, err := strconv.Atoi(rgStr)
-	if err != nil {
-		logger.RechargingLog.Errorf("UE[%s] fail to recharge for rating group %s", ueId, rgStr)
+	ueId := c.Param("ueId")
+	rgStr := c.Query("ratingGroup")
+
+	if rgStr == "" {
+		problemDetail := models.ProblemDetails{
+			Title:  "Missing ratingGroup",
+			Status: http.StatusBadRequest,
+			Detail: "ratingGroup query parameter is required",
+		}
+		logger.RechargingLog.Errorf("Missing ratingGroup for UE: %s", ueId)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, http.StatusText(http.StatusBadRequest))
+		c.JSON(http.StatusBadRequest, problemDetail)
+		return
 	}
 
-	logger.RechargingLog.Warnf("UE[%s] Recharg for rating group %d", ueId, rg)
+	rg, err := strconv.Atoi(rgStr)
+	if err != nil {
+		problemDetail := models.ProblemDetails{
+			Title:  "Invalid ratingGroup",
+			Status: http.StatusBadRequest,
+			Detail: "ratingGroup must be a valid integer",
+		}
+		logger.RechargingLog.Errorf("UE[%s] invalid ratingGroup: %s", ueId, rgStr)
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, http.StatusText(http.StatusBadRequest))
+		c.JSON(http.StatusBadRequest, problemDetail)
+		return
+	}
+
+	logger.RechargingLog.Warnf("UE[%s] Recharge for rating group %d", ueId, rg)
 
 	s.Processor().NotifyRecharge(ueId, int32(rg))
 
