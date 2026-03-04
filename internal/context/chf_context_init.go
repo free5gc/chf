@@ -109,7 +109,7 @@ func AddNfServices(
 
 	var nfServiceVersion models.NfServiceVersion
 	nfServiceVersion.ApiFullVersion = config.Info.Version
-	nfServiceVersion.ApiVersionInUri = "v1"
+	nfServiceVersion.ApiVersionInUri = factory.ConvergedChargingApiVersion
 	nfServiceVersions = append(nfServiceVersions, nfServiceVersion)
 
 	nfService.Scheme = context.UriScheme
