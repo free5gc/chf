@@ -35,9 +35,9 @@ const (
 	ConvergedChargingResUriPrefix    = "/nchf-convergedcharging/v3"
 	OfflineOnlyChargingResUriPrefix  = "/nchf-offlineonlycharging/v1"
 	SpendingLimitControlResUriPrefix = "/nchf-spendinglimitcontrol/v1"
-	ConvergedChargingApiVersion    = "v3"
-	OfflineOnlyChargingApiVersion  = "v1"
-	SpendingLimitControlApiVersion = "v1"
+	ConvergedChargingApiVersion      = "v3"
+	OfflineOnlyChargingApiVersion    = "v1"
+	SpendingLimitControlApiVersion   = "v1"
 )
 
 type Config struct {
