@@ -93,29 +93,34 @@ func InitChfContext(context *CHFContext) {
 func AddNfServices(
 	serviceMap *map[models.ServiceName]models.NrfNfManagementNfService, config *factory.Config, context *CHFContext,
 ) {
-	var nfService models.NrfNfManagementNfService
-	var ipEndPoints []models.IpEndPoint
-	var nfServiceVersions []models.NfServiceVersion
 	services := *serviceMap
 
-	nfService.ServiceInstanceId = context.NfId
-	nfService.ServiceName = models.ServiceName_NCHF_CONVERGEDCHARGING
-	nfService.ApiPrefix = context.Url
-	var ipEndPoint models.IpEndPoint
-	ipEndPoint.Ipv4Address = context.RegisterIPv4
-	ipEndPoint.Port = int32(context.SBIPort)
-	ipEndPoint.Transport = models.NrfNfManagementTransportProtocol_TCP
-	ipEndPoints = append(ipEndPoints, ipEndPoint)
+	serviceVersions := map[models.ServiceName]string{
+		models.ServiceName_NCHF_CONVERGEDCHARGING: factory.ConvergedChargingApiVersion,
+		// models.ServiceName_NCHF_OFFLINEONLYCHARGING:  factory.OfflineOnlyChargingApiVersion,  // not yet implemented
+		// models.ServiceName_NCHF_SPENDINGLIMITCONTROL: factory.SpendingLimitControlApiVersion, // not yet implemented
+	}
 
-	var nfServiceVersion models.NfServiceVersion
-	nfServiceVersion.ApiFullVersion = config.Info.Version
-	nfServiceVersion.ApiVersionInUri = factory.ConvergedChargingApiVersion
-	nfServiceVersions = append(nfServiceVersions, nfServiceVersion)
-
-	nfService.Scheme = context.UriScheme
-	nfService.NfServiceStatus = models.NfServiceStatus_REGISTERED
-
-	nfService.IpEndPoints = ipEndPoints
-	nfService.Versions = nfServiceVersions
-	services[models.ServiceName_NCHF_CONVERGEDCHARGING] = nfService
+	for serviceName, apiVersion := range serviceVersions {
+		services[serviceName] = models.NrfNfManagementNfService{
+			ServiceInstanceId: context.NfId,
+			ServiceName:       serviceName,
+			ApiPrefix:         context.Url,
+			Scheme:            context.UriScheme,
+			NfServiceStatus:   models.NfServiceStatus_REGISTERED,
+			IpEndPoints: []models.IpEndPoint{
+				{
+					Ipv4Address: context.RegisterIPv4,
+					Port:        int32(context.SBIPort),
+					Transport:   models.NrfNfManagementTransportProtocol_TCP,
+				},
+			},
+			Versions: []models.NfServiceVersion{
+				{
+					ApiFullVersion:  config.Info.Version,
+					ApiVersionInUri: apiVersion,
+				},
+			},
+		}
+	}
 }
