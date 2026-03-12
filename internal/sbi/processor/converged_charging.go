@@ -1,7 +1,6 @@
 package processor
 
 import (
-	"context"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -64,7 +63,15 @@ func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest mod
 	logger.NotifyEventLog.Warn("Send Charging Notification  to SMF: uri: ", notifyUri)
 	chargingNotifyRequest := Nchf_ConvergedCharging.NewPostChargingNotificationRequest()
 	chargingNotifyRequest.SetChargingNotifyRequest(notifyRequest)
-	_, err := client.DefaultApi.PostChargingNotification(context.Background(), notifyUri, chargingNotifyRequest)
+
+	ctx, pd, err := chf_context.GetSelf().GetTokenCtx(
+		models.ServiceName("nchf-callback"), models.NrfNfManagementNfType_SMF)
+	if err != nil {
+		logger.NotifyEventLog.Warnf("SendChargingNotification get token failed: %+v", pd)
+		return
+	}
+
+	_, err = client.DefaultApi.PostChargingNotification(ctx, notifyUri, chargingNotifyRequest)
 	if err != nil {
 		logger.NotifyEventLog.Warnf("Charging Notification Failed[%s]", err.Error())
 		return
