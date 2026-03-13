@@ -32,9 +32,12 @@ const (
 	ChfMetricsDefaultNamespace       = "free5gc"
 	ChfDefaultNrfUri                 = "https://127.0.0.10:8000"
 	CgfDefaultCdrFilePath            = "/tmp"
-	ConvergedChargingResUriPrefix    = "/nchf-convergedcharging/v3"
-	OfflineOnlyChargingResUriPrefix  = "/nchf-offlineonlycharging/v1"
-	SpendingLimitControlResUriPrefix = "/nchf-spendinglimitcontrol/v1"
+	ConvergedChargingApiVersion      = "v3"
+	OfflineOnlyChargingApiVersion    = "v1"
+	SpendingLimitControlApiVersion   = "v1"
+	ConvergedChargingResUriPrefix    = "/nchf-convergedcharging/" + ConvergedChargingApiVersion
+	OfflineOnlyChargingResUriPrefix  = "/nchf-offlineonlycharging/" + OfflineOnlyChargingApiVersion
+	SpendingLimitControlResUriPrefix = "/nchf-spendinglimitcontrol/" + SpendingLimitControlApiVersion
 )
 
 type Config struct {
