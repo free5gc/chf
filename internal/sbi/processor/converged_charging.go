@@ -65,7 +65,7 @@ func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest mod
 	chargingNotifyRequest.SetChargingNotifyRequest(notifyRequest)
 
 	ctx, pd, err := chf_context.GetSelf().GetTokenCtx(
-		models.ServiceName("nchf-callback"), models.NrfNfManagementNfType_SMF)
+		models.ServiceName("nsmf-callback"), models.NrfNfManagementNfType_SMF)
 	if err != nil {
 		logger.NotifyEventLog.Warnf("SendChargingNotification get token failed: %+v", pd)
 		return
