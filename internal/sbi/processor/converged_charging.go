@@ -548,7 +548,7 @@ func sessionChargingReservation(
 		// NOTE: FINAL triggers may switch the rating type to DEBIT for finalization. If the
 		// subsequent request includes RequestedUnit (re-authorization / regrant) and does not
 		// include FINAL, allow the rating group to return to RESERVE so quota can be granted again.
-		if creditControl && !finalSeen && unitUsage.RequestedUnit != nil && unitUsage.RequestedUnit.TotalVolume > 0 {
+		if creditControl && finalSeen && unitUsage.RequestedUnit != nil && unitUsage.RequestedUnit.TotalVolume > 0 {
 			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
 		}
 
