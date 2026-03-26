@@ -3,13 +3,12 @@ package cdrConvert
 import (
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/free5gc/chf/cdr/asn"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/util/validator"
 )
 
 func MultiUnitUsageToCdr(
@@ -103,10 +102,14 @@ func PlmnIdToCdr(modelsPlmnid models.PlmnId) (cdrType.PLMNId, error) {
 	mcc := modelsPlmnid.Mcc
 	mnc := modelsPlmnid.Mnc
 
-	if err := validatePlmnDigits("mcc", mcc, 3); err != nil {
+	if !validator.IsValidPlmnId(mcc + mnc) {
+		return cdrType.PLMNId{}, fmt.Errorf("nFPLMNID must be a valid PLMN ID")
+	}
+
+	if err := validatePlmnLength("mcc", mcc, 3); err != nil {
 		return cdrType.PLMNId{}, err
 	}
-	if err := validatePlmnDigits("mnc", mnc, 2, 3); err != nil {
+	if err := validatePlmnLength("mnc", mnc, 2, 3); err != nil {
 		return cdrType.PLMNId{}, err
 	}
 
@@ -125,7 +128,7 @@ func PlmnIdToCdr(modelsPlmnid models.PlmnId) (cdrType.PLMNId, error) {
 	return cdrType.PLMNId{Value: plmnId}, nil
 }
 
-func validatePlmnDigits(field, value string, allowedLens ...int) error {
+func validatePlmnLength(field, value string, allowedLens ...int) error {
 	validLen := false
 	for _, l := range allowedLens {
 		if len(value) == l {
@@ -134,22 +137,11 @@ func validatePlmnDigits(field, value string, allowedLens ...int) error {
 		}
 	}
 	if !validLen {
-		return fmt.Errorf("nFPLMNID.%s length must be %s", field, joinLengths(allowedLens))
-	}
-
-	for _, r := range value {
-		if !unicode.IsDigit(r) {
-			return fmt.Errorf("nFPLMNID.%s must contain only digits", field)
+		if len(allowedLens) == 1 {
+			return fmt.Errorf("nFPLMNID.%s length must be %d", field, allowedLens[0])
 		}
+		return fmt.Errorf("nFPLMNID.%s length must be %d or %d", field, allowedLens[0], allowedLens[1])
 	}
 
 	return nil
-}
-
-func joinLengths(lengths []int) string {
-	parts := make([]string, 0, len(lengths))
-	for _, l := range lengths {
-		parts = append(parts, fmt.Sprintf("%d", l))
-	}
-	return strings.Join(parts, " or ")
 }

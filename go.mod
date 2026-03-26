@@ -10,7 +10,7 @@ require (
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
 	github.com/free5gc/openapi v1.2.3
-	github.com/free5gc/util v1.3.1
+	github.com/free5gc/util v1.3.2-0.20260228091348-fb7d1127055f
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.6.0
 	github.com/ishidawataru/sctp v0.0.0-20230406120618-7ff4192f6ff2 // indirect
