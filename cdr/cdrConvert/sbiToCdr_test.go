@@ -3,8 +3,9 @@ package cdrConvert
 import (
 	"testing"
 
-	"github.com/free5gc/openapi/models"
 	"github.com/stretchr/testify/require"
+
+	"github.com/free5gc/openapi/models"
 )
 
 func TestPlmnIdToCdr(t *testing.T) {
