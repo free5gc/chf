@@ -2,8 +2,10 @@ package cdrConvert
 
 import (
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/free5gc/chf/cdr/asn"
 	"github.com/free5gc/chf/cdr/cdrType"
@@ -97,19 +99,57 @@ func TimeStampToCdr(t *time.Time) cdrType.TimeStamp {
 	return cdrTimeStamp
 }
 
-func PlmnIdToCdr(modelsPlmnid models.PlmnId) cdrType.PLMNId {
-	var hexString string
-	mcc := strings.Split(modelsPlmnid.Mcc, "")
-	mnc := strings.Split(modelsPlmnid.Mnc, "")
-	if len(modelsPlmnid.Mnc) == 2 {
-		hexString = mcc[1] + mcc[0] + "f" + mcc[2] + mnc[1] + mnc[0]
-	} else {
-		hexString = mcc[1] + mcc[0] + mnc[2] + mcc[2] + mnc[1] + mnc[0]
+func PlmnIdToCdr(modelsPlmnid models.PlmnId) (cdrType.PLMNId, error) {
+	mcc := modelsPlmnid.Mcc
+	mnc := modelsPlmnid.Mnc
+
+	if err := validatePlmnDigits("mcc", mcc, 3); err != nil {
+		return cdrType.PLMNId{}, err
+	}
+	if err := validatePlmnDigits("mnc", mnc, 2, 3); err != nil {
+		return cdrType.PLMNId{}, err
 	}
 
-	var cdrPlmnId cdrType.PLMNId
-	if plmnId, err := hex.DecodeString(hexString); err == nil {
-		cdrPlmnId.Value = plmnId
+	var hexString string
+	if len(mnc) == 2 {
+		hexString = string([]byte{mcc[1], mcc[0], 'f', mcc[2], mnc[1], mnc[0]})
+	} else {
+		hexString = string([]byte{mcc[1], mcc[0], mnc[2], mcc[2], mnc[1], mnc[0]})
 	}
-	return cdrPlmnId
+
+	plmnId, err := hex.DecodeString(hexString)
+	if err != nil {
+		return cdrType.PLMNId{}, fmt.Errorf("invalid PLMN ID encoding: %w", err)
+	}
+
+	return cdrType.PLMNId{Value: plmnId}, nil
+}
+
+func validatePlmnDigits(field, value string, allowedLens ...int) error {
+	validLen := false
+	for _, l := range allowedLens {
+		if len(value) == l {
+			validLen = true
+			break
+		}
+	}
+	if !validLen {
+		return fmt.Errorf("nFPLMNID.%s length must be %s", field, joinLengths(allowedLens))
+	}
+
+	for _, r := range value {
+		if !unicode.IsDigit(r) {
+			return fmt.Errorf("nFPLMNID.%s must contain only digits", field)
+		}
+	}
+
+	return nil
+}
+
+func joinLengths(lengths []int) string {
+	parts := make([]string, 0, len(lengths))
+	for _, l := range lengths {
+		parts = append(parts, fmt.Sprintf("%d", l))
+	}
+	return strings.Join(parts, " or ")
 }
