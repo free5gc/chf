@@ -102,15 +102,8 @@ func PlmnIdToCdr(modelsPlmnid models.PlmnId) (cdrType.PLMNId, error) {
 	mcc := modelsPlmnid.Mcc
 	mnc := modelsPlmnid.Mnc
 
-	if !validator.IsValidPlmnId(mcc + mnc) {
+	if !validator.IsValidPlmnIdParts(mcc, mnc) {
 		return cdrType.PLMNId{}, fmt.Errorf("nFPLMNID must be a valid PLMN ID")
-	}
-
-	if err := validatePlmnLength("mcc", mcc, 3); err != nil {
-		return cdrType.PLMNId{}, err
-	}
-	if err := validatePlmnLength("mnc", mnc, 2, 3); err != nil {
-		return cdrType.PLMNId{}, err
 	}
 
 	var hexString string
@@ -126,22 +119,4 @@ func PlmnIdToCdr(modelsPlmnid models.PlmnId) (cdrType.PLMNId, error) {
 	}
 
 	return cdrType.PLMNId{Value: plmnId}, nil
-}
-
-func validatePlmnLength(field, value string, allowedLens ...int) error {
-	validLen := false
-	for _, l := range allowedLens {
-		if len(value) == l {
-			validLen = true
-			break
-		}
-	}
-	if !validLen {
-		if len(allowedLens) == 1 {
-			return fmt.Errorf("nFPLMNID.%s length must be %d", field, allowedLens[0])
-		}
-		return fmt.Errorf("nFPLMNID.%s length must be %d or %d", field, allowedLens[0], allowedLens[1])
-	}
-
-	return nil
 }
