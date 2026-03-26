@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
+	"github.com/free5gc/openapi"
 	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/metrics/sbi"
@@ -78,6 +80,12 @@ func (p *Processor) HandleChargingdataInitial(
 	chargingdata models.ChfConvergedChargingChargingDataRequest,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
+	if problemDetails := validateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
+	}
+
 	response, locationURI, problemDetails := p.ChargingDataCreate(chargingdata)
 
 	if response != nil {
@@ -103,6 +111,12 @@ func (p *Processor) HandleChargingdataUpdate(
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
+	if problemDetails := validateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
+	}
+
 	response, problemDetails := p.ChargingDataUpdate(chargingdata, chargingSessionId)
 
 	if response != nil {
@@ -127,6 +141,12 @@ func (p *Processor) HandleChargingdataRelease(
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
+
+	if problemDetails := validateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
+	}
 
 	problemDetails := p.ChargingDataRelease(chargingdata, chargingSessionId)
 	if problemDetails == nil {
@@ -569,8 +589,13 @@ func sessionChargingReservation(
 
 			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
 
+			var requestedTotalVolume uint32
+			if unitUsage.RequestedUnit != nil {
+				requestedTotalVolume = uint32(unitUsage.RequestedUnit.TotalVolume)
+			}
+
 			usedQuota := uint64(totalUsedUnit * ue.UnitCost[rg])
-			requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
+			requestedQuota = uint64(requestedTotalVolume * ue.UnitCost[rg])
 			ue.ReservedQuota[rg] -= int64(usedQuota)
 			NeedReserveQuota := ue.ReservedQuota[rg] <= 0
 
@@ -621,7 +646,7 @@ func sessionChargingReservation(
 
 			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
 
-			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), uint32(unitUsage.RequestedUnit.TotalVolume))
+			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), requestedTotalVolume)
 
 			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
 				unitInformation.Triggers = append(unitInformation.Triggers,
@@ -753,4 +778,29 @@ func sessionChargingReservation(
 	}
 
 	return multipleUnitInformation, partialRecord
+}
+
+func validateOnlineChargingRequestedUnit(
+	chargingData models.ChfConvergedChargingChargingDataRequest,
+) *models.ProblemDetails {
+	for idx, unitUsage := range chargingData.MultipleUnitUsage {
+		onlineCharging := false
+		for _, usedUnit := range unitUsage.UsedUnitContainer {
+			if usedUnit.QuotaManagementIndicator == models.QuotaManagementIndicator_ONLINE_CHARGING {
+				onlineCharging = true
+				break
+			}
+		}
+
+		if onlineCharging && unitUsage.RequestedUnit == nil {
+			return openapi.ProblemDetailsMalformedReqSyntax(
+				fmt.Sprintf(
+					"multipleUnitUsage[%d].requestedUnit is required when quotaManagementIndicator is ONLINE_CHARGING",
+					idx,
+				),
+			)
+		}
+	}
+
+	return nil
 }
