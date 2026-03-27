@@ -23,7 +23,10 @@ func TestDumpCdrFileWithLongSubscriberIdentifier(t *testing.T) {
 	ueid := "imsi-" + strings.Repeat("b", 1024)
 	fileName := buildCdrFileName(ueid)
 	t.Cleanup(func() {
-		_ = os.Remove(fileName)
+		err := os.Remove(fileName)
+		if err != nil && !os.IsNotExist(err) {
+			t.Errorf("remove %s: %v", fileName, err)
+		}
 	})
 
 	err := dumpCdrFile(ueid, nil)
