@@ -173,6 +173,7 @@ func (p *Processor) ChargingDataCreate(
 	if err != nil {
 		// Lock in line 158
 		ue.CULock.Unlock()
+		logger.ChargingdataPostLog.Errorf("OpenCDR failed: %v", err)
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
