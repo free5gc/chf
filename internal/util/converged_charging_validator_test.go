@@ -1,4 +1,4 @@
-package processor
+package util
 
 import (
 	"net/http"
@@ -45,7 +45,7 @@ func TestValidateChargingDataCreateRequest(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			problem := validateChargingDataCreateRequest(tc.chargingData)
+			problem := ValidateChargingDataCreateRequest(tc.chargingData)
 			if tc.expectProblem {
 				require.NotNil(t, problem)
 				require.Equal(t, tc.expectedStatus, int(problem.Status))

@@ -146,7 +146,7 @@ func (p *Processor) ChargingDataCreate(
 	var responseBody models.ChfConvergedChargingChargingDataResponse
 	var chargingSessionId string
 
-	if problemDetails := validateChargingDataCreateRequest(chargingData); problemDetails != nil {
+	if problemDetails := util.ValidateChargingDataCreateRequest(chargingData); problemDetails != nil {
 		return nil, "", problemDetails
 	}
 
@@ -225,23 +225,6 @@ func (p *Processor) ChargingDataCreate(
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
 	return &responseBody, locationURI, nil
-}
-
-func validateChargingDataCreateRequest(
-	chargingData models.ChfConvergedChargingChargingDataRequest,
-) *models.ProblemDetails {
-	if chargingData.NfConsumerIdentification == nil {
-		detail := "nFConsumerIdentification is not presented"
-		logger.ChargingdataPostLog.Warnln(detail)
-		return &models.ProblemDetails{
-			Title:  "Malformed request syntax",
-			Status: http.StatusBadRequest,
-			Detail: detail,
-			Cause:  "MANDATORY_IE_MISSING",
-		}
-	}
-
-	return nil
 }
 
 func (p *Processor) ChargingDataUpdate(
