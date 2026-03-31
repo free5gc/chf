@@ -777,4 +777,3 @@ func sessionChargingReservation(
 
 	return multipleUnitInformation, partialRecord
 }
-
