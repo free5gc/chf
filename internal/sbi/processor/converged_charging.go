@@ -3,7 +3,6 @@ package processor
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -24,7 +23,6 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
-	"github.com/free5gc/openapi"
 	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/metrics/sbi"
@@ -80,7 +78,7 @@ func (p *Processor) HandleChargingdataInitial(
 	chargingdata models.ChfConvergedChargingChargingDataRequest,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
-	if problemDetails := validateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
 		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
 		c.JSON(int(problemDetails.Status), problemDetails)
 		return
@@ -111,7 +109,7 @@ func (p *Processor) HandleChargingdataUpdate(
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
-	if problemDetails := validateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
 		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
 		c.JSON(int(problemDetails.Status), problemDetails)
 		return
@@ -142,7 +140,7 @@ func (p *Processor) HandleChargingdataRelease(
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
 
-	if problemDetails := validateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
 		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
 		c.JSON(int(problemDetails.Status), problemDetails)
 		return
@@ -780,27 +778,3 @@ func sessionChargingReservation(
 	return multipleUnitInformation, partialRecord
 }
 
-func validateOnlineChargingRequestedUnit(
-	chargingData models.ChfConvergedChargingChargingDataRequest,
-) *models.ProblemDetails {
-	for idx, unitUsage := range chargingData.MultipleUnitUsage {
-		onlineCharging := false
-		for _, usedUnit := range unitUsage.UsedUnitContainer {
-			if usedUnit.QuotaManagementIndicator == models.QuotaManagementIndicator_ONLINE_CHARGING {
-				onlineCharging = true
-				break
-			}
-		}
-
-		if onlineCharging && unitUsage.RequestedUnit == nil {
-			return openapi.ProblemDetailsMalformedReqSyntax(
-				fmt.Sprintf(
-					"multipleUnitUsage[%d].requestedUnit is required when quotaManagementIndicator is ONLINE_CHARGING",
-					idx,
-				),
-			)
-		}
-	}
-
-	return nil
-}
