@@ -146,6 +146,10 @@ func (p *Processor) ChargingDataCreate(
 	var responseBody models.ChfConvergedChargingChargingDataResponse
 	var chargingSessionId string
 
+	if problemDetails := util.ValidateChargingDataCreateRequest(chargingData); problemDetails != nil {
+		return nil, "", problemDetails
+	}
+
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 
