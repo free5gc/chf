@@ -165,6 +165,27 @@ func handleSUR() diam.HandlerFunc {
 		if chargingInterface == nil {
 			logger.ChargingdataPostLog.Warningf(
 				"No ChargingData found for UE:[%+v] for RG:[%+v]", subscriberId, rg)
+			// Must respond SUA to avoid client-side timeout waiting for answer.
+			// When charging data is missing, return 0 quota/cost.
+			sua := charging_datatype.ServiceUsageResponse{
+				SessionId:      sur.SessionId,
+				EventTimestamp: datatype.Time(time.Now()),
+				ServiceRating: &charging_datatype.ServiceRating{
+					MonetaryTariff: buildTaffif("1"),
+					AllowedUnits:   datatype.Unsigned32(0),
+					Price:          datatype.Unsigned32(0),
+				},
+			}
+
+			a := m.Answer(diam.UnableToComply)
+			if errMarshal := a.Marshal(&sua); errMarshal != nil {
+				logger.RatingLog.Errorf("Marshal SUA Err (missing charging data): %+v:", errMarshal)
+			}
+			_, errWrite := a.WriteTo(c)
+			if errWrite != nil {
+				logger.RatingLog.Errorf("Failed to write error SUA to %s: %s\n%s\n",
+					c.RemoteAddr(), errWrite, a)
+			}
 			return
 		}
 		unitCostStr := chargingInterface["unitCost"].(string)

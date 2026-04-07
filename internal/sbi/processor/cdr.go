@@ -1,6 +1,8 @@
 package processor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +15,11 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
 )
+
+func buildCdrFileName(ueid string) string {
+	sum := sha256.Sum256([]byte(ueid))
+	return "/tmp/chf-" + hex.EncodeToString(sum[:]) + ".cdr"
+}
 
 func (p *Processor) OpenCDR(
 	chargingData models.ChfConvergedChargingChargingDataRequest,
@@ -103,38 +110,48 @@ func (p *Processor) OpenCDR(
 		Value: int64(chargingData.ChargingId),
 	}
 
+	if chargingData.NfConsumerIdentification == nil {
+		logger.ChargingdataPostLog.Warnln("nFConsumerIdentification is not presented")
+		return nil, fmt.Errorf("nFConsumerIdentification is not presented")
+	}
+	consumerIdentity := chargingData.NfConsumerIdentification
+
 	var consumerInfo cdrType.NetworkFunctionInformation
-	if consumerName := chargingData.NfConsumerIdentification.NFName; consumerName != "" {
+	if consumerName := consumerIdentity.NFName; consumerName != "" {
 		consumerInfo.NetworkFunctionName = &cdrType.NetworkFunctionName{
-			Value: asn.IA5String(chargingData.NfConsumerIdentification.NFName),
+			Value: asn.IA5String(consumerIdentity.NFName),
 		}
 	}
-	if consumerV4Addr := chargingData.NfConsumerIdentification.NFIPv4Address; consumerV4Addr != "" {
+	if consumerV4Addr := consumerIdentity.NFIPv4Address; consumerV4Addr != "" {
 		consumerInfo.NetworkFunctionIPv4Address = &cdrType.IPAddress{
 			Present:         3,
 			IPTextV4Address: (*asn.IA5String)(&consumerV4Addr),
 		}
 	}
-	if consumerV6Addr := chargingData.NfConsumerIdentification.NFIPv6Address; consumerV6Addr != "" {
+	if consumerV6Addr := consumerIdentity.NFIPv6Address; consumerV6Addr != "" {
 		consumerInfo.NetworkFunctionIPv6Address = &cdrType.IPAddress{
 			Present:         4,
 			IPTextV6Address: (*asn.IA5String)(&consumerV6Addr),
 		}
 	}
-	if consumerFqdn := chargingData.NfConsumerIdentification.NFFqdn; consumerFqdn != "" {
+	if consumerFqdn := consumerIdentity.NFFqdn; consumerFqdn != "" {
 		consumerInfo.NetworkFunctionFQDN = &cdrType.NodeAddress{
 			Present:    2,
 			DomainName: (*asn.GraphicString)(&consumerFqdn),
 		}
 	}
 	if consumerPlmnId := chargingData.NfConsumerIdentification.NFPLMNID; consumerPlmnId != nil {
-		plmnIdByte := cdrConvert.PlmnIdToCdr(*consumerPlmnId)
+		plmnIdByte, err := cdrConvert.PlmnIdToCdr(*consumerPlmnId)
+		if err != nil {
+			logger.ChargingdataPostLog.Warnf("invalid nFPLMNID: %v", err)
+			return nil, err
+		}
 		consumerInfo.NetworkFunctionPLMNIdentifier = &cdrType.PLMNId{
 			Value: plmnIdByte.Value,
 		}
 	}
-	logger.ChargingdataPostLog.Infof("%s charging event", chargingData.NfConsumerIdentification.NodeFunctionality)
-	switch chargingData.NfConsumerIdentification.NodeFunctionality {
+	logger.ChargingdataPostLog.Infof("%s charging event", consumerIdentity.NodeFunctionality)
+	switch consumerIdentity.NodeFunctionality {
 	case "SMF":
 		consumerInfo.NetworkFunctionality.Value = cdrType.NetworkFunctionalityPresentSMF
 	case "AMF":
@@ -324,7 +341,9 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 		}
 	}
 
-	cdrfile.Encoding("/tmp/" + ueid + ".cdr")
+	if err := cdrfile.Encoding(buildCdrFileName(ueid)); err != nil {
+		return fmt.Errorf("failed to write CDR file: %w", err)
+	}
 
 	return nil
 }
