@@ -4,6 +4,8 @@ package cgf
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -55,6 +57,11 @@ type FtpConfig struct {
 var cgf *Cgf
 
 var CGFEnable bool = false
+
+func buildCdrFileName(supi string) string {
+	sum := sha256.Sum256([]byte(supi))
+	return "chf-" + hex.EncodeToString(sum[:]) + ".cdr"
+}
 
 func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 	// Arguments vars
@@ -194,7 +201,7 @@ func SendCDR(supi string) error {
 	cgf.connMutex.Lock()
 	defer cgf.connMutex.Unlock()
 
-	fileName := supi + ".cdr"
+	fileName := buildCdrFileName(supi)
 	cdrByte, err := os.ReadFile("/tmp/" + fileName)
 	if err != nil {
 		return err

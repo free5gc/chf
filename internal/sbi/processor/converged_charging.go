@@ -177,9 +177,9 @@ func (p *Processor) ChargingDataCreate(
 	if err != nil {
 		// Lock in line 158
 		ue.CULock.Unlock()
+		logger.ChargingdataPostLog.Errorf("OpenCDR failed: %v", err)
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
-			Detail: err.Error(),
 		}
 		return nil, "", problemDetails
 	}
@@ -493,6 +493,7 @@ func sessionChargingReservation(
 		var totalUsedUnit uint32
 		var finalUnitIndication models.FinalUnitIndication
 		creditControl := false
+		finalSeen := false
 
 		rg := unitUsage.RatingGroup
 		if !ue.FindRatingGroup(rg) {
@@ -532,6 +533,7 @@ func sessionChargingReservation(
 					case t.TriggerType == models.ChfConvergedChargingTriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
 					case t.TriggerType == models.ChfConvergedChargingTriggerType_MANAGEMENT_INTERVENTION:
 					case t.TriggerType == models.ChfConvergedChargingTriggerType_FINAL:
+						finalSeen = true
 						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
 						partialRecord = false
 					}
@@ -547,6 +549,13 @@ func sessionChargingReservation(
 			continue
 		}
 		// Only online charging with request unit or used unit need to perform credit control
+		//
+		// NOTE: FINAL triggers may switch the rating type to DEBIT for finalization. If the
+		// subsequent request includes RequestedUnit (re-authorization / regrant) and does not
+		// include FINAL, allow the rating group to return to RESERVE so quota can be granted again.
+		if creditControl && finalSeen && unitUsage.RequestedUnit != nil && unitUsage.RequestedUnit.TotalVolume > 0 {
+			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
+		}
 
 		ccr := &charging_datatype.AccountDebitRequest{
 			SessionId:       datatype.UTF8String(strconv.Itoa(int(ue.AcctSessionId))),
@@ -569,6 +578,11 @@ func sessionChargingReservation(
 
 		switch ue.RatingType[rg] {
 		case charging_datatype.REQ_SUBTYPE_RESERVE:
+			// If there is no requested unit, nothing to reserve / grant.
+			if unitUsage.RequestedUnit == nil || unitUsage.RequestedUnit.TotalVolume <= 0 {
+				logger.ChargingdataPostLog.Infof("No RequestedUnit for rating group: %d, skip granting", rg)
+				continue
+			}
 			var requestedQuota uint64
 
 			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)

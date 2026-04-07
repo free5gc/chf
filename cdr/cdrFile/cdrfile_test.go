@@ -121,7 +121,7 @@ func TestCdrFile(t *testing.T) {
 	for i, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			fileName := "encoding" + strconv.Itoa(i) + ".txt"
-			tc.in.Encoding(fileName)
+			require.NoError(t, tc.in.Encoding(fileName))
 			newCdrFile := CDRFile{}
 			newCdrFile.Decoding(fileName)
 			e := os.Remove(fileName)

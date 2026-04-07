@@ -1,6 +1,8 @@
 package processor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +15,11 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
 )
+
+func buildCdrFileName(ueid string) string {
+	sum := sha256.Sum256([]byte(ueid))
+	return "/tmp/chf-" + hex.EncodeToString(sum[:]) + ".cdr"
+}
 
 func (p *Processor) OpenCDR(
 	chargingData models.ChfConvergedChargingChargingDataRequest,
@@ -133,8 +140,12 @@ func (p *Processor) OpenCDR(
 			DomainName: (*asn.GraphicString)(&consumerFqdn),
 		}
 	}
-	if consumerPlmnId := consumerIdentity.NFPLMNID; consumerPlmnId != nil {
-		plmnIdByte := cdrConvert.PlmnIdToCdr(*consumerPlmnId)
+	if consumerPlmnId := chargingData.NfConsumerIdentification.NFPLMNID; consumerPlmnId != nil {
+		plmnIdByte, err := cdrConvert.PlmnIdToCdr(*consumerPlmnId)
+		if err != nil {
+			logger.ChargingdataPostLog.Warnf("invalid nFPLMNID: %v", err)
+			return nil, err
+		}
 		consumerInfo.NetworkFunctionPLMNIdentifier = &cdrType.PLMNId{
 			Value: plmnIdByte.Value,
 		}
@@ -330,7 +341,9 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 		}
 	}
 
-	cdrfile.Encoding("/tmp/" + ueid + ".cdr")
+	if err := cdrfile.Encoding(buildCdrFileName(ueid)); err != nil {
+		return fmt.Errorf("failed to write CDR file: %w", err)
+	}
 
 	return nil
 }
