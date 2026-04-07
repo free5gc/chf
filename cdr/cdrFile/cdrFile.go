@@ -354,23 +354,23 @@ func (header CdrHeader) Encoding() []byte {
 	return buf.Bytes()
 }
 
-func (cdfFile CDRFile) Encoding(fileName string) {
+func (cdfFile CDRFile) Encoding(fileName string) error {
 	buf := new(bytes.Buffer)
 
 	// Cdr File Header
 	bufCdrFileHeader := cdfFile.Hdr.Encoding()
 	if err := binary.Write(buf, binary.BigEndian, bufCdrFileHeader); err != nil {
-		fmt.Println("CDRFile failed:", err)
+		return fmt.Errorf("encode CDR file header: %w", err)
 	}
 
 	for i, cdr := range cdfFile.CdrList {
 		bufCdrHeader := cdr.Hdr.Encoding()
 		if err := binary.Write(buf, binary.BigEndian, bufCdrHeader); err != nil {
-			fmt.Println("CDRFile failed:", err)
+			return fmt.Errorf("encode CDR header: %w", err)
 		}
 
 		if err := binary.Write(buf, binary.BigEndian, cdr.CdrByte); err != nil {
-			fmt.Println("CDRFile failed:", err)
+			return fmt.Errorf("encode CDR body: %w", err)
 		}
 
 		if len(cdr.CdrByte) != int(cdr.Hdr.CdrLength) {
@@ -388,8 +388,10 @@ func (cdfFile CDRFile) Encoding(fileName string) {
 	// fmt.Printf("Encoded: %b\n", buf.Bytes())
 	err := os.WriteFile(fileName, buf.Bytes(), 0o666)
 	if err != nil {
-		panic(err)
+		return err
 	}
+
+	return nil
 }
 
 func (cdfFile *CDRFile) Decoding(fileName string) {
