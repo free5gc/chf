@@ -2,12 +2,13 @@ package cdrConvert
 
 import (
 	"encoding/hex"
-	"strings"
+	"fmt"
 	"time"
 
 	"github.com/free5gc/chf/cdr/asn"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/openapi/models"
+	"github.com/free5gc/util/validator"
 )
 
 func MultiUnitUsageToCdr(
@@ -97,19 +98,25 @@ func TimeStampToCdr(t *time.Time) cdrType.TimeStamp {
 	return cdrTimeStamp
 }
 
-func PlmnIdToCdr(modelsPlmnid models.PlmnId) cdrType.PLMNId {
-	var hexString string
-	mcc := strings.Split(modelsPlmnid.Mcc, "")
-	mnc := strings.Split(modelsPlmnid.Mnc, "")
-	if len(modelsPlmnid.Mnc) == 2 {
-		hexString = mcc[1] + mcc[0] + "f" + mcc[2] + mnc[1] + mnc[0]
-	} else {
-		hexString = mcc[1] + mcc[0] + mnc[2] + mcc[2] + mnc[1] + mnc[0]
+func PlmnIdToCdr(modelsPlmnid models.PlmnId) (cdrType.PLMNId, error) {
+	mcc := modelsPlmnid.Mcc
+	mnc := modelsPlmnid.Mnc
+
+	if !validator.IsValidPlmnIdParts(mcc, mnc) {
+		return cdrType.PLMNId{}, fmt.Errorf("nFPLMNID must be a valid PLMN ID")
 	}
 
-	var cdrPlmnId cdrType.PLMNId
-	if plmnId, err := hex.DecodeString(hexString); err == nil {
-		cdrPlmnId.Value = plmnId
+	var hexString string
+	if len(mnc) == 2 {
+		hexString = string([]byte{mcc[1], mcc[0], 'f', mcc[2], mnc[1], mnc[0]})
+	} else {
+		hexString = string([]byte{mcc[1], mcc[0], mnc[2], mcc[2], mnc[1], mnc[0]})
 	}
-	return cdrPlmnId
+
+	plmnId, err := hex.DecodeString(hexString)
+	if err != nil {
+		return cdrType.PLMNId{}, fmt.Errorf("invalid PLMN ID encoding: %w", err)
+	}
+
+	return cdrType.PLMNId{Value: plmnId}, nil
 }

@@ -128,7 +128,11 @@ func (p *Processor) OpenCDR(
 		}
 	}
 	if consumerPlmnId := chargingData.NfConsumerIdentification.NFPLMNID; consumerPlmnId != nil {
-		plmnIdByte := cdrConvert.PlmnIdToCdr(*consumerPlmnId)
+		plmnIdByte, err := cdrConvert.PlmnIdToCdr(*consumerPlmnId)
+		if err != nil {
+			logger.ChargingdataPostLog.Warnf("invalid nFPLMNID: %v", err)
+			return nil, err
+		}
 		consumerInfo.NetworkFunctionPLMNIdentifier = &cdrType.PLMNId{
 			Value: plmnIdByte.Value,
 		}
