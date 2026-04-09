@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -244,14 +245,21 @@ func (p *Processor) ChargingDataUpdate(
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
+	cdr, ok := ue.Cdr[chargingSessionId]
+	if !ok || cdr == nil {
+		detail := fmt.Sprintf("ChargingDataRef[%s] not found", chargingSessionId)
+		logger.ChargingdataPostLog.Warnln(detail)
+		problemDetails := &models.ProblemDetails{
+			Title:  "Context Not Found",
+			Status: http.StatusNotFound,
+			Detail: detail,
+			Cause:  "CONTEXT_NOT_FOUND",
+		}
+		return nil, problemDetails
+	}
+
 	// Online charging: Rate, Account, Reservation
 	responseBody, partialRecord := p.BuildConvergedChargingDataUpdateResopone(chargingData)
-
-	cdr := ue.Cdr[chargingSessionId]
-
-	if len(ue.Records) > 1 {
-		cdr = ue.Records[len(ue.Records)-1]
-	}
 
 	cdrBytes, errCdrBer := asn.BerMarshalWithParams(&cdr, "explicit,choice")
 	if errCdrBer != nil {
@@ -291,6 +299,7 @@ func (p *Processor) ChargingDataUpdate(
 
 		newRecord.ChargingFunctionRecord.ListOfMultipleUnitUsage = []cdrType.MultipleUnitUsage{}
 		cdr = newRecord
+		ue.Cdr[chargingSessionId] = cdr
 		ue.Records = append(ue.Records, cdr)
 	}
 
@@ -317,10 +326,16 @@ func (p *Processor) ChargingDataUpdate(
 			return nil, problemDetails
 		}
 
-		_, oper_err := p.OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
+		reopenedCdr, oper_err := p.OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
 		if oper_err != nil {
 			logger.ChargingdataPostLog.Error("OpenCDR error:", oper_err)
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusBadRequest,
+				Detail: oper_err.Error(),
+			}
+			return nil, problemDetails
 		}
+		ue.Cdr[chargingSessionId] = reopenedCdr
 		logger.ChargingdataPostLog.Tracef(
 			"CDR Record Sequence Number after Reopen %+v", *cdr.ChargingFunctionRecord.RecordSequenceNumber)
 	}

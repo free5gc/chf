@@ -36,8 +36,14 @@ func (p *Processor) OpenCDR(
 	// Record Sequence Number(Conditional IE): Partial record sequence number, only present in case of partial records.
 	// Partial CDR: Fragments of CDR, for long session charging
 	if partialRecord {
-		// TODO partial record
-		cdr := ue.Cdr[sessionId]
+		cdr, ok := ue.Cdr[sessionId]
+		if !ok || cdr == nil {
+			return nil, fmt.Errorf("charging session[%s] not found", sessionId)
+		}
+		if cdr.ChargingFunctionRecord == nil {
+			return nil, fmt.Errorf("charging session[%s] has invalid CDR", sessionId)
+		}
+
 		partialRecordSeqNum := self.RecordSequenceNumber[sessionId]
 		partialRecordSeqNum++
 		cdr.ChargingFunctionRecord.RecordSequenceNumber = &(partialRecordSeqNum)
