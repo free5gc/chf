@@ -79,6 +79,12 @@ func (p *Processor) HandleChargingdataInitial(
 	chargingdata models.ChfConvergedChargingChargingDataRequest,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
+	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
+	}
+
 	response, locationURI, problemDetails := p.ChargingDataCreate(chargingdata)
 
 	if response != nil {
@@ -104,6 +110,12 @@ func (p *Processor) HandleChargingdataUpdate(
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
+	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
+	}
+
 	response, problemDetails := p.ChargingDataUpdate(chargingdata, chargingSessionId)
 
 	if response != nil {
@@ -128,6 +140,12 @@ func (p *Processor) HandleChargingdataRelease(
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
+
+	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
+		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
+	}
 
 	problemDetails := p.ChargingDataRelease(chargingdata, chargingSessionId)
 	if problemDetails == nil {
@@ -598,8 +616,13 @@ func sessionChargingReservation(
 
 			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
 
+			var requestedTotalVolume uint32
+			if unitUsage.RequestedUnit != nil {
+				requestedTotalVolume = uint32(unitUsage.RequestedUnit.TotalVolume)
+			}
+
 			usedQuota := uint64(totalUsedUnit * ue.UnitCost[rg])
-			requestedQuota = uint64(uint32(unitUsage.RequestedUnit.TotalVolume) * ue.UnitCost[rg])
+			requestedQuota = uint64(requestedTotalVolume * ue.UnitCost[rg])
 			ue.ReservedQuota[rg] -= int64(usedQuota)
 			NeedReserveQuota := ue.ReservedQuota[rg] <= 0
 
@@ -650,7 +673,7 @@ func sessionChargingReservation(
 
 			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
 
-			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), uint32(unitUsage.RequestedUnit.TotalVolume))
+			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), requestedTotalVolume)
 
 			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
 				unitInformation.Triggers = append(unitInformation.Triggers,
