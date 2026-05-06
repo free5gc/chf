@@ -167,10 +167,6 @@ func (p *Processor) ChargingDataCreate(
 		return nil, "", problemDetails
 	}
 
-	// Hold CULock across the create flow with defer so that any panic
-	// inside OpenCDR/UpdateCDR (e.g. dereferencing a nil sub-field of
-	// the request) cannot leave the lock permanently held and DoS every
-	// subsequent charging request for this SUPI (#1023).
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
