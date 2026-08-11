@@ -16,8 +16,7 @@ import (
 func Test_nnrfService_RegisterNFInstance(t *testing.T) {
 	defer gock.Off() // Flush pending mocks after test execution
 
-	openapi.InterceptH2CClient()
-	defer openapi.RestoreH2CClient()
+	openapi.InterceptInnerHttp2Client(t, false)
 
 	gock.New("http://127.0.0.10:8000").
 		Put("/nnrf-nfm/v1/nf-instances/1").
@@ -44,8 +43,7 @@ func Test_nnrfService_RegisterNFInstance(t *testing.T) {
 func Test_nnrfService_SendDeregisterNFInstance(t *testing.T) {
 	defer gock.Off() // Flush pending mocks after test execution
 
-	openapi.InterceptH2CClient()
-	defer openapi.RestoreH2CClient()
+	openapi.InterceptInnerHttp2Client(t, false)
 
 	gock.New("http://127.0.0.10:8000").
 		Delete("/nnrf-nfm/v1/nf-instances/1").

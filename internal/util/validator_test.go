@@ -12,14 +12,14 @@ import (
 func TestValidateChargingDataCreateRequest(t *testing.T) {
 	testCases := []struct {
 		description    string
-		chargingData   models.ChfConvergedChargingChargingDataRequest
+		chargingData   models.Chf_ConvCharging_ChargingDataRequest
 		expectProblem  bool
 		expectedStatus int
 		expectedCause  string
 	}{
 		{
 			description: "TC1: missing nFConsumerIdentification should fail",
-			chargingData: models.ChfConvergedChargingChargingDataRequest{
+			chargingData: models.Chf_ConvCharging_ChargingDataRequest{
 				SubscriberIdentifier:     "imsi-208930000000003",
 				ChargingId:               1,
 				InvocationSequenceNumber: 1,
@@ -30,10 +30,10 @@ func TestValidateChargingDataCreateRequest(t *testing.T) {
 		},
 		{
 			description: "TC2: present nFConsumerIdentification should pass",
-			chargingData: models.ChfConvergedChargingChargingDataRequest{
+			chargingData: models.Chf_ConvCharging_ChargingDataRequest{
 				SubscriberIdentifier: "imsi-208930000000003",
 				ChargingId:           1,
-				NfConsumerIdentification: &models.ChfConvergedChargingNfIdentification{
+				NfConsumerIdentification: &models.Chf_ConvCharging_NFIdentification{
 					NFName:            "amf",
 					NodeFunctionality: "SMF",
 				},
@@ -61,18 +61,18 @@ func TestValidateChargingDataCreateRequest(t *testing.T) {
 func TestValidateOnlineChargingRequestedUnit(t *testing.T) {
 	testCases := []struct {
 		description    string
-		chargingData   models.ChfConvergedChargingChargingDataRequest
+		chargingData   models.Chf_ConvCharging_ChargingDataRequest
 		expectProblem  bool
 		expectedStatus int
 		expectedCause  string
 	}{
 		{
 			description: "TC1: online charging without requestedUnit should fail",
-			chargingData: models.ChfConvergedChargingChargingDataRequest{
-				MultipleUnitUsage: []models.ChfConvergedChargingMultipleUnitUsage{
+			chargingData: models.Chf_ConvCharging_ChargingDataRequest{
+				MultipleUnitUsage: []models.Chf_ConvCharging_MultipleUnitUsage{
 					{
-						UsedUnitContainer: []models.ChfConvergedChargingUsedUnitContainer{
-							{QuotaManagementIndicator: models.QuotaManagementIndicator_ONLINE_CHARGING},
+						UsedUnitContainer: []models.Chf_ConvCharging_UsedUnitContainer{
+							{QuotaManagementIndicator: models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING},
 						},
 						RequestedUnit: nil,
 					},
@@ -84,13 +84,13 @@ func TestValidateOnlineChargingRequestedUnit(t *testing.T) {
 		},
 		{
 			description: "TC2: online charging with requestedUnit should pass",
-			chargingData: models.ChfConvergedChargingChargingDataRequest{
-				MultipleUnitUsage: []models.ChfConvergedChargingMultipleUnitUsage{
+			chargingData: models.Chf_ConvCharging_ChargingDataRequest{
+				MultipleUnitUsage: []models.Chf_ConvCharging_MultipleUnitUsage{
 					{
-						UsedUnitContainer: []models.ChfConvergedChargingUsedUnitContainer{
-							{QuotaManagementIndicator: models.QuotaManagementIndicator_ONLINE_CHARGING},
+						UsedUnitContainer: []models.Chf_ConvCharging_UsedUnitContainer{
+							{QuotaManagementIndicator: models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING},
 						},
-						RequestedUnit: &models.RequestedUnit{TotalVolume: 100},
+						RequestedUnit: &models.Chf_ConvCharging_RequestedUnit{TotalVolume: 100},
 					},
 				},
 			},
@@ -98,11 +98,11 @@ func TestValidateOnlineChargingRequestedUnit(t *testing.T) {
 		},
 		{
 			description: "TC3: non-online charging without requestedUnit should pass",
-			chargingData: models.ChfConvergedChargingChargingDataRequest{
-				MultipleUnitUsage: []models.ChfConvergedChargingMultipleUnitUsage{
+			chargingData: models.Chf_ConvCharging_ChargingDataRequest{
+				MultipleUnitUsage: []models.Chf_ConvCharging_MultipleUnitUsage{
 					{
-						UsedUnitContainer: []models.ChfConvergedChargingUsedUnitContainer{
-							{QuotaManagementIndicator: models.QuotaManagementIndicator_QUOTA_MANAGEMENT_SUSPENDED},
+						UsedUnitContainer: []models.Chf_ConvCharging_UsedUnitContainer{
+							{QuotaManagementIndicator: models.Chf_ConvCharging_QuotaManagementIndicator_QUOTA_MANAGEMENT_SUSPENDED},
 						},
 						RequestedUnit: nil,
 					},
