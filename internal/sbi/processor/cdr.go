@@ -22,7 +22,7 @@ func buildCdrFileName(ueid string) string {
 }
 
 func (p *Processor) OpenCDR(
-	chargingData models.ChfConvergedChargingChargingDataRequest,
+	chargingData models.Chf_ConvCharging_ChargingDataRequest,
 	ue *chf_context.ChfUe,
 	sessionId string,
 	partialRecord bool,
@@ -252,7 +252,7 @@ func (p *Processor) OpenCDR(
 }
 
 func (p *Processor) UpdateCDR(
-	record *cdrType.CHFRecord, chargingData models.ChfConvergedChargingChargingDataRequest,
+	record *cdrType.CHFRecord, chargingData models.Chf_ConvCharging_ChargingDataRequest,
 ) error {
 	if record == nil {
 		return fmt.Errorf("CHFRecord is nil")

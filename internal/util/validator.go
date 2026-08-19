@@ -10,7 +10,7 @@ import (
 )
 
 func ValidateChargingDataCreateRequest(
-	chargingData models.ChfConvergedChargingChargingDataRequest,
+	chargingData models.Chf_ConvCharging_ChargingDataRequest,
 ) *models.ProblemDetails {
 	if chargingData.NfConsumerIdentification == nil {
 		detail := "nFConsumerIdentification is not presented"
@@ -27,12 +27,12 @@ func ValidateChargingDataCreateRequest(
 }
 
 func ValidateOnlineChargingRequestedUnit(
-	chargingData models.ChfConvergedChargingChargingDataRequest,
+	chargingData models.Chf_ConvCharging_ChargingDataRequest,
 ) *models.ProblemDetails {
 	for idx, unitUsage := range chargingData.MultipleUnitUsage {
 		onlineCharging := false
 		for _, usedUnit := range unitUsage.UsedUnitContainer {
-			if usedUnit.QuotaManagementIndicator == models.QuotaManagementIndicator_ONLINE_CHARGING {
+			if usedUnit.QuotaManagementIndicator == models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING {
 				onlineCharging = true
 				break
 			}

@@ -21,7 +21,7 @@ func Init() {
 }
 
 type NFContext interface {
-	AuthorizationCheck(token string, serviceName models.ServiceName) error
+	AuthorizationCheck(token string, serviceName models.Nrf_NFMgmt_ServiceName) error
 }
 
 var _ NFContext = &CHFContext{}
@@ -34,7 +34,7 @@ type CHFContext struct {
 	BindingIPv4               string
 	RegisterIPv4              string
 	SBIPort                   int
-	NfService                 map[models.ServiceName]models.NrfNfManagementNfService
+	NfService                 map[models.Nrf_NFMgmt_ServiceName]models.Nrf_NFMgmt_NFService
 	RecordSequenceNumber      map[string]int64
 	LocalRecordSequenceNumber uint64
 	NrfUri                    string
@@ -50,7 +50,7 @@ type CHFContext struct {
 	sync.Mutex
 }
 
-func (c *CHFContext) AuthorizationCheck(token string, serviceName models.ServiceName) error {
+func (c *CHFContext) AuthorizationCheck(token string, serviceName models.Nrf_NFMgmt_ServiceName) error {
 	if !c.OAuth2Required {
 		logger.UtilLog.Debugf("CHFContext::AuthorizationCheck: OAuth2 not required\n")
 		return nil
@@ -116,12 +116,12 @@ func (c *CHFContext) GetSelfID() string {
 	return c.NfId
 }
 
-func (c *CHFContext) GetTokenCtx(serviceName models.ServiceName, targetNF models.NrfNfManagementNfType) (
+func (c *CHFContext) GetTokenCtx(serviceName models.Nrf_NFMgmt_ServiceName, targetNF models.Nrf_NFMgmt_NFType) (
 	context.Context, *models.ProblemDetails, error,
 ) {
 	if !c.OAuth2Required {
 		return context.TODO(), nil, nil
 	}
-	return oauth.GetTokenCtx(models.NrfNfManagementNfType_CHF, targetNF,
+	return oauth.GetTokenCtx(models.Nrf_NFMgmt_NFType_CHF, targetNF,
 		c.NfId, c.NrfUri, string(serviceName))
 }

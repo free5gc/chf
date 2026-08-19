@@ -61,7 +61,7 @@ func (s *Server) getConvergenChargingRoutes() []Route {
 
 // ChargingdataChargingDataRefReleasePost -
 func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
-	var chargingDataReq models.ChfConvergedChargingChargingDataRequest
+	var chargingDataReq models.Chf_ConvCharging_ChargingDataRequest
 
 	requestBody, err := c.GetRawData()
 	if err != nil {
@@ -97,7 +97,7 @@ func (s *Server) ChargingdataChargingDataRefReleasePost(c *gin.Context) {
 
 // ChargingdataChargingDataRefUpdatePost
 func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
-	var chargingDataReq models.ChfConvergedChargingChargingDataRequest
+	var chargingDataReq models.Chf_ConvCharging_ChargingDataRequest
 
 	requestBody, err := c.GetRawData()
 	if err != nil {
@@ -133,7 +133,7 @@ func (s *Server) ChargingdataChargingDataRefUpdatePost(c *gin.Context) {
 
 // ChargingdataPost
 func (s *Server) ChargingdataPost(c *gin.Context) {
-	var chargingDataReq models.ChfConvergedChargingChargingDataRequest
+	var chargingDataReq models.Chf_ConvCharging_ChargingDataRequest
 
 	requestBody, err := c.GetRawData()
 	if err != nil {

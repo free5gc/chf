@@ -1,7 +1,7 @@
 package util
 
 import (
-	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
+	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvCharging"
 )
 
 func GetNchfChargingNotificationCallbackClient() *Nchf_ConvergedCharging.APIClient {
