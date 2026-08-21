@@ -87,36 +87,39 @@ func InitChfContext(context *CHFContext) {
 
 	context.Url = string(context.UriScheme) + "://" + context.RegisterIPv4 + ":" + strconv.Itoa(context.SBIPort)
 
-	context.NfService = make(map[models.ServiceName]models.NrfNfManagementNfService)
+	context.NfService = make(map[models.Nrf_NFMgmt_ServiceName]models.Nrf_NFMgmt_NFService)
 	AddNfServices(&context.NfService, config, context)
 }
 
 func AddNfServices(
-	serviceMap *map[models.ServiceName]models.NrfNfManagementNfService, config *factory.Config, context *CHFContext,
+	serviceMap *map[models.Nrf_NFMgmt_ServiceName]models.Nrf_NFMgmt_NFService, config *factory.Config, context *CHFContext,
 ) {
 	services := *serviceMap
 
-	serviceVersions := map[models.ServiceName]string{
-		models.ServiceName_NCHF_CONVERGEDCHARGING: factory.ConvergedChargingApiVersion,
-		// models.ServiceName_NCHF_OFFLINEONLYCHARGING:  factory.OfflineOnlyChargingApiVersion,  // not yet implemented
-		// models.ServiceName_NCHF_SPENDINGLIMITCONTROL: factory.SpendingLimitControlApiVersion, // not yet implemented
+	serviceVersions := map[models.Nrf_NFMgmt_ServiceName]string{
+		models.Nrf_NFMgmt_ServiceName_NCHF_CONVERGEDCHARGING: factory.ConvergedChargingApiVersion,
+		// not yet implemented:
+		// models.Nrf_NFMgmt_ServiceName_NCHF_OFFLINEONLYCHARGING:
+		//     factory.OfflineOnlyChargingApiVersion,
+		// models.Nrf_NFMgmt_ServiceName_NCHF_SPENDINGLIMITCONTROL:
+		//     factory.SpendingLimitControlApiVersion,
 	}
 
 	for serviceName, apiVersion := range serviceVersions {
-		services[serviceName] = models.NrfNfManagementNfService{
+		services[serviceName] = models.Nrf_NFMgmt_NFService{
 			ServiceInstanceId: context.NfId,
 			ServiceName:       serviceName,
 			ApiPrefix:         context.Url,
 			Scheme:            context.UriScheme,
-			NfServiceStatus:   models.NfServiceStatus_REGISTERED,
-			IpEndPoints: []models.IpEndPoint{
+			NfServiceStatus:   models.Nrf_NFMgmt_NFServiceStatus_REGISTERED,
+			IpEndPoints: []models.Nrf_NFMgmt_IpEndPoint{
 				{
 					Ipv4Address: context.RegisterIPv4,
 					Port:        int32(context.SBIPort),
-					Transport:   models.NrfNfManagementTransportProtocol_TCP,
+					Transport:   models.Nrf_NFMgmt_TransportProtocol_TCP,
 				},
 			},
-			Versions: []models.NfServiceVersion{
+			Versions: []models.Nrf_NFMgmt_NFServiceVersion{
 				{
 					ApiFullVersion:  config.Info.Version,
 					ApiVersionInUri: apiVersion,

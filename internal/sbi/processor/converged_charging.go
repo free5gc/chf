@@ -23,7 +23,7 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
-	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvergedCharging"
+	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvCharging"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/metrics/sbi"
 )
@@ -36,7 +36,7 @@ func min[T constraints.Ordered](a, b T) T {
 }
 
 func (p *Processor) NotifyRecharge(ueId string, rg int32) {
-	var reauthorizationDetails []models.ReauthorizationDetails
+	var reauthorizationDetails []models.Chf_ConvCharging_ReauthorizationDetails
 
 	self := chf_context.GetSelf()
 	ue, ok := self.ChfUeFindBySupi(ueId)
@@ -47,32 +47,35 @@ func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 
 	// If it is previosly set to debit mode due to quota exhausted, need to reverse to the reserve mode
 	ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
-	reauthorizationDetails = append(reauthorizationDetails, models.ReauthorizationDetails{
+	reauthorizationDetails = append(reauthorizationDetails, models.Chf_ConvCharging_ReauthorizationDetails{
 		RatingGroup: rg,
 	})
 
-	notifyRequest := models.ChargingNotifyRequest{
-		NotificationType:       models.ChfConvergedChargingNotificationType_REAUTHORIZATION,
+	notifyRequest := models.Chf_ConvCharging_ChargingNotifyRequest{
+		NotificationType:       models.Chf_ConvCharging_NotificationType_REAUTHORIZATION,
 		ReauthorizationDetails: reauthorizationDetails,
 	}
 
 	p.SendChargingNotification(ue.NotifyUri, notifyRequest)
 }
 
-func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest models.ChargingNotifyRequest) {
+func (p *Processor) SendChargingNotification(
+	notifyUri string, notifyRequest models.Chf_ConvCharging_ChargingNotifyRequest,
+) {
 	client := util.GetNchfChargingNotificationCallbackClient()
 	logger.NotifyEventLog.Warn("Send Charging Notification  to SMF: uri: ", notifyUri)
-	chargingNotifyRequest := Nchf_ConvergedCharging.NewPostChargingNotificationRequest()
-	chargingNotifyRequest.SetChargingNotifyRequest(notifyRequest)
+	chargingNotifyRequest := &Nchf_ConvergedCharging.NullChargingNotificationRequest{
+		RequestBody: &notifyRequest,
+	}
 
 	ctx, pd, err := chf_context.GetSelf().GetTokenCtx(
-		models.ServiceName("nsmf-callback"), models.NrfNfManagementNfType_SMF)
+		models.Nrf_NFMgmt_ServiceName("nsmf-callback"), models.Nrf_NFMgmt_NFType_SMF)
 	if err != nil {
 		logger.NotifyEventLog.Warnf("SendChargingNotification get token failed: %+v", pd)
 		return
 	}
 
-	_, err = client.DefaultApi.PostChargingNotification(ctx, notifyUri, chargingNotifyRequest)
+	_, err = client.DefaultApi.NullChargingNotification(ctx, notifyUri, chargingNotifyRequest)
 	if err != nil {
 		logger.NotifyEventLog.Warnf("Charging Notification Failed[%s]", err.Error())
 		return
@@ -83,7 +86,7 @@ func (p *Processor) SendChargingNotification(notifyUri string, notifyRequest mod
 
 func (p *Processor) HandleChargingdataInitial(
 	c *gin.Context,
-	chargingdata models.ChfConvergedChargingChargingDataRequest,
+	chargingdata models.Chf_ConvCharging_ChargingDataRequest,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
 	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
@@ -113,7 +116,7 @@ func (p *Processor) HandleChargingdataInitial(
 
 func (p *Processor) HandleChargingdataUpdate(
 	c *gin.Context,
-	chargingdata models.ChfConvergedChargingChargingDataRequest,
+	chargingdata models.Chf_ConvCharging_ChargingDataRequest,
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
@@ -143,7 +146,7 @@ func (p *Processor) HandleChargingdataUpdate(
 
 func (p *Processor) HandleChargingdataRelease(
 	c *gin.Context,
-	chargingdata models.ChfConvergedChargingChargingDataRequest,
+	chargingdata models.Chf_ConvCharging_ChargingDataRequest,
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
@@ -164,12 +167,12 @@ func (p *Processor) HandleChargingdataRelease(
 }
 
 func (p *Processor) ChargingDataCreate(
-	chargingData models.ChfConvergedChargingChargingDataRequest,
+	chargingData models.Chf_ConvCharging_ChargingDataRequest,
 ) (
-	*models.ChfConvergedChargingChargingDataResponse,
+	*models.Chf_ConvCharging_ChargingDataResponse,
 	string, *models.ProblemDetails,
 ) {
-	var responseBody models.ChfConvergedChargingChargingDataResponse
+	var responseBody models.Chf_ConvCharging_ChargingDataResponse
 	var chargingSessionId string
 
 	if problemDetails := util.ValidateChargingDataCreateRequest(chargingData); problemDetails != nil {
@@ -250,8 +253,8 @@ func (p *Processor) ChargingDataCreate(
 }
 
 func (p *Processor) ChargingDataUpdate(
-	chargingData models.ChfConvergedChargingChargingDataRequest, chargingSessionId string,
-) (*models.ChfConvergedChargingChargingDataResponse, *models.ProblemDetails) {
+	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
+) (*models.Chf_ConvCharging_ChargingDataResponse, *models.ProblemDetails) {
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
@@ -382,7 +385,7 @@ func (p *Processor) ChargingDataUpdate(
 }
 
 func (p *Processor) ChargingDataRelease(
-	chargingData models.ChfConvergedChargingChargingDataRequest, chargingSessionId string,
+	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
 ) *models.ProblemDetails {
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
@@ -431,14 +434,14 @@ func (p *Processor) ChargingDataRelease(
 }
 
 func (p *Processor) BuildOnlineChargingDataCreateResopone(
-	ue *chf_context.ChfUe, chargingData models.ChfConvergedChargingChargingDataRequest,
-) models.ChfConvergedChargingChargingDataResponse {
+	ue *chf_context.ChfUe, chargingData models.Chf_ConvCharging_ChargingDataRequest,
+) models.Chf_ConvCharging_ChargingDataResponse {
 	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
 	ue.NotifyUri = chargingData.NotifyUri
 
 	multipleUnitInformation, _ := sessionChargingReservation(chargingData)
 
-	responseBody := models.ChfConvergedChargingChargingDataResponse{
+	responseBody := models.Chf_ConvCharging_ChargingDataResponse{
 		MultipleUnitInformation: multipleUnitInformation,
 	}
 
@@ -446,15 +449,15 @@ func (p *Processor) BuildOnlineChargingDataCreateResopone(
 }
 
 func (p *Processor) BuildConvergedChargingDataUpdateResopone(
-	chargingData models.ChfConvergedChargingChargingDataRequest,
-) (models.ChfConvergedChargingChargingDataResponse, bool) {
+	chargingData models.Chf_ConvCharging_ChargingDataRequest,
+) (models.Chf_ConvCharging_ChargingDataResponse, bool) {
 	var partialRecord bool
 
 	logger.ChargingdataPostLog.Info("In BuildConvergedChargingDataUpdateResopone")
 
 	multipleUnitInformation, partialRecord := sessionChargingReservation(chargingData)
 
-	responseBody := models.ChfConvergedChargingChargingDataResponse{
+	responseBody := models.Chf_ConvCharging_ChargingDataResponse{
 		MultipleUnitInformation: multipleUnitInformation,
 	}
 
@@ -486,9 +489,9 @@ func getUnitCost(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.Service
 
 // 32.296 6.2.2.3.1: Service usage request method with reservation
 func sessionChargingReservation(
-	chargingData models.ChfConvergedChargingChargingDataRequest,
-) ([]models.MultipleUnitInformation, bool) {
-	var multipleUnitInformation []models.MultipleUnitInformation
+	chargingData models.Chf_ConvCharging_ChargingDataRequest,
+) ([]models.Chf_ConvCharging_MultipleUnitInformation, bool) {
+	var multipleUnitInformation []models.Chf_ConvCharging_MultipleUnitInformation
 	var partialRecord bool
 	var subscriberIdentifier *charging_datatype.SubscriptionId
 
@@ -527,7 +530,7 @@ func sessionChargingReservation(
 
 	for unitUsageNum, unitUsage := range chargingData.MultipleUnitUsage {
 		var totalUsedUnit uint32
-		var finalUnitIndication models.FinalUnitIndication
+		var finalUnitIndication models.Chf_ConvCharging_FinalUnitIndication
 		creditControl := false
 		finalSeen := false
 
@@ -537,7 +540,7 @@ func sessionChargingReservation(
 			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
 		}
 
-		unitInformation := models.MultipleUnitInformation{
+		unitInformation := models.Chf_ConvCharging_MultipleUnitInformation{
 			UPFID:               unitUsage.UPFID,
 			FinalUnitIndication: &finalUnitIndication,
 			RatingGroup:         rg,
@@ -545,30 +548,30 @@ func sessionChargingReservation(
 
 		for _, usedUnit := range unitUsage.UsedUnitContainer {
 			switch usedUnit.QuotaManagementIndicator {
-			case models.QuotaManagementIndicator_OFFLINE_CHARGING:
+			case models.Chf_ConvCharging_QuotaManagementIndicator_OFFLINE_CHARGING:
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.ChfConvergedChargingTrigger{
-						TriggerType:     models.ChfConvergedChargingTriggerType_QUOTA_THRESHOLD,
-						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					models.Chf_ConvCharging_Trigger{
+						TriggerType:     models.Chf_ConvCharging_TriggerType_QUOTA_THRESHOLD,
+						TriggerCategory: models.Chf_ConvCharging_TriggerCategory_IMMEDIATE_REPORT,
 					},
 				)
 
 				unitInformation.VolumeQuotaThreshold = int32(30000000)
 				continue
-			case models.QuotaManagementIndicator_ONLINE_CHARGING:
+			case models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING:
 				creditControl = true
 
 				for _, trigger := range chargingData.Triggers {
 					// Check if partial record is needed
 					partialRecord = true
 					switch t := trigger; {
-					case t == models.ChfConvergedChargingTrigger{
-						TriggerType:     models.ChfConvergedChargingTriggerType_VOLUME_LIMIT,
-						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					case t == models.Chf_ConvCharging_Trigger{
+						TriggerType:     models.Chf_ConvCharging_TriggerType_VOLUME_LIMIT,
+						TriggerCategory: models.Chf_ConvCharging_TriggerCategory_IMMEDIATE_REPORT,
 					}:
-					case t.TriggerType == models.ChfConvergedChargingTriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
-					case t.TriggerType == models.ChfConvergedChargingTriggerType_MANAGEMENT_INTERVENTION:
-					case t.TriggerType == models.ChfConvergedChargingTriggerType_FINAL:
+					case t.TriggerType == models.Chf_ConvCharging_TriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
+					case t.TriggerType == models.Chf_ConvCharging_TriggerType_MANAGEMENT_INTERVENTION:
+					case t.TriggerType == models.Chf_ConvCharging_TriggerType_FINAL:
 						finalSeen = true
 						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
 						partialRecord = false
@@ -576,7 +579,7 @@ func sessionChargingReservation(
 				}
 				// calculate total used unit
 				totalUsedUnit += uint32(usedUnit.TotalVolume)
-			case models.QuotaManagementIndicator_QUOTA_MANAGEMENT_SUSPENDED:
+			case models.Chf_ConvCharging_QuotaManagementIndicator_QUOTA_MANAGEMENT_SUSPENDED:
 				logger.ChargingdataPostLog.Errorf("Current do not support QUOTA MANAGEMENT SUSPENDED")
 			}
 		}
@@ -657,8 +660,8 @@ func sessionChargingReservation(
 					switch acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication.FinalUnitAction {
 					case charging_datatype.TERMINATE:
 						logger.ChargingdataPostLog.Tracef("Last granted quota")
-						finalUnitIndication = models.FinalUnitIndication{
-							FinalUnitAction: models.FinalUnitAction_TERMINATE,
+						finalUnitIndication = models.Chf_ConvCharging_FinalUnitIndication{
+							FinalUnitAction: models.Chf_ConvCharging_FinalUnitAction_TERMINATE,
 						}
 						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
 					}
@@ -684,9 +687,9 @@ func sessionChargingReservation(
 
 			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.ChfConvergedChargingTrigger{
-						TriggerType:     models.ChfConvergedChargingTriggerType_QUOTA_THRESHOLD,
-						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					models.Chf_ConvCharging_Trigger{
+						TriggerType:     models.Chf_ConvCharging_TriggerType_QUOTA_THRESHOLD,
+						TriggerCategory: models.Chf_ConvCharging_TriggerCategory_IMMEDIATE_REPORT,
 					},
 				)
 
@@ -694,13 +697,13 @@ func sessionChargingReservation(
 			}
 
 			unitInformation.Triggers = append(unitInformation.Triggers,
-				models.ChfConvergedChargingTrigger{
-					TriggerType:     models.ChfConvergedChargingTriggerType_QUOTA_EXHAUSTED,
-					TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+				models.Chf_ConvCharging_Trigger{
+					TriggerType:     models.Chf_ConvCharging_TriggerType_QUOTA_EXHAUSTED,
+					TriggerCategory: models.Chf_ConvCharging_TriggerCategory_IMMEDIATE_REPORT,
 				},
 			)
 
-			unitInformation.GrantedUnit = &models.GrantedUnit{
+			unitInformation.GrantedUnit = &models.Chf_ConvCharging_GrantedUnit{
 				TotalVolume:    int32(grantedUnit),
 				DownlinkVolume: int32(grantedUnit),
 				UplinkVolume:   int32(grantedUnit),
@@ -710,9 +713,9 @@ func sessionChargingReservation(
 			// The timer of VolumeLimit is remain in SMF
 			if ue.VolumeLimit != 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.ChfConvergedChargingTrigger{
-						TriggerType:     models.ChfConvergedChargingTriggerType_VOLUME_LIMIT,
-						TriggerCategory: models.TriggerCategory_DEFERRED_REPORT,
+					models.Chf_ConvCharging_Trigger{
+						TriggerType:     models.Chf_ConvCharging_TriggerType_VOLUME_LIMIT,
+						TriggerCategory: models.Chf_ConvCharging_TriggerCategory_DEFERRED_REPORT,
 						VolumeLimit:     ue.VolumeLimit,
 					},
 				)
@@ -721,9 +724,9 @@ func sessionChargingReservation(
 			// VolumeLimit for PDU session only need to add once
 			if ue.VolumeLimitPDU != 0 && unitUsageNum == 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.ChfConvergedChargingTrigger{
-						TriggerType:     models.ChfConvergedChargingTriggerType_VOLUME_LIMIT,
-						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					models.Chf_ConvCharging_Trigger{
+						TriggerType:     models.Chf_ConvCharging_TriggerType_VOLUME_LIMIT,
+						TriggerCategory: models.Chf_ConvCharging_TriggerCategory_IMMEDIATE_REPORT,
 						VolumeLimit:     ue.VolumeLimitPDU,
 					},
 				)
@@ -732,9 +735,9 @@ func sessionChargingReservation(
 			// The timer of QuotaValidityTime is remain in UPF
 			if ue.QuotaValidityTime != 0 {
 				unitInformation.Triggers = append(unitInformation.Triggers,
-					models.ChfConvergedChargingTrigger{
-						TriggerType:     models.ChfConvergedChargingTriggerType_VALIDITY_TIME,
-						TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+					models.Chf_ConvCharging_Trigger{
+						TriggerType:     models.Chf_ConvCharging_TriggerType_VALIDITY_TIME,
+						TriggerCategory: models.Chf_ConvCharging_TriggerCategory_IMMEDIATE_REPORT,
 					},
 				)
 				unitInformation.ValidityTime = ue.QuotaValidityTime
@@ -795,12 +798,12 @@ func sessionChargingReservation(
 			ue.ReservedQuota[rg] = 0
 
 			unitInformation.Triggers = append(unitInformation.Triggers,
-				models.ChfConvergedChargingTrigger{
-					TriggerType:     models.ChfConvergedChargingTriggerType_QUOTA_EXHAUSTED,
-					TriggerCategory: models.TriggerCategory_IMMEDIATE_REPORT,
+				models.Chf_ConvCharging_Trigger{
+					TriggerType:     models.Chf_ConvCharging_TriggerType_QUOTA_EXHAUSTED,
+					TriggerCategory: models.Chf_ConvCharging_TriggerCategory_IMMEDIATE_REPORT,
 				},
 			)
-			unitInformation.GrantedUnit = &models.GrantedUnit{
+			unitInformation.GrantedUnit = &models.Chf_ConvCharging_GrantedUnit{
 				TotalVolume:    int32(0),
 				DownlinkVolume: int32(0),
 				UplinkVolume:   int32(0),

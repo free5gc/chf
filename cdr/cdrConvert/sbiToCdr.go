@@ -12,7 +12,7 @@ import (
 )
 
 func MultiUnitUsageToCdr(
-	multiUnitUsageList []models.ChfConvergedChargingMultipleUnitUsage,
+	multiUnitUsageList []models.Chf_ConvCharging_MultipleUnitUsage,
 ) []cdrType.MultipleUnitUsage {
 	cdrMultiUnitUsageList := make([]cdrType.MultipleUnitUsage, 0, len(multiUnitUsageList))
 
@@ -38,7 +38,7 @@ func MultiUnitUsageToCdr(
 // TODO
 // Only convert Local Sequence Number, Uplink, Downlink, Total Volumn, Service Specific Units currently.
 func UsedUnitContainerToCdr(
-	usedUnitContainerList []models.ChfConvergedChargingUsedUnitContainer,
+	usedUnitContainerList []models.Chf_ConvCharging_UsedUnitContainer,
 ) []cdrType.UsedUnitContainer {
 	cdrUsedUnitContainerList := make([]cdrType.UsedUnitContainer, 0, len(usedUnitContainerList))
 
@@ -66,7 +66,7 @@ func UsedUnitContainerToCdr(
 }
 
 // TODO convert type Trigger
-func TriggersToCdr(triggers []models.ChfConvergedChargingTrigger) []cdrType.Trigger {
+func TriggersToCdr(triggers []models.Chf_ConvCharging_Trigger) []cdrType.Trigger {
 	cdrTriggers := make([]cdrType.Trigger, 0, len(triggers))
 
 	return cdrTriggers

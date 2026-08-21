@@ -34,7 +34,7 @@ func TestChargingDataUpdateRejectsUnknownChargingDataRef(t *testing.T) {
 	})
 
 	p := &Processor{}
-	response, problemDetails := p.ChargingDataUpdate(models.ChfConvergedChargingChargingDataRequest{
+	response, problemDetails := p.ChargingDataUpdate(models.Chf_ConvCharging_ChargingDataRequest{
 		SubscriberIdentifier: supi,
 	}, "does-not-exist-partial")
 
@@ -52,7 +52,7 @@ func TestOpenCDRPartialRecordReturnsErrorWhenSessionMissing(t *testing.T) {
 		Cdr:  map[string]*cdrType.CHFRecord{},
 	}
 
-	cdr, err := p.OpenCDR(models.ChfConvergedChargingChargingDataRequest{}, ue, "missing-session", true)
+	cdr, err := p.OpenCDR(models.Chf_ConvCharging_ChargingDataRequest{}, ue, "missing-session", true)
 	require.Nil(t, cdr)
 	require.Error(t, err)
 }

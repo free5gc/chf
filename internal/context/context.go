@@ -22,7 +22,7 @@ func Init() {
 }
 
 type NFContext interface {
-	AuthorizationCheck(token string, serviceName models.ServiceName) error
+	AuthorizationCheck(token string, serviceName models.Nrf_NFMgmt_ServiceName) error
 }
 
 var _ NFContext = &CHFContext{}
@@ -35,7 +35,7 @@ type CHFContext struct {
 	BindingIPv4               string
 	RegisterIPv4              string
 	SBIPort                   int
-	NfService                 map[models.ServiceName]models.NrfNfManagementNfService
+	NfService                 map[models.Nrf_NFMgmt_ServiceName]models.Nrf_NFMgmt_NFService
 	RecordSequenceNumber      map[string]int64
 	LocalRecordSequenceNumber uint64
 	NrfUri                    string
@@ -52,7 +52,7 @@ type CHFContext struct {
 	sync.Mutex
 }
 
-func (c *CHFContext) AuthorizationCheck(token string, serviceName models.ServiceName) error {
+func (c *CHFContext) AuthorizationCheck(token string, serviceName models.Nrf_NFMgmt_ServiceName) error {
 	if !c.OAuth2Required {
 		logger.UtilLog.Debugf("CHFContext::AuthorizationCheck: OAuth2 not required\n")
 		return nil
@@ -60,7 +60,7 @@ func (c *CHFContext) AuthorizationCheck(token string, serviceName models.Service
 
 	logger.UtilLog.Debugf("CHFContext::AuthorizationCheck: token[%s] serviceName[%s]\n", token, serviceName)
 	return oauth.VerifyOAuth(token, string(serviceName), oauth.AudiencePolicy{
-		NFInstanceID: c.NfId, NFType: models.NrfNfManagementNfType_CHF,
+		NFInstanceID: c.NfId, NFType: models.Nrf_NFMgmt_NFType_CHF,
 	}, c.NrfNfInstanceID, c.NrfCertPem)
 }
 
@@ -120,7 +120,7 @@ func (c *CHFContext) GetSelfID() string {
 	return c.NfId
 }
 
-func (c *CHFContext) GetTokenCtx(serviceName models.ServiceName, targetNF models.NrfNfManagementNfType) (
+func (c *CHFContext) GetTokenCtx(serviceName models.Nrf_NFMgmt_ServiceName, targetNF models.Nrf_NFMgmt_NFType) (
 	context.Context, *models.ProblemDetails, error,
 ) {
 	if !c.OAuth2Required {
@@ -129,8 +129,8 @@ func (c *CHFContext) GetTokenCtx(serviceName models.ServiceName, targetNF models
 	return oauth.GetTokenCtx(c.tokenRequest(serviceName, targetNF))
 }
 
-func (c *CHFContext) GetTokenCtxForNFInstance(serviceName models.ServiceName,
-	targetNF models.NrfNfManagementNfType, targetNFInstanceID string,
+func (c *CHFContext) GetTokenCtxForNFInstance(serviceName models.Nrf_NFMgmt_ServiceName,
+	targetNF models.Nrf_NFMgmt_NFType, targetNFInstanceID string,
 ) (context.Context, *models.ProblemDetails, error) {
 	if !c.OAuth2Required {
 		return context.TODO(), nil, nil
@@ -145,23 +145,23 @@ func (c *CHFContext) GetTokenCtxForNFInstance(serviceName models.ServiceName,
 	return oauth.GetTokenCtx(c.tokenRequestForNFInstance(serviceName, targetNF, targetNFInstanceID))
 }
 
-func (c *CHFContext) GetTokenCtxForNRF(serviceName models.ServiceName) (
+func (c *CHFContext) GetTokenCtxForNRF(serviceName models.Nrf_NFMgmt_ServiceName) (
 	context.Context, *models.ProblemDetails, error,
 ) {
-	return c.GetTokenCtxForNFInstance(serviceName, models.NrfNfManagementNfType_NRF, c.NrfNfInstanceID)
+	return c.GetTokenCtxForNFInstance(serviceName, models.Nrf_NFMgmt_NFType_NRF, c.NrfNfInstanceID)
 }
 
-func (c *CHFContext) tokenRequest(serviceName models.ServiceName,
-	targetNF models.NrfNfManagementNfType,
+func (c *CHFContext) tokenRequest(serviceName models.Nrf_NFMgmt_ServiceName,
+	targetNF models.Nrf_NFMgmt_NFType,
 ) oauth.TokenRequest {
 	return oauth.TokenRequest{
-		ConsumerNFType: models.NrfNfManagementNfType_CHF, ConsumerNFInstanceID: c.NfId,
+		ConsumerNFType: models.Nrf_NFMgmt_NFType_CHF, ConsumerNFInstanceID: c.NfId,
 		TargetNFType: targetNF, NRFURI: c.NrfUri, Scope: string(serviceName),
 	}
 }
 
-func (c *CHFContext) tokenRequestForNFInstance(serviceName models.ServiceName,
-	targetNF models.NrfNfManagementNfType, targetNFInstanceID string,
+func (c *CHFContext) tokenRequestForNFInstance(serviceName models.Nrf_NFMgmt_ServiceName,
+	targetNF models.Nrf_NFMgmt_NFType, targetNFInstanceID string,
 ) oauth.TokenRequest {
 	request := c.tokenRequest(serviceName, targetNF)
 	request.TargetNFInstanceID = targetNFInstanceID

@@ -64,31 +64,31 @@ func newRouter(s *Server) *gin.Engine {
 	router.Use(metrics.InboundMetrics())
 
 	for _, serviceName := range s.Config().Configuration.ServiceNameList {
-		switch models.ServiceName(serviceName) {
-		case models.ServiceName_NCHF_CONVERGEDCHARGING:
+		switch models.Nrf_NFMgmt_ServiceName(serviceName) {
+		case models.Nrf_NFMgmt_ServiceName_NCHF_CONVERGEDCHARGING:
 			chfConvergedChargingGroup := router.Group(factory.ConvergedChargingResUriPrefix)
 			chfConvergedChargingGroup.Use(func(c *gin.Context) {
 				// oauth middleware
-				util.NewRouterAuthorizationCheck(models.ServiceName(serviceName)).Check(c, s.Context())
+				util.NewRouterAuthorizationCheck(models.Nrf_NFMgmt_ServiceName(serviceName)).Check(c, s.Context())
 			})
 			chfConvergedChargingRoutes := s.getConvergenChargingRoutes()
 			applyRoutes(chfConvergedChargingGroup, chfConvergedChargingRoutes)
 
-		case models.ServiceName_NCHF_OFFLINEONLYCHARGING:
+		case models.Nrf_NFMgmt_ServiceName_NCHF_OFFLINEONLYCHARGING:
 			chfOfflineOnlyChargingGroup := router.Group(factory.OfflineOnlyChargingResUriPrefix)
 			chfOfflineOnlyChargingGroup.Use(func(c *gin.Context) {
 				// oauth middleware
-				util.NewRouterAuthorizationCheck(models.ServiceName(serviceName)).Check(c, s.Context())
+				util.NewRouterAuthorizationCheck(models.Nrf_NFMgmt_ServiceName(serviceName)).Check(c, s.Context())
 			})
 
 			chfOfflineOnlyChargingGroupRoutes := s.getOfflineOnlyChargingRoutes()
 			applyRoutes(chfOfflineOnlyChargingGroup, chfOfflineOnlyChargingGroupRoutes)
 
-		case models.ServiceName_NCHF_SPENDINGLIMITCONTROL:
+		case models.Nrf_NFMgmt_ServiceName_NCHF_SPENDINGLIMITCONTROL:
 			chfSpendingLimitControlGroup := router.Group(factory.SpendingLimitControlResUriPrefix)
 			chfSpendingLimitControlGroup.Use(func(c *gin.Context) {
 				// oauth middleware
-				util.NewRouterAuthorizationCheck(models.ServiceName(serviceName)).Check(c, s.Context())
+				util.NewRouterAuthorizationCheck(models.Nrf_NFMgmt_ServiceName(serviceName)).Check(c, s.Context())
 			})
 			chfSpendingLimitControlRoutes := s.getSpendingLimitControlRoutes()
 			applyRoutes(chfSpendingLimitControlGroup, chfSpendingLimitControlRoutes)

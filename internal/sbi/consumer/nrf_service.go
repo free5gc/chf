@@ -12,8 +12,8 @@ import (
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
-	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDiscovery"
-	Nnrf_NFManagement "github.com/free5gc/openapi/nrf/NFManagement"
+	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDisc"
+	Nnrf_NFManagement "github.com/free5gc/openapi/nrf/NFMgmt"
 	sbi_metrics "github.com/free5gc/util/metrics/sbi"
 )
 
@@ -76,16 +76,16 @@ func (s *nnrfService) getNFDiscClient(uri string) *Nnrf_NFDiscovery.APIClient {
 
 func (s *nnrfService) SendSearchNFInstances(
 	nrfUri string, targetNfType,
-	requestNfType models.NrfNfManagementNfType,
+	requestNfType models.Nrf_NFMgmt_NFType,
 	param Nnrf_NFDiscovery.SearchNFInstancesRequest,
 ) (
-	*models.SearchResult, error,
+	*models.Nrf_NFDisc_SearchResult, error,
 ) {
 	chfContext := s.consumer.Context()
 
 	client := s.getNFDiscClient(chfContext.NrfUri)
 
-	ctx, _, err := s.consumer.Context().GetTokenCtxForNRF(models.ServiceName_NNRF_DISC)
+	ctx, _, err := s.consumer.Context().GetTokenCtxForNRF(models.Nrf_NFMgmt_ServiceName_NNRF_DISC)
 	if err != nil {
 		return nil, err
 	}
@@ -95,14 +95,13 @@ func (s *nnrfService) SendSearchNFInstances(
 		logger.ConsumerLog.Errorf("SearchNFInstances failed: %+v", err)
 		return nil, err
 	}
-	result := res.SearchResult
-	return &result, nil
+	return res.Nrf_NFDisc_SearchResult, nil
 }
 
 func (s *nnrfService) SendDeregisterNFInstance() (*models.ProblemDetails, error) {
 	logger.ConsumerLog.Infof("Send Deregister NFInstance")
 
-	ctx, pd, err := chf_context.GetSelf().GetTokenCtxForNRF(models.ServiceName_NNRF_NFM)
+	ctx, pd, err := chf_context.GetSelf().GetTokenCtxForNRF(models.Nrf_NFMgmt_ServiceName_NNRF_NFM)
 	if err != nil {
 		return pd, err
 	}
@@ -117,7 +116,7 @@ func (s *nnrfService) SendDeregisterNFInstance() (*models.ProblemDetails, error)
 	if apiErr, ok := err.(openapi.GenericOpenAPIError); ok {
 		// API error
 		if deregNfError, okDeg := apiErr.Model().(Nnrf_NFManagement.DeregisterNFInstanceError); okDeg {
-			return &deregNfError.ProblemDetails, err
+			return deregNfError.ProblemDetails, err
 		}
 		return nil, err
 	}
@@ -134,11 +133,11 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 		return "", "", errors.Wrap(err, "RegisterNFInstance buildNfProfile()")
 	}
 
-	var nf models.NrfNfManagementNfProfile
+	var nf models.Nrf_NFMgmt_NFProfile
 	var res *Nnrf_NFManagement.RegisterNFInstanceResponse
 	registerNFInstanceRequest := &Nnrf_NFManagement.RegisterNFInstanceRequest{
-		NfInstanceID:             &chfContext.NfId,
-		NrfNfManagementNfProfile: &nfProfile,
+		NfInstanceID: &chfContext.NfId,
+		RequestBody:  &nfProfile,
 	}
 	for {
 		select {
@@ -152,7 +151,9 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		nf = res.NrfNfManagementNfProfile
+		if res.Nrf_NFMgmt_NFProfile != nil {
+			nf = *res.Nrf_NFMgmt_NFProfile
+		}
 
 		// http.StatusOK
 		if res.Location == "" {
@@ -165,8 +166,8 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 			retrieveNfInstanceID = resourceUri[strings.LastIndex(resourceUri, "/")+1:]
 
 			oauth2 := false
-			if nf.CustomInfo != nil {
-				v, ok := nf.CustomInfo["oauth2"].(bool)
+			if customInfo, isMap := nf.CustomInfo.(map[string]interface{}); isMap {
+				v, ok := customInfo["oauth2"].(bool)
 				if ok {
 					oauth2 = v
 					logger.MainLog.Infoln("OAuth2 setting receive from NRF:", oauth2)
@@ -184,21 +185,21 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context) (
 
 func (s *nnrfService) buildNfProfile(
 	chfContext *chf_context.CHFContext,
-) (profile models.NrfNfManagementNfProfile, err error) {
+) (profile models.Nrf_NFMgmt_NFProfile, err error) {
 	profile.NfInstanceId = chfContext.NfId
-	profile.NfType = models.NrfNfManagementNfType_CHF
-	profile.NfStatus = models.NrfNfManagementNfStatus_REGISTERED
+	profile.NfType = models.Nrf_NFMgmt_NFType_CHF
+	profile.NfStatus = models.Nrf_NFMgmt_NFStatus_REGISTERED
 	profile.Ipv4Addresses = append(profile.Ipv4Addresses, chfContext.RegisterIPv4)
-	services := []models.NrfNfManagementNfService{}
+	services := []models.Nrf_NFMgmt_NFService{}
 	for _, nfService := range chfContext.NfService {
 		services = append(services, nfService)
 	}
 	if len(services) > 0 {
 		profile.NfServices = services
 	}
-	profile.ChfInfo = &models.ChfInfo{
+	profile.ChfInfo = &models.Nrf_NFMgmt_ChfInfo{
 		// Todo
-		// SupiRanges: &[]models.SupiRange{
+		// SupiRanges: &[]models.Nrf_NFMgmt_SupiRange{
 		// 	{
 		// 		// from TS 29.510 6.1.6.2.9 example2
 		//		// no need to set supirange in this moment 2019/10/4

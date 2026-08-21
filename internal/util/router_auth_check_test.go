@@ -23,7 +23,7 @@ func newMockCHFContext() *mockCHFContext {
 	return &mockCHFContext{}
 }
 
-func (m *mockCHFContext) AuthorizationCheck(token string, serviceName models.ServiceName) error {
+func (m *mockCHFContext) AuthorizationCheck(token string, serviceName models.Nrf_NFMgmt_ServiceName) error {
 	if token == Valid {
 		return nil
 	}
@@ -84,7 +84,7 @@ func TestRouterAuthorizationCheck_Check(t *testing.T) {
 			}
 			c.Request.Header.Set("Authorization", tt.args.token)
 
-			var serviceName models.ServiceName = "testService"
+			var serviceName models.Nrf_NFMgmt_ServiceName = "testService"
 
 			rac := NewRouterAuthorizationCheck(serviceName)
 			rac.Check(c, newMockCHFContext())
