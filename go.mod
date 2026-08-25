@@ -30,6 +30,7 @@ require (
 	github.com/urfave/cli/v2 v2.27.7
 	go.uber.org/mock v0.4.0
 	golang.org/x/exp v0.0.0-20231127185646-65229373498e
+	golang.org/x/net v0.55.0
 )
 
 require (
@@ -110,7 +111,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
-	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
