@@ -75,7 +75,6 @@ type Configuration struct {
 	ServiceNameList     []string  `yaml:"serviceNameList,omitempty" valid:"required"`
 	NrfUri              string    `yaml:"nrfUri,omitempty" valid:"required, url"`
 	NrfCertPem          string    `yaml:"nrfCertPem,omitempty" valid:"optional"`
-	NrfNfInstanceId     string    `yaml:"nrfNfInstanceId,omitempty" valid:"optional,uuidv4"`
 	Mongodb             *Mongodb  `yaml:"mongodb" valid:"required"`
 	VolumeLimit         int32     `yaml:"volumeLimit,omitempty" valid:"optional"`
 	VolumeLimitPDU      int32     `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
