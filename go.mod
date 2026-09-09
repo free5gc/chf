@@ -21,6 +21,8 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
+replace github.com/free5gc/openapi => github.com/carlhus/openapi v0.0.0-20260831123630-67c603f8c589
+
 require (
 	github.com/h2non/gock v1.2.0
 	github.com/pkg/errors v0.9.1
