@@ -10,14 +10,14 @@ require (
 	github.com/fclairamb/go-log v0.4.1
 	github.com/fiorix/go-diameter v3.0.2+incompatible
 	github.com/free5gc/openapi v1.3.0
-	github.com/free5gc/util v1.4.0
+	github.com/free5gc/util v1.4.1-0.20260918051623-86c859a404ad
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.6.0
 	github.com/ishidawataru/sctp v0.0.0-20230406120618-7ff4192f6ff2 // indirect
 	github.com/jlaffaye/ftp v0.1.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
-	go.mongodb.org/mongo-driver v1.17.1
+	go.mongodb.org/mongo-driver v1.17.7
 	gopkg.in/yaml.v2 v2.4.0
 )
 

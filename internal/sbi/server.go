@@ -102,10 +102,12 @@ func newRouter(s *Server) *gin.Engine {
 }
 
 func (s *Server) Run(traceCtx context.Context, wg *sync.WaitGroup) error {
-	var err error
-	_, s.Context().NfId, err = s.Consumer().RegisterNFInstance(s.CancelContext())
-	if err != nil {
+	ctx := s.CancelContext()
+	if err := s.Consumer().RegisterNFInstance(ctx, true); err != nil {
 		logger.InitLog.Errorf("CHF register to NRF Error[%s]", err.Error())
+	} else {
+		// Only a registered profile has something to keep alive.
+		s.Consumer().StartHeartbeat(ctx, wg)
 	}
 
 	wg.Add(1)
