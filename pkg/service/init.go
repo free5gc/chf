@@ -217,6 +217,9 @@ func (c *ChfApp) terminateProcedure() {
 	logger.MainLog.Infof("Terminating CHF...")
 	c.CallServerStop()
 
+	// no heartbeat PATCH or re-registration PUT may land after the deregistration
+	c.Consumer().WaitHeartbeatStopped()
+
 	// deregister with NRF
 	problemDetails, err := c.Consumer().SendDeregisterNFInstance()
 	if problemDetails != nil {

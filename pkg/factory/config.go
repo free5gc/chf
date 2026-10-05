@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/free5gc/chf/internal/logger"
+	"github.com/free5gc/util/nfheartbeat"
 )
 
 const (
@@ -84,6 +85,9 @@ type Configuration struct {
 	RfDiameter          *Diameter `yaml:"rfDiameter,omitempty" valid:"required"`
 	AbmfDiameter        *Diameter `yaml:"abmfDiameter,omitempty" valid:"required"`
 	Cgf                 *Cgf      `yaml:"cgf,omitempty" valid:"required"`
+	// NfHeartBeatTimer is the fallback heartbeat interval in seconds, from 1 to
+	// 3600 as the NRF accepts. The interval the NRF assigns always wins.
+	NfHeartBeatTimer int32 `yaml:"nfHeartBeatTimer,omitempty" valid:"optional,range(1|3600)"`
 }
 
 type Logger struct {
@@ -156,6 +160,17 @@ type Cgf struct {
 	} `yaml:"passiveTransferPortRange,omitempty" valid:"optional"`
 	Tls         *Tls   `yaml:"tls,omitempty" valid:"optional"`
 	CdrFilePath string `yaml:"cdrFilePath,omitempty" valid:"optional"`
+}
+
+// GetNfHeartBeatTimer returns the fallback heartbeat interval in seconds.
+func (c *Config) GetNfHeartBeatTimer() int32 {
+	c.RLock()
+	defer c.RUnlock()
+
+	if c.Configuration != nil && c.Configuration.NfHeartBeatTimer > 0 {
+		return c.Configuration.NfHeartBeatTimer
+	}
+	return nfheartbeat.DefaultTimer
 }
 
 func (c *Config) GetNfInstanceId() string {
