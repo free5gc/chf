@@ -91,6 +91,9 @@ func (s *nnrfService) SendSearchNFInstances(
 	chfContext := s.consumer.Context()
 
 	client := s.getNFDiscClient(chfContext.NrfUri)
+	if client == nil {
+		return nil, errors.Errorf("SendSearchNFInstances: nrf not found")
+	}
 
 	ctx, _, err := s.consumer.Context().GetTokenCtx(models.Nrf_NFMgmt_ServiceName_NNRF_DISC, models.Nrf_NFMgmt_NFType_NRF)
 	if err != nil {
@@ -108,13 +111,17 @@ func (s *nnrfService) SendSearchNFInstances(
 func (s *nnrfService) SendDeregisterNFInstance() (*models.ProblemDetails, error) {
 	logger.ConsumerLog.Infof("Send Deregister NFInstance")
 
-	ctx, pd, err := chf_context.GetSelf().GetTokenCtx(models.Nrf_NFMgmt_ServiceName_NNRF_NFM, models.Nrf_NFMgmt_NFType_NRF)
+	chfContext := s.consumer.Context()
+	ctx, pd, err := chfContext.GetTokenCtx(models.Nrf_NFMgmt_ServiceName_NNRF_NFM, models.Nrf_NFMgmt_NFType_NRF)
 	if err != nil {
 		return pd, err
 	}
 
-	chfContext := s.consumer.Context()
 	client := s.getNFManagementClient(chfContext.NrfUri)
+	if client == nil {
+		return nil, errors.Errorf("SendDeregisterNFInstance: nrf not found")
+	}
+
 	request := &Nnrf_NFManagement.DeregisterNFInstanceRequest{
 		NfInstanceID: &chfContext.NfId,
 	}
