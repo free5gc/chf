@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
@@ -68,22 +69,23 @@ type Info struct {
 }
 
 type Configuration struct {
-	ChfName             string    `yaml:"chfName,omitempty" valid:"required, type(string)"`
-	NfInstanceId        string    `yaml:"nfInstanceId,omitempty" valid:"optional,uuidv4"`
-	Sbi                 *Sbi      `yaml:"sbi,omitempty" valid:"required"`
-	Metrics             *Metrics  `yaml:"metrics,omitempty" valid:"optional"`
-	ServiceNameList     []string  `yaml:"serviceNameList,omitempty" valid:"required"`
-	NrfUri              string    `yaml:"nrfUri,omitempty" valid:"required, url"`
-	NrfCertPem          string    `yaml:"nrfCertPem,omitempty" valid:"optional"`
-	Mongodb             *Mongodb  `yaml:"mongodb" valid:"required"`
-	VolumeLimit         int32     `yaml:"volumeLimit,omitempty" valid:"optional"`
-	VolumeLimitPDU      int32     `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
-	ReserveQuotaRatio   int32     `yaml:"reserveQuotaRatio,omitempty" valid:"optional"`
-	VolumeThresholdRate float32   `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
-	QuotaValidityTime   int32     `yaml:"quotaValidityTime,omitempty" valid:"optional"`
-	RfDiameter          *Diameter `yaml:"rfDiameter,omitempty" valid:"required"`
-	AbmfDiameter        *Diameter `yaml:"abmfDiameter,omitempty" valid:"required"`
-	Cgf                 *Cgf      `yaml:"cgf,omitempty" valid:"required"`
+	IdleTimeout         *time.Duration `yaml:"idleTimeout,omitempty" valid:"optional"`
+	ChfName             string         `yaml:"chfName,omitempty" valid:"required, type(string)"`
+	NfInstanceId        string         `yaml:"nfInstanceId,omitempty" valid:"optional,uuidv4"`
+	Sbi                 *Sbi           `yaml:"sbi,omitempty" valid:"required"`
+	Metrics             *Metrics       `yaml:"metrics,omitempty" valid:"optional"`
+	ServiceNameList     []string       `yaml:"serviceNameList,omitempty" valid:"required"`
+	NrfUri              string         `yaml:"nrfUri,omitempty" valid:"required, url"`
+	NrfCertPem          string         `yaml:"nrfCertPem,omitempty" valid:"optional"`
+	Mongodb             *Mongodb       `yaml:"mongodb" valid:"required"`
+	VolumeLimit         int32          `yaml:"volumeLimit,omitempty" valid:"optional"`
+	VolumeLimitPDU      int32          `yaml:"volumeLimitPDU,omitempty" valid:"optional"`
+	ReserveQuotaRatio   int32          `yaml:"reserveQuotaRatio,omitempty" valid:"optional"`
+	VolumeThresholdRate float32        `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
+	QuotaValidityTime   int32          `yaml:"quotaValidityTime,omitempty" valid:"optional"`
+	RfDiameter          *Diameter      `yaml:"rfDiameter,omitempty" valid:"required"`
+	AbmfDiameter        *Diameter      `yaml:"abmfDiameter,omitempty" valid:"required"`
+	Cgf                 *Cgf           `yaml:"cgf,omitempty" valid:"required"`
 }
 
 type Logger struct {
@@ -490,4 +492,15 @@ func (c *Config) GetMetricsNamespace() string {
 		return c.Configuration.Metrics.Namespace
 	}
 	return ChfMetricsDefaultNamespace
+}
+
+// GetIdleTimeout returns the HTTP server idle timeout. Omitted values preserve
+// the previous 1ms timeout; an explicit zero disables the timeout.
+func (c *Config) GetIdleTimeout() time.Duration {
+	c.RLock()
+	defer c.RUnlock()
+	if c.Configuration == nil || c.Configuration.IdleTimeout == nil {
+		return time.Millisecond
+	}
+	return *c.Configuration.IdleTimeout
 }
