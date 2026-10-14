@@ -69,6 +69,8 @@ type Info struct {
 }
 
 type Configuration struct {
+	ReadIdleTimeout     *time.Duration `yaml:"readIdleTimeout,omitempty" valid:"optional"`
+	PingTimeout         *time.Duration `yaml:"pingTimeout,omitempty" valid:"optional"`
 	IdleTimeout         *time.Duration `yaml:"idleTimeout,omitempty" valid:"optional"`
 	ChfName             string         `yaml:"chfName,omitempty" valid:"required, type(string)"`
 	NfInstanceId        string         `yaml:"nfInstanceId,omitempty" valid:"optional,uuidv4"`
@@ -503,4 +505,24 @@ func (c *Config) GetIdleTimeout() time.Duration {
 		return time.Millisecond
 	}
 	return *c.Configuration.IdleTimeout
+}
+
+// GetReadIdleTimeout returns the HTTP/2 client health-check timeout.
+func (c *Config) GetReadIdleTimeout() time.Duration {
+	c.RLock()
+	defer c.RUnlock()
+	if c.Configuration == nil || c.Configuration.ReadIdleTimeout == nil {
+		return time.Second
+	}
+	return *c.Configuration.ReadIdleTimeout
+}
+
+// GetPingTimeout returns the HTTP/2 client health-check timeout.
+func (c *Config) GetPingTimeout() time.Duration {
+	c.RLock()
+	defer c.RUnlock()
+	if c.Configuration == nil || c.Configuration.PingTimeout == nil {
+		return 2 * time.Second
+	}
+	return *c.Configuration.PingTimeout
 }
