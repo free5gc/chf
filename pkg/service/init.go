@@ -20,6 +20,7 @@ import (
 	"github.com/free5gc/chf/pkg/app"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/chf/pkg/rf"
+	"github.com/free5gc/openapi"
 	"github.com/free5gc/util/metrics"
 	"github.com/free5gc/util/metrics/utils"
 )
@@ -43,6 +44,9 @@ type ChfApp struct {
 }
 
 func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*ChfApp, error) {
+	if err := openapi.ConfigureHTTP2Clients(cfg.GetReadIdleTimeout(), cfg.GetPingTimeout()); err != nil {
+		return nil, err
+	}
 	chf := &ChfApp{
 		cfg: cfg,
 		wg:  sync.WaitGroup{},
@@ -75,7 +79,8 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 	customMetrics := make(map[utils.MetricTypeEnabled][]prometheus.Collector)
 	if cfg.AreMetricsEnabled() {
 		if chf.metricsServer, err = metrics.NewServer(
-			getInitMetrics(cfg, features, customMetrics), tlsKeyLogPath, logger.InitLog); err != nil {
+			getInitMetrics(cfg, features, customMetrics), tlsKeyLogPath, logger.InitLog, cfg.GetIdleTimeout(),
+		); err != nil {
 			return nil, err
 		}
 	}
