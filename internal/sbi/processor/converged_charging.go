@@ -89,11 +89,6 @@ func (p *Processor) HandleChargingdataInitial(
 	chargingdata models.Chf_ConvCharging_ChargingDataRequest,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataInitial")
-	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
-		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
-		c.JSON(int(problemDetails.Status), problemDetails)
-		return
-	}
 
 	response, locationURI, problemDetails := p.ChargingDataCreate(chargingdata)
 
@@ -120,11 +115,6 @@ func (p *Processor) HandleChargingdataUpdate(
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdataUpdate")
-	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
-		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
-		c.JSON(int(problemDetails.Status), problemDetails)
-		return
-	}
 
 	response, problemDetails := p.ChargingDataUpdate(chargingdata, chargingSessionId)
 
@@ -150,12 +140,6 @@ func (p *Processor) HandleChargingdataRelease(
 	chargingSessionId string,
 ) {
 	logger.ChargingdataPostLog.Infof("HandleChargingdateRelease")
-
-	if problemDetails := util.ValidateOnlineChargingRequestedUnit(chargingdata); problemDetails != nil {
-		c.Set(sbi.IN_PB_DETAILS_CTX_STR, problemDetails.Cause)
-		c.JSON(int(problemDetails.Status), problemDetails)
-		return
-	}
 
 	problemDetails := p.ChargingDataRelease(chargingdata, chargingSessionId)
 	if problemDetails == nil {
@@ -587,12 +571,14 @@ func sessionChargingReservation(
 			logger.ChargingdataPostLog.Infof("Credit Control are not required for rating group: %d", rg)
 			continue
 		}
-		// Only online charging with request unit or used unit need to perform credit control
-		//
-		// NOTE: FINAL triggers may switch the rating type to DEBIT for finalization. If the
-		// subsequent request includes RequestedUnit (re-authorization / regrant) and does not
-		// include FINAL, allow the rating group to return to RESERVE so quota can be granted again.
-		if creditControl && finalSeen && unitUsage.RequestedUnit != nil && unitUsage.RequestedUnit.TotalVolume > 0 {
+		// TS 32.290 Table 7.1: ONLINE usage without Requested Unit is the last
+		// request for this rating group, even without an explicit FINAL trigger.
+		// Settle its usage and return unused reservations without granting new quota.
+		if unitUsage.RequestedUnit == nil {
+			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
+			partialRecord = false
+		} else if finalSeen && unitUsage.RequestedUnit.TotalVolume > 0 {
+			// A FINAL usage container can accompany a credit request for live services.
 			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
 		}
 
