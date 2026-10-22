@@ -329,7 +329,7 @@ func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
 	for _, record := range records {
 		cdrBytes, err := asn.BerMarshalWithParams(&record, "explicit,choice")
 		if err != nil {
-			logger.ChargingdataPostLog.Errorln(err)
+			return fmt.Errorf("encode CDR: %w", err)
 		}
 
 		var cdrHdr cdrFile.CdrHeader

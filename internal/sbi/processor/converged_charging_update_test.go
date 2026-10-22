@@ -35,7 +35,7 @@ func TestChargingDataUpdateRejectsUnknownChargingDataRef(t *testing.T) {
 		self.UePool.Delete(supi)
 	})
 
-	p := &Processor{}
+	p := &Processor{journal: newTestJournal()}
 	response, problemDetails := p.ChargingDataUpdate(models.Chf_ConvCharging_ChargingDataRequest{
 		SubscriberIdentifier: supi,
 	}, "does-not-exist-partial")
@@ -47,7 +47,7 @@ func TestChargingDataUpdateRejectsUnknownChargingDataRef(t *testing.T) {
 }
 
 func TestOpenCDRPartialRecordReturnsErrorWhenSessionMissing(t *testing.T) {
-	p := &Processor{}
+	p := &Processor{journal: newTestJournal()}
 
 	ue := &chf_context.ChfUe{
 		Supi: "imsi-208930000000951",
@@ -106,7 +106,7 @@ func TestChargingdataUpdateAcceptsLastOnlineUsageWithoutRequestedUnit(t *testing
 			}
 			recorder := httptest.NewRecorder()
 			ctx, _ := gin.CreateTestContext(recorder)
-			(&Processor{}).HandleChargingdataUpdate(ctx, request, "unknown-charging-data-ref")
+			(&Processor{journal: newTestJournal()}).HandleChargingdataUpdate(ctx, request, "unknown-charging-data-ref")
 			require.Equal(t, http.StatusNotFound, recorder.Code)
 			require.JSONEq(t, `{
 				"title":"Context Not Found", "status":404,
