@@ -11,17 +11,17 @@ import (
 
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"golang.org/x/exp/constraints"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/asn"
 	"github.com/free5gc/chf/cdr/cdrConvert"
 	"github.com/free5gc/chf/cdr/cdrType"
-	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/cgf"
+	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
 	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvCharging"
 	"github.com/free5gc/openapi/models"
@@ -169,7 +169,7 @@ func (p *Processor) ChargingDataCreate(
 	// Open CDR
 	// ChargingDataRef(charging session id):
 	// A unique identifier for a charging data resource in a PLMN
-	// TODO determine charging session id(string type) supi+consumerid+localseq?
+	// Include a UUID so restarting CHF cannot reuse a persisted resource identity.
 	ue, err := self.NewCHFUe(ueId)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
@@ -185,7 +185,7 @@ func (p *Processor) ChargingDataCreate(
 
 	consumerId := chargingData.NfConsumerIdentification.NFName
 	if !chargingData.OneTimeEvent {
-		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
+		chargingSessionId = ueId + "-" + consumerId + "-" + uuid.NewString()
 	}
 	cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
@@ -239,15 +239,24 @@ func (p *Processor) ChargingDataCreate(
 func (p *Processor) ChargingDataUpdate(
 	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
 ) (*models.Chf_ConvCharging_ChargingDataResponse, *models.ProblemDetails) {
+	record, problem := p.beginChargingRequest(chargingData, chargingSessionId, chargingUpdateOperation)
+	if problem != nil {
+		return nil, problem
+	}
+	// Only a replay needs decoding; a fresh request returns the response built below.
+	if record.State == charging.Succeeded {
+		var response models.Chf_ConvCharging_ChargingDataResponse
+		if err := json.Unmarshal(record.Result.Body, &response); err != nil {
+			return nil, chargingProblem(err)
+		}
+		return &response, nil
+	}
+
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
 	if !ok {
-		logger.ChargingdataPostLog.Errorf("CHFUe[%s] not found", ueId)
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return nil, problemDetails
+		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 
 	ue.CULock.Lock()
@@ -255,19 +264,15 @@ func (p *Processor) ChargingDataUpdate(
 
 	cdr, ok := ue.Cdr[chargingSessionId]
 	if !ok || cdr == nil {
-		detail := fmt.Sprintf("ChargingDataRef[%s] not found", chargingSessionId)
-		logger.ChargingdataPostLog.Warnln(detail)
-		problemDetails := &models.ProblemDetails{
-			Title:  "Context Not Found",
-			Status: http.StatusNotFound,
-			Detail: detail,
-			Cause:  "CONTEXT_NOT_FOUND",
-		}
-		return nil, problemDetails
+		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 
 	// Online charging: Rate, Account, Reservation
-	responseBody, partialRecord := p.BuildConvergedChargingDataUpdateResopone(chargingData)
+	responseBody, partialRecord, reservationErr := p.BuildConvergedChargingDataUpdateResopone(
+		chargingData, chargingSessionId)
+	if reservationErr != nil {
+		return nil, p.failChargingRequest(record, chargingProblem(reservationErr))
+	}
 
 	cdrBytes, errCdrBer := asn.BerMarshalWithParams(&cdr, "explicit,choice")
 	if errCdrBer != nil {
@@ -276,7 +281,7 @@ func (p *Processor) ChargingDataUpdate(
 			Status: http.StatusBadRequest,
 			Detail: errCdrBer.Error(),
 		}
-		return nil, problemDetails
+		return nil, p.failChargingRequest(record, problemDetails)
 	}
 
 	var chgDataBytes []byte
@@ -290,7 +295,7 @@ func (p *Processor) ChargingDataUpdate(
 				Status: http.StatusBadRequest,
 				Detail: errChgDataBer.Error(),
 			}
-			return nil, problemDetails
+			return nil, p.failChargingRequest(record, problemDetails)
 		}
 	}
 
@@ -298,11 +303,11 @@ func (p *Processor) ChargingDataUpdate(
 		var newRecord *cdrType.CHFRecord
 		cdrJson, err := json.Marshal(cdr)
 		if err != nil {
-			logger.ChargingdataPostLog.Error(err)
+			return nil, p.failChargingRequest(record, chargingProblem(err))
 		}
 		err = json.Unmarshal(cdrJson, &newRecord)
 		if err != nil {
-			logger.ChargingdataPostLog.Error(err)
+			return nil, p.failChargingRequest(record, chargingProblem(err))
 		}
 
 		newRecord.ChargingFunctionRecord.ListOfMultipleUnitUsage = []cdrType.MultipleUnitUsage{}
@@ -316,7 +321,7 @@ func (p *Processor) ChargingDataUpdate(
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
-		return nil, problemDetails
+		return nil, p.failChargingRequest(record, problemDetails)
 	}
 
 	if partialRecord {
@@ -324,14 +329,14 @@ func (p *Processor) ChargingDataUpdate(
 
 		close_err := p.CloseCDR(cdr, partialRecord)
 		if close_err != nil {
-			logger.ChargingdataPostLog.Error("CloseCDR error:", close_err)
+			return nil, p.failChargingRequest(record, chargingProblem(close_err))
 		}
 		err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
 		if err != nil {
 			problemDetails := &models.ProblemDetails{
 				Status: http.StatusBadRequest,
 			}
-			return nil, problemDetails
+			return nil, p.failChargingRequest(record, problemDetails)
 		}
 
 		reopenedCdr, oper_err := p.OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
@@ -341,7 +346,7 @@ func (p *Processor) ChargingDataUpdate(
 				Status: http.StatusBadRequest,
 				Detail: oper_err.Error(),
 			}
-			return nil, problemDetails
+			return nil, p.failChargingRequest(record, problemDetails)
 		}
 		ue.Cdr[chargingSessionId] = reopenedCdr
 		logger.ChargingdataPostLog.Tracef(
@@ -353,7 +358,7 @@ func (p *Processor) ChargingDataUpdate(
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
-		return nil, problemDetails
+		return nil, p.failChargingRequest(record, problemDetails)
 	}
 
 	err = cgf.SendCDR(chargingData.SubscriberIdentifier)
@@ -365,29 +370,45 @@ func (p *Processor) ChargingDataUpdate(
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
+	body, encodeErr := json.Marshal(responseBody)
+	if encodeErr != nil {
+		return nil, p.failChargingRequest(record, chargingProblem(encodeErr))
+	}
+	if problem = p.finishChargingRequest(record, charging.Result{Status: http.StatusOK, Body: body},
+		charging.Succeeded); problem != nil {
+		return nil, problem
+	}
 	return &responseBody, nil
 }
 
 func (p *Processor) ChargingDataRelease(
 	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
 ) *models.ProblemDetails {
+	record, problem := p.beginChargingRequest(chargingData, chargingSessionId, chargingReleaseOperation)
+	if problem != nil {
+		return problem
+	}
+	if record.State == charging.Succeeded {
+		return nil
+	}
+
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
 	if !ok {
-		logger.ChargingdataPostLog.Errorf("Do not find CHFUe[%s] error", ueId)
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return problemDetails
+		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
-	sessionChargingReservation(chargingData)
-
-	cdr := ue.Cdr[chargingSessionId]
+	cdr, exists := ue.Cdr[chargingSessionId]
+	if !exists || cdr == nil {
+		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	}
+	if _, _, err := p.sessionChargingReservation(chargingData, chargingSessionId); err != nil {
+		return p.failChargingRequest(record, chargingProblem(err))
+	}
 
 	err := p.UpdateCDR(cdr, chargingData)
 	if err != nil {
@@ -395,7 +416,7 @@ func (p *Processor) ChargingDataRelease(
 			Status: http.StatusBadRequest,
 			Cause:  err.Error(),
 		}
-		return problemDetails
+		return p.failChargingRequest(record, problemDetails)
 	}
 
 	err = p.CloseCDR(cdr, false)
@@ -403,7 +424,7 @@ func (p *Processor) ChargingDataRelease(
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
-		return problemDetails
+		return p.failChargingRequest(record, problemDetails)
 	}
 
 	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
@@ -411,70 +432,69 @@ func (p *Processor) ChargingDataRelease(
 		problemDetails := &models.ProblemDetails{
 			Status: http.StatusBadRequest,
 		}
-		return problemDetails
+		return p.failChargingRequest(record, problemDetails)
 	}
 
-	return nil
+	return p.finishChargingRequest(record, charging.Result{Status: http.StatusNoContent}, charging.Succeeded)
 }
 
 func (p *Processor) BuildOnlineChargingDataCreateResopone(
-	ue *chf_context.ChfUe, chargingData models.Chf_ConvCharging_ChargingDataRequest,
-) models.Chf_ConvCharging_ChargingDataResponse {
+	ue *chf_context.ChfUe, chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
+) (models.Chf_ConvCharging_ChargingDataResponse, error) {
 	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
 	ue.NotifyUri = chargingData.NotifyUri
 
-	multipleUnitInformation, _ := sessionChargingReservation(chargingData)
+	multipleUnitInformation, _, err := p.sessionChargingReservation(chargingData, chargingSessionId)
 
 	responseBody := models.Chf_ConvCharging_ChargingDataResponse{
 		MultipleUnitInformation: multipleUnitInformation,
 	}
 
-	return responseBody
+	return responseBody, err
 }
 
 func (p *Processor) BuildConvergedChargingDataUpdateResopone(
-	chargingData models.Chf_ConvCharging_ChargingDataRequest,
-) (models.Chf_ConvCharging_ChargingDataResponse, bool) {
-	var partialRecord bool
-
+	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
+) (models.Chf_ConvCharging_ChargingDataResponse, bool, error) {
 	logger.ChargingdataPostLog.Info("In BuildConvergedChargingDataUpdateResopone")
 
-	multipleUnitInformation, partialRecord := sessionChargingReservation(chargingData)
+	multipleUnitInformation, partialRecord, err := p.sessionChargingReservation(chargingData, chargingSessionId)
 
 	responseBody := models.Chf_ConvCharging_ChargingDataResponse{
 		MultipleUnitInformation: multipleUnitInformation,
 	}
 
-	return responseBody, partialRecord
+	return responseBody, partialRecord, err
 }
 
-func getUnitCost(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.ServiceUsageRequest) uint32 {
+func (p *Processor) getUnitCost(
+	ue *chf_context.ChfUe, rg int32, sur *charging_datatype.ServiceUsageRequest,
+) (uint32, error) {
 	if sur == nil {
-		logger.ChargingdataPostLog.Errorln("ServiceUsageRequest is nil, set unitCost to 1")
-		return 1
+		return 0, fmt.Errorf("service usage request is nil")
 	}
-
 	sur.ServiceRating = &charging_datatype.ServiceRating{
 		ServiceIdentifier: datatype.Unsigned32(rg),
-		MonetaryQuota:     datatype.Unsigned32(0), // dummy
+		MonetaryQuota:     0,
 		RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
 	}
-
-	serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+	response, err := p.sendServiceUsage(ue, sur)
 	if err != nil {
-		logger.ChargingdataPostLog.Errorf("err: %+v", err)
-		logger.ChargingdataPostLog.Errorln("cannot get unitCost by SendServiceUsageRequest, set unitCost to 1")
-		return 1
+		return 0, err
 	}
-
-	return uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
-		uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+	if response == nil || response.ServiceRating == nil || response.ServiceRating.MonetaryTariff == nil ||
+		response.ServiceRating.MonetaryTariff.RateElement == nil ||
+		response.ServiceRating.MonetaryTariff.RateElement.UnitCost == nil {
+		return 0, fmt.Errorf("rating response is missing unit cost")
+	}
+	cost := response.ServiceRating.MonetaryTariff.RateElement.UnitCost
+	return uint32(cost.ValueDigits) * uint32(math.Pow10(int(cost.Exponent))), nil
 }
 
 // 32.296 6.2.2.3.1: Service usage request method with reservation
-func sessionChargingReservation(
-	chargingData models.Chf_ConvCharging_ChargingDataRequest,
-) ([]models.Chf_ConvCharging_MultipleUnitInformation, bool) {
+func (p *Processor) sessionChargingReservation(
+	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
+) ([]models.Chf_ConvCharging_MultipleUnitInformation, bool, error) {
 	var multipleUnitInformation []models.Chf_ConvCharging_MultipleUnitInformation
 	var partialRecord bool
 	var subscriberIdentifier *charging_datatype.SubscriptionId
@@ -485,7 +505,7 @@ func sessionChargingReservation(
 	ue, ok := self.ChfUeFindBySupi(supi)
 	if !ok {
 		logger.ChargingdataPostLog.Warnf("Do not find UE[%s]", supi)
-		return nil, false
+		return nil, false, fmt.Errorf("charging UE %s not found", supi)
 	}
 
 	supiType := strings.Split(supi, "-")[0]
@@ -583,14 +603,21 @@ func sessionChargingReservation(
 		}
 
 		ccr := &charging_datatype.AccountDebitRequest{
-			SessionId:       datatype.UTF8String(strconv.Itoa(int(ue.AcctSessionId))),
-			OriginHost:      datatype.DiameterIdentity(self.AbmfCfg.OriginHost),
-			OriginRealm:     datatype.DiameterIdentity(self.AbmfCfg.OriginRealm),
-			EventTimestamp:  datatype.Time(time.Now()),
-			SubscriptionId:  subscriberIdentifier,
-			UserName:        datatype.OctetString(self.Name),
-			CcRequestNumber: datatype.Unsigned32(ue.AcctRequestNum[rg]),
+			CcRequestType:  charging_datatype.UPDATE_REQUEST,
+			OriginHost:     datatype.DiameterIdentity(self.AbmfCfg.OriginHost),
+			OriginRealm:    datatype.DiameterIdentity(self.AbmfCfg.OriginRealm),
+			EventTimestamp: datatype.Time(time.Now()),
+			SubscriptionId: subscriberIdentifier,
+			UserName:       datatype.OctetString(self.Name),
 		}
+
+		accountID, identityErr := charging.Digest(
+			[]any{chargingSessionId, chargingData.InvocationSequenceNumber, unitUsageNum})
+		if identityErr != nil {
+			return nil, false, identityErr
+		}
+		ccr.SessionId = datatype.UTF8String("chf;" + accountID)
+		ccr.CcRequestNumber = 0
 
 		sur := &charging_datatype.ServiceUsageRequest{
 			SessionId:      datatype.UTF8String(strconv.Itoa(int(ue.RateSessionId))),
@@ -610,7 +637,11 @@ func sessionChargingReservation(
 			}
 			var requestedQuota uint64
 
-			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
+			cost, costErr := p.getUnitCost(ue, rg, sur)
+			if costErr != nil {
+				return nil, false, costErr
+			}
+			ue.UnitCost[rg] = cost
 
 			var requestedTotalVolume uint32
 			if unitUsage.RequestedUnit != nil {
@@ -633,12 +664,15 @@ func sessionChargingReservation(
 					},
 				}
 
-				acctDebitRsp, err := abmf.SendAccountDebitRequest(ue, ccr)
+				acctDebitRsp, err := p.sendAccountDebit(ue, ccr)
 				if err != nil {
-					logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
-					continue
+					return nil, false, fmt.Errorf("account operation: %w", err)
 				}
 
+				if acctDebitRsp == nil || acctDebitRsp.MultipleServicesCreditControl == nil ||
+					acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit == nil {
+					return nil, false, fmt.Errorf("account response is missing granted units")
+				}
 				ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
 
 				// Deduct the reserved quota from the account
@@ -661,14 +695,20 @@ func sessionChargingReservation(
 			}
 
 			// Retrieve and save the tarrif for pricing the next usage
-			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+			serviceUsageRsp, err := p.sendServiceUsage(ue, sur)
 			if err != nil {
-				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
-				continue
+				return nil, false, fmt.Errorf("rating operation: %w", err)
 			}
 
-			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
+			cost, costErr = p.getUnitCost(ue, rg, sur)
+			if costErr != nil {
+				return nil, false, costErr
+			}
+			ue.UnitCost[rg] = cost
 
+			if serviceUsageRsp == nil || serviceUsageRsp.ServiceRating == nil {
+				return nil, false, fmt.Errorf("rating response is missing service rating")
+			}
 			grantedUnit := min(uint32(serviceUsageRsp.ServiceRating.AllowedUnits), requestedTotalVolume)
 
 			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
@@ -738,10 +778,12 @@ func sessionChargingReservation(
 				RequestSubType:    charging_datatype.REQ_SUBTYPE_DEBIT,
 			}
 
-			serviceUsageRsp, err := rating.SendServiceUsageRequest(ue, sur)
+			serviceUsageRsp, err := p.sendServiceUsage(ue, sur)
 			if err != nil {
-				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
-				continue
+				return nil, false, fmt.Errorf("rating operation: %w", err)
+			}
+			if serviceUsageRsp == nil || serviceUsageRsp.ServiceRating == nil {
+				return nil, false, fmt.Errorf("rating response is missing service rating")
 			}
 			logger.ChargingdataPostLog.Tracef(
 				"price %+v, ue.ReservedQuota[rg]: %+v", serviceUsageRsp.ServiceRating.Price, ue.ReservedQuota[rg])
@@ -776,10 +818,9 @@ func sessionChargingReservation(
 				}
 			}
 
-			_, err = abmf.SendAccountDebitRequest(ue, ccr)
+			_, err = p.sendAccountDebit(ue, ccr)
 			if err != nil {
-				logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
-				continue
+				return nil, false, fmt.Errorf("account operation: %w", err)
 			}
 			ue.ReservedQuota[rg] = 0
 
@@ -796,9 +837,7 @@ func sessionChargingReservation(
 			}
 		}
 		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
-
-		ue.AcctRequestNum[rg]++
 	}
 
-	return multipleUnitInformation, partialRecord
+	return multipleUnitInformation, partialRecord, nil
 }
