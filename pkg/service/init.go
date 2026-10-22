@@ -17,6 +17,7 @@ import (
 	"github.com/free5gc/chf/internal/cgf"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
+	chargingdb "github.com/free5gc/chf/internal/db"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi"
 	"github.com/free5gc/chf/internal/sbi/consumer"
@@ -85,6 +86,13 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 			}
 		}
 	}()
+	if err := chargingdb.InitializeSchema(dbCtx, chf.chargingDB); err != nil {
+		return nil, err
+	}
+	accounts := charging.NewAccounts(chf.chargingDB)
+	if err := accounts.ImportLegacy(dbCtx); err != nil {
+		return nil, err
+	}
 	processor, err_p := processor.NewProcessor(chf, charging.NewJournal(chf.chargingDB))
 	if err_p != nil {
 		return chf, err_p

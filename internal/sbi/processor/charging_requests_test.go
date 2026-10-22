@@ -17,11 +17,13 @@ import (
 	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/chf/internal/testutil"
 	"github.com/free5gc/openapi/models"
 )
 
@@ -329,4 +331,229 @@ func TestChargingRequestPersistsBodyForReconciliation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(record.Request, &persisted))
 	request.RetransmissionIndicator = false
 	require.Equal(t, request, persisted)
+}
+
+func TestChargingDataUpdateRejectsUnknownChargingDataRef(t *testing.T) {
+	self := chf_context.GetSelf()
+	supi := "imsi-208930000000950"
+
+	ue := &chf_context.ChfUe{
+		Supi: supi,
+		Cdr: map[string]*cdrType.CHFRecord{
+			"valid-session": {
+				ChargingFunctionRecord: &cdrType.ChargingRecord{},
+			},
+		},
+		Records: []*cdrType.CHFRecord{
+			{ChargingFunctionRecord: &cdrType.ChargingRecord{}},
+			{ChargingFunctionRecord: &cdrType.ChargingRecord{}},
+		},
+	}
+
+	self.UePool.Store(supi, ue)
+	t.Cleanup(func() {
+		self.UePool.Delete(supi)
+	})
+
+	p := &Processor{journal: newTestJournal()}
+	response, problemDetails := p.ChargingDataUpdate(models.Chf_ConvCharging_ChargingDataRequest{
+		SubscriberIdentifier: supi,
+	}, "does-not-exist-partial")
+
+	require.Nil(t, response)
+	require.NotNil(t, problemDetails)
+	require.Equal(t, http.StatusNotFound, int(problemDetails.Status))
+	require.Equal(t, "CONTEXT_NOT_FOUND", problemDetails.Cause)
+}
+
+// A valid usage report must reach session lookup instead of being rejected for
+// omitting RequestedUnit. Use an unknown reference to avoid external rating/CDR I/O.
+func TestChargingdataUpdateAcceptsLastOnlineUsageWithoutRequestedUnit(t *testing.T) {
+	self := chf_context.GetSelf()
+	const supi = "imsi-208930000000952"
+	self.UePool.Store(supi, &chf_context.ChfUe{Supi: supi, Cdr: map[string]*cdrType.CHFRecord{}})
+	t.Cleanup(func() { self.UePool.Delete(supi) })
+	finalTrigger := models.Chf_ConvCharging_Trigger{
+		TriggerType:     models.Chf_ConvCharging_TriggerType_FINAL,
+		TriggerCategory: models.Chf_ConvCharging_TriggerCategory_IMMEDIATE_REPORT,
+	}
+	for _, tc := range []struct {
+		name            string
+		requestTriggers []models.Chf_ConvCharging_Trigger
+		usageTriggers   []models.Chf_ConvCharging_Trigger
+		ongoingGroup    bool
+	}{
+		{name: "implicit last request"},
+		{name: "request FINAL", requestTriggers: []models.Chf_ConvCharging_Trigger{finalTrigger}},
+		{name: "usage FINAL", usageTriggers: []models.Chf_ConvCharging_Trigger{finalTrigger}},
+		{name: "another rating group requests quota", ongoingGroup: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := models.Chf_ConvCharging_ChargingDataRequest{
+				SubscriberIdentifier: supi,
+				Triggers:             tc.requestTriggers,
+				MultipleUnitUsage: []models.Chf_ConvCharging_MultipleUnitUsage{{
+					RatingGroup: 1,
+					UsedUnitContainer: []models.Chf_ConvCharging_UsedUnitContainer{{
+						QuotaManagementIndicator: models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING,
+						TotalVolume:              600,
+						Triggers:                 tc.usageTriggers,
+					}},
+				}},
+			}
+			if tc.ongoingGroup {
+				request.MultipleUnitUsage = append(request.MultipleUnitUsage,
+					models.Chf_ConvCharging_MultipleUnitUsage{
+						RatingGroup:   2,
+						RequestedUnit: &models.Chf_ConvCharging_RequestedUnit{TotalVolume: 1000},
+						UsedUnitContainer: []models.Chf_ConvCharging_UsedUnitContainer{{
+							QuotaManagementIndicator: models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING,
+						}},
+					})
+			}
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			(&Processor{journal: newTestJournal()}).HandleChargingdataUpdate(ctx, request, "unknown-charging-data-ref")
+			require.Equal(t, http.StatusNotFound, recorder.Code)
+			require.JSONEq(t, `{
+				"title":"Context Not Found", "status":404,
+				"detail":"ChargingDataRef[unknown-charging-data-ref] not found", "cause":"CONTEXT_NOT_FOUND"
+			}`, recorder.Body.String())
+		})
+	}
+}
+
+// The real processor, reservation logic, CDR writer, request journal and atomic
+// account store run here. Only the Diameter network boundary and rating are stubbed.
+func TestMongoChargingLostResponseReplaysWithoutAnotherDebit(t *testing.T) {
+	for _, tc := range []struct {
+		name, operation string
+		reserved        int64
+		remaining       string
+		requesting      bool
+	}{
+		{"update debit", chargingUpdateOperation, 0, "60", false},
+		{"release debit", chargingReleaseOperation, 0, "60", false},
+		{"update refund", chargingUpdateOperation, 100, "160", false},
+		{"release refund", chargingReleaseOperation, 100, "160", false},
+		{"update reservation", chargingUpdateOperation, 0, "860", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation := tc.operation
+			db := testutil.Mongo(t)
+			p, request, ref := chargingRequestSession(t)
+			p.journal = charging.NewJournal(db)
+			initialBalance := "100"
+			if tc.requesting {
+				initialBalance = "1000"
+				request.MultipleUnitUsage[0].RequestedUnit = &models.Chf_ConvCharging_RequestedUnit{TotalVolume: 100}
+			}
+			ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
+			require.True(t, ok)
+			ue.ReservedQuota[10] = tc.reserved
+			_, err := db.Collection("policyData.ues.chargingData").InsertOne(context.Background(), bson.M{
+				"ueId": request.SubscriberIdentifier, "ratingGroup": 10, "quota": initialBalance,
+			})
+			require.NoError(t, err)
+			accounts := charging.NewAccounts(db)
+			chf_context.GetSelf().AbmfCfg.OriginHost = "chf-test"
+			calls := 0
+			p.accountDebit = func(_ *chf_context.ChfUe, account *charging_datatype.AccountDebitRequest) (
+				*charging_datatype.AccountDebitResponse, error,
+			) {
+				calls++
+				return accounts.Apply(context.Background(), account)
+			}
+			p.serviceUsage = func(_ *chf_context.ChfUe, _ *charging_datatype.ServiceUsageRequest) (
+				*charging_datatype.ServiceUsageResponse, error,
+			) {
+				return &charging_datatype.ServiceUsageResponse{ServiceRating: &charging_datatype.ServiceRating{
+					Price: 40, AllowedUnits: 100,
+					MonetaryTariff: &charging_datatype.MonetaryTariff{RateElement: &charging_datatype.RateElement{
+						UnitCost: &charging_datatype.UnitCost{ValueDigits: 1},
+					}},
+				}}, nil
+			}
+			first := chargingAPIResponse(t, p, request, ref, operation)
+			status := http.StatusOK
+			if operation == chargingReleaseOperation {
+				status = http.StatusNoContent
+			}
+			require.Equal(t, status, first.Code, first.Body.String())
+			require.Equal(t, 1, calls)
+			if tc.requesting {
+				var decoded models.Chf_ConvCharging_ChargingDataResponse
+				require.NoError(t, json.Unmarshal(first.Body.Bytes(), &decoded))
+				require.Equal(t, int32(100), decoded.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+				require.Equal(t, int64(100), ue.ReservedQuota[10])
+			}
+			_, err = db.Collection("policyData.ues.chargingData").DeleteMany(context.Background(), bson.M{})
+			require.NoError(t, err)
+			// Discard the first response and remove all live session information.
+			chf_context.GetSelf().UePool.Delete(request.SubscriberIdentifier)
+			p = &Processor{journal: charging.NewJournal(db)}
+			request.RetransmissionIndicator = true
+			replay := chargingAPIResponse(t, p, request, ref, operation)
+			require.Equal(t, status, replay.Code)
+			require.Equal(t, first.Body.String(), replay.Body.String())
+			var balance struct {
+				Quota string `bson:"quota"`
+			}
+			require.NoError(t, db.Collection("chf.accounts").FindOne(context.Background(),
+				bson.M{"ueId": request.SubscriberIdentifier, "ratingGroup": 10}).Decode(&balance))
+			require.Equal(t, tc.remaining, balance.Quota)
+		})
+	}
+}
+
+func TestMongoChargingAccountCommittedButCHFUnfinishedRemainsFenced(t *testing.T) {
+	db := testutil.Mongo(t)
+	p, request, ref := chargingRequestSession(t)
+	p.journal = charging.NewJournal(db)
+	chf_context.GetSelf().AbmfCfg.OriginHost = "chf-test"
+	_, err := db.Collection("policyData.ues.chargingData").InsertOne(context.Background(), bson.M{
+		"ueId": request.SubscriberIdentifier, "ratingGroup": 10, "quota": "100",
+	})
+	require.NoError(t, err)
+	accounts := charging.NewAccounts(db)
+	var captured *charging_datatype.AccountDebitRequest
+	p.accountDebit = func(_ *chf_context.ChfUe, account *charging_datatype.AccountDebitRequest) (
+		*charging_datatype.AccountDebitResponse, error,
+	) {
+		copyRequest := *account
+		captured = &copyRequest
+		_, applyErr := accounts.Apply(context.Background(), account)
+		if applyErr != nil {
+			return nil, applyErr
+		}
+		return nil, errors.New("ABMF answer lost after committing debit")
+	}
+	p.serviceUsage = func(_ *chf_context.ChfUe, _ *charging_datatype.ServiceUsageRequest) (
+		*charging_datatype.ServiceUsageResponse, error,
+	) {
+		return &charging_datatype.ServiceUsageResponse{ServiceRating: &charging_datatype.ServiceRating{Price: 40}}, nil
+	}
+	_, problem := p.ChargingDataUpdate(request, ref)
+	require.NotNil(t, problem)
+	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
+	require.NotNil(t, captured)
+	_, err = db.Collection("policyData.ues.chargingData").DeleteMany(context.Background(), bson.M{})
+	require.NoError(t, err)
+	// ABMF independently knows the operation succeeded, and can safely replay it.
+	replayed, err := charging.NewAccounts(db).Apply(context.Background(), captured)
+	require.NoError(t, err)
+	require.Equal(t, datatype.Unsigned32(0), replayed.CcRequestNumber)
+	chf_context.GetSelf().UePool.Delete(request.SubscriberIdentifier)
+	p = &Processor{journal: charging.NewJournal(db)}
+	_, problem = p.ChargingDataUpdate(request, ref)
+	require.NotNil(t, problem)
+	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
+	request.InvocationSequenceNumber++
+	require.NotNil(t, p.ChargingDataRelease(request, ref))
+	var balance struct {
+		Quota string `bson:"quota"`
+	}
+	require.NoError(t, db.Collection("chf.accounts").FindOne(context.Background(),
+		bson.M{"ueId": request.SubscriberIdentifier, "ratingGroup": 10}).Decode(&balance))
+	require.Equal(t, "60", balance.Quota)
 }

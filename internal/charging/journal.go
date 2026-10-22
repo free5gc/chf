@@ -13,8 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+
+	chargingdb "github.com/free5gc/chf/internal/db"
 )
 
 var (
@@ -80,15 +80,10 @@ type MongoJournal struct {
 	sessions *mongo.Collection
 }
 
-func durableCollection(db *mongo.Database, name string) *mongo.Collection {
-	return db.Collection(name, options.Collection().
-		SetWriteConcern(writeconcern.Majority()).SetReadConcern(readconcern.Majority()))
-}
-
 func NewJournal(db *mongo.Database) *MongoJournal {
 	return &MongoJournal{
-		requests: durableCollection(db, "chf.chargingRequests"),
-		sessions: durableCollection(db, "chf.chargingSessions"),
+		requests: chargingdb.DurableCollection(db, "chf.chargingRequests"),
+		sessions: chargingdb.DurableCollection(db, "chf.chargingSessions"),
 	}
 }
 
