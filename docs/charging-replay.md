@@ -19,9 +19,48 @@ Collections in the configured database:
   completed response. `processing` or `uncertain` operations require reconciliation.
 - `chf.chargingSessions`: a fence preventing later invocations on a session from
   bypassing its unresolved operation.
+- `chf.accounts`: ABMF-owned authoritative balances, `chargingVersion` and recent
+  `chargingOperations`. Its `_id` is the source policy document's immutable `_id`;
+  `ueId` and `ratingGroup` are lookup fields, not a permanent account identity.
 - `chf.accountOperations`: archived account replay results.
-- `policyData.ues.chargingData`: existing account documents retain their string
-  `quota` field; CHF adds `chargingVersion` and recent `chargingOperations`.
+- `policyData.ues.chargingData`: PCF-owned policy/provisioning data. ABMF reads
+  runtime records as initial seeds and never updates their quota or replay history.
+
+## Account lifecycle and rollout
+
+Startup calls `internal/db.InitializeSchema` to create account lookup
+indexes, then constructs `Accounts` and imports existing runtime charging records
+before accepting traffic. Index creation and shared MongoDB read/write settings live in `internal/db`;
+account operations depend on this storage package. Provisioning templates without a rating group
+are excluded. Import preserves existing quota, version and recent replay results;
+`$setOnInsert` prevents a repeated import from resetting an authoritative balance.
+Accounts created by PCF later are imported on first use. A unique sparse operation
+index also prevents one recent operation from committing in two account documents.
+
+Stop old ABMF writers and pause policy deletion while switching versions. The
+import cannot reconstruct account data already deleted by PCF. Do not run old
+and new ABMF versions against the same accounts: they write different balance
+collections. A rollback requires explicit balance reconciliation.
+
+PCF may remove its runtime records without deleting `chf.accounts`, the account
+archive, or CHF request/session journals. Completed account operations replay
+before policy lookup, including after RG reuse. A new debit/refund can use a
+retained account after policy deletion when there is exactly one matching
+generation; multiple matches fail without changing balances. With a live policy,
+its immutable document ID selects the current generation. A running CAS loop
+keeps that selected ID even if PCF changes its records concurrently.
+
+This preserves the existing per-policy seed semantics; it does not introduce a
+subscriber-wide wallet or carry balances automatically into a new policy. An
+uncompleted old operation must have its account ID frozen in the future recovery
+plan before replay after RG reuse. Looking up the current RG is insufficient.
+RF still reads policy rating metadata, so preserving the ABMF account alone does
+not recover an entire CHF invocation after policy deletion.
+
+Webconsole currently reads quota from the policy collection. That value is now
+an initial seed, not a live balance. Displaying live balances or implementing
+recharge requires an ABMF account interface; editing the policy seed must not
+silently reset an existing account. No Webconsole or PCF code changes are included.
 
 No replica set is required. ABMF atomically updates the balance, version and
 operation result in one document with compare-and-swap. Concurrent duplicate
@@ -51,9 +90,10 @@ and CDR effects before deciding what remains to be applied. This change does not
 implement that reconciliation worker, restore live UE/reservation contexts after
 restart, deduplicate Initial requests, or enable SMF background retries.
 Completed records have no TTL; removing replay history requires a coordinated
-retention policy with charging clients. Existing accounts need no migration,
-but replay guarantees apply to operations first processed by this version.
-Independent quota isolation across UPFs is a separate change.
+retention policy with charging clients. Startup imports history available in
+existing account documents; replay guarantees cannot cover earlier operations
+that were never recorded. Independent quota isolation across UPFs is a separate
+change.
 
 ## Tests
 
@@ -71,7 +111,19 @@ CHF_TEST_MONGO_URI=mongodb://127.0.0.1:27018 go test ./...
 CHF_TEST_MONGO_URI=mongodb://127.0.0.1:27018 go test -race ./internal/charging ./internal/sbi/processor ./internal/abmf
 ```
 
-The integration tests run the real processor, CDR writer, journal and atomic
+Tests are grouped by responsibility:
+
+- `internal/charging/accounts_test.go`: arithmetic, atomic account operations,
+  migration, policy deletion, RG reuse, concurrency and archived replay.
+- `internal/charging/journal_test.go`: persistent request identity and session fences.
+- `internal/sbi/processor/charging_requests_test.go`: Update/Release API behavior,
+  failure injection and real MongoDB integration.
+- `internal/sbi/processor/cdr_test.go`: CDR-specific regressions.
+- `internal/abmf/abmf_test.go`: wire answer decoding and identity validation.
+- `internal/testutil/mongo.go`: the single disposable database fixture used by tests.
+
+Unit tests with a fake journal keep fast API coverage without MongoDB. Persistent
+integration tests additionally run the real processor, CDR writer, journal and atomic
 account store. The Diameter network boundary and Rating Function are stubbed.
 They cover lost replies, context removal/recreation, partial accounting failure,
 concurrent duplicate/distinct debits, refunds, archival and unresolved fences.

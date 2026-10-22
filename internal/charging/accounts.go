@@ -12,8 +12,10 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	chargingdb "github.com/free5gc/chf/internal/db"
 )
 
 // Keep the operation and balance in the same Mongo document: this also works
@@ -30,22 +32,119 @@ type accountOperation struct {
 }
 
 type account struct {
-	ID         any                `bson:"_id"`
-	Quota      string             `bson:"quota"`
-	Version    *int64             `bson:"chargingVersion"`
-	Operations []accountOperation `bson:"chargingOperations"`
+	ID          any                 `bson:"_id"`
+	Subscriber  string              `bson:"ueId"`
+	RatingGroup datatype.Unsigned32 `bson:"ratingGroup"`
+	Quota       string              `bson:"quota"`
+	Version     *int64              `bson:"chargingVersion,omitempty"`
+	Operations  []accountOperation  `bson:"chargingOperations,omitempty"`
 }
 
 type Accounts struct {
+	policies *mongo.Collection
 	balances *mongo.Collection
 	archive  *mongo.Collection
 }
 
 func NewAccounts(db *mongo.Database) *Accounts {
 	return &Accounts{
-		balances: durableCollection(db, "policyData.ues.chargingData"),
-		archive:  durableCollection(db, "chf.accountOperations"),
+		policies: chargingdb.DurableCollection(db, "policyData.ues.chargingData"),
+		balances: chargingdb.DurableCollection(db, "chf.accounts"),
+		archive:  chargingdb.DurableCollection(db, "chf.accountOperations"),
 	}
+}
+
+// ImportLegacy preserves existing policy-backed balances before serving traffic.
+// Old ABMF writers must be stopped first; the owned balance is never overwritten.
+func (a *Accounts) ImportLegacy(ctx context.Context) error {
+	cursor, err := a.policies.Find(ctx, bson.M{"ratingGroup": bson.M{"$ne": nil}})
+	if err != nil {
+		return err
+	}
+	var sources []account
+	if err = cursor.All(ctx, &sources); err != nil {
+		return err
+	}
+	for _, source := range sources {
+		if err = a.importAccount(ctx, &source); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *Accounts) importAccount(ctx context.Context, source *account) error {
+	_, err := a.balances.UpdateOne(ctx, bson.M{"_id": source.ID},
+		bson.M{"$setOnInsert": source}, options.Update().SetUpsert(true))
+	if mongo.IsDuplicateKeyError(err) {
+		// Concurrent first-use imports may race on _id. Other uniqueness
+		// violations must still fail if this account was never created.
+		return a.balances.FindOne(ctx, bson.M{"_id": source.ID}).Err()
+	}
+	return err
+}
+
+// PCF allocates and reuses rating groups. A policy document's immutable _id
+// identifies this generation of account; UE + RG alone is not a permanent key.
+// Initial import preserves the old balance and deduplication history, if any.
+func (a *Accounts) resolveAccount(ctx context.Context, filter bson.M) (*account, error) {
+	source, err := uniqueAccount(ctx, a.policies, filter)
+	if err == mongo.ErrNoDocuments {
+		// Policy deletion must not prevent a final debit/refund. If RG reuse has
+		// left several generations, require a frozen binding instead of guessing.
+		return uniqueAccount(ctx, a.balances, filter)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err = a.importAccount(ctx, source); err != nil {
+		return nil, err
+	}
+	var balance account
+	if err = a.balances.FindOne(ctx, bson.M{"_id": source.ID}).Decode(&balance); err != nil {
+		return nil, err
+	}
+	return &balance, nil
+}
+
+func uniqueAccount(ctx context.Context, collection *mongo.Collection, filter bson.M) (*account, error) {
+	cursor, err := collection.Find(ctx, filter, options.Find().SetLimit(2))
+	if err != nil {
+		return nil, err
+	}
+	var matches []account
+	if err = cursor.All(ctx, &matches); err != nil {
+		return nil, err
+	}
+	if len(matches) == 0 {
+		return nil, mongo.ErrNoDocuments
+	}
+	if len(matches) != 1 {
+		return nil, fmt.Errorf("ambiguous account binding for subscriber and rating group")
+	}
+	return &matches[0], nil
+}
+
+// Completed operations remain replayable even after PCF removes their policy
+// or assigns the same rating group to a different policy generation.
+func (a *Accounts) completedOperation(ctx context.Context, id, fingerprint string) (
+	*charging_datatype.AccountDebitResponse, error,
+) {
+	var balance account
+	err := a.balances.FindOne(ctx, bson.M{"chargingOperations.id": id}).Decode(&balance)
+	if err != nil && err != mongo.ErrNoDocuments {
+		return nil, err
+	}
+	for _, operation := range balance.Operations {
+		if operation.ID == id {
+			return replayAccountOperation(operation, fingerprint)
+		}
+	}
+	var archived accountOperation
+	if err = a.archive.FindOne(ctx, bson.M{"_id": id}).Decode(&archived); err != nil {
+		return nil, err
+	}
+	return replayAccountOperation(archived, fingerprint)
 }
 
 func accountIdentity(request *charging_datatype.AccountDebitRequest) (string, string, string, error) {
@@ -141,10 +240,19 @@ func (a *Accounts) Apply(ctx context.Context, request *charging_datatype.Account
 	if err != nil {
 		return nil, err
 	}
+	if response, replayErr := a.completedOperation(ctx, id, fingerprint); replayErr != mongo.ErrNoDocuments {
+		return response, replayErr
+	}
 	filter := bson.M{"ueId": subscriber, "ratingGroup": request.MultipleServicesCreditControl.RatingGroup}
+	resolved, err := a.resolveAccount(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	// Freeze this binding during CAS retries; policy deletion/reuse cannot
+	// redirect a running operation to another account.
 	for attempt := 0; attempt < 32; attempt++ {
 		var balance account
-		if err = a.balances.FindOne(ctx, filter).Decode(&balance); err != nil {
+		if err = a.balances.FindOne(ctx, bson.M{"_id": resolved.ID}).Decode(&balance); err != nil {
 			return nil, err
 		}
 		for _, operation := range balance.Operations {

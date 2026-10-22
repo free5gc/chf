@@ -7,6 +7,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/free5gc/chf/cdr/cdrType"
+	chf_context "github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/openapi/models"
 )
 
 func TestBuildCdrFileNameIsBounded(t *testing.T) {
@@ -34,4 +38,17 @@ func TestDumpCdrFileWithLongSubscriberIdentifier(t *testing.T) {
 
 	_, err = os.Stat(fileName)
 	require.NoError(t, err)
+}
+
+func TestOpenCDRPartialRecordReturnsErrorWhenSessionMissing(t *testing.T) {
+	p := &Processor{}
+
+	ue := &chf_context.ChfUe{
+		Supi: "imsi-208930000000951",
+		Cdr:  map[string]*cdrType.CHFRecord{},
+	}
+
+	cdr, err := p.OpenCDR(models.Chf_ConvCharging_ChargingDataRequest{}, ue, "missing-session", true)
+	require.Nil(t, cdr)
+	require.Error(t, err)
 }
