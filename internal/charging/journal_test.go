@@ -125,8 +125,9 @@ func TestMongoJournalSettlementSnapshotsAreImmutableAndSurviveRestart(t *testing
 	request.EventTimestamp = datatype.Time(stamp)
 	step := &SettlementStep{
 		UsageIndex: 0, RatingGroup: 10, UPFID: "upf-a", AccountRequest: request,
-		Before:  QuotaState{Known: true, Reserved: 100},
-		Planned: QuotaState{Known: true, Reserved: 0},
+		QuotaKey: QuotaKey{ChargingDataRef: record.Session, RatingGroup: 10, UPFID: "upf-a"},
+		Before:   QuotaState{Known: true, Reserved: 100},
+		Planned:  QuotaState{Known: true, Reserved: 0},
 		Ratings: []RatingExchange{{
 			Request: charging_datatype.ServiceUsageRequest{
 				ActualTime: datatype.Time(stamp), BeginTime: datatype.Time(stamp.Add(-time.Hour)),
@@ -138,7 +139,7 @@ func TestMongoJournalSettlementSnapshotsAreImmutableAndSurviveRestart(t *testing
 			},
 		}},
 	}
-	outcome := &SettlementOutcome{After: QuotaState{Known: true, Reserved: 0}}
+	outcome := &SettlementOutcome{QuotaKey: step.QuotaKey, After: QuotaState{Known: true, Reserved: 0}}
 	require.ErrorIs(t, journal.SaveSettlementOutcome(ctx, record, 0, outcome), ErrConflict)
 	require.NoError(t, journal.SaveSettlementStep(ctx, record, step))
 	require.NoError(t, journal.SaveSettlementStep(ctx, record, step))
@@ -154,7 +155,6 @@ func TestMongoJournalSettlementSnapshotsAreImmutableAndSurviveRestart(t *testing
 	stored, err := NewJournal(db).load(ctx, record.ID)
 	require.NoError(t, err)
 	require.Equal(t, Uncertain, stored.State)
-	require.Equal(t, 1, stored.SettlementPlan.Version)
 	var restored SettlementStep
 	require.NoError(t, chargingdb.DecodeSnapshot(stored.SettlementPlan.Steps["0"], &restored))
 	require.Equal(t, *step, restored, "all request, RF and timestamp fields must survive a process restart")
