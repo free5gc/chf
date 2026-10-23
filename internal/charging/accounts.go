@@ -44,6 +44,7 @@ type Accounts struct {
 	policies *mongo.Collection
 	balances *mongo.Collection
 	archive  *mongo.Collection
+	bindings *mongo.Collection
 }
 
 func NewAccounts(db *mongo.Database) *Accounts {
@@ -51,6 +52,7 @@ func NewAccounts(db *mongo.Database) *Accounts {
 		policies: chargingdb.DurableCollection(db, "policyData.ues.chargingData"),
 		balances: chargingdb.DurableCollection(db, "chf.accounts"),
 		archive:  chargingdb.DurableCollection(db, "chf.accountOperations"),
+		bindings: chargingdb.DurableCollection(db, "chf.accountBindings"),
 	}
 }
 
@@ -147,6 +149,42 @@ func (a *Accounts) completedOperation(ctx context.Context, id, fingerprint strin
 	return replayAccountOperation(archived, fingerprint)
 }
 
+// Bind fixes an operation to its account before settlement can change money.
+// The same binding is used by ABMF Apply after restart or rating-group reuse.
+func (a *Accounts) Bind(ctx context.Context, request *charging_datatype.AccountDebitRequest) ([]byte, error) {
+	subscriber, id, fingerprint, err := accountIdentity(request)
+	if err != nil {
+		return nil, err
+	}
+	var binding struct {
+		ID          string `bson:"_id"`
+		AccountID   any    `bson:"accountId"`
+		Fingerprint string `bson:"fingerprint"`
+	}
+	err = a.bindings.FindOne(ctx, bson.M{"_id": id}).Decode(&binding)
+	if err == mongo.ErrNoDocuments {
+		resolved, resolveErr := a.resolveAccount(ctx, bson.M{
+			"ueId": subscriber, "ratingGroup": request.MultipleServicesCreditControl.RatingGroup,
+		})
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		binding.ID, binding.AccountID, binding.Fingerprint = id, resolved.ID, fingerprint
+		if _, err = a.bindings.InsertOne(ctx, binding); err != nil && !mongo.IsDuplicateKeyError(err) {
+			return nil, err
+		}
+		if err = a.bindings.FindOne(ctx, bson.M{"_id": id}).Decode(&binding); err != nil {
+			return nil, err
+		}
+	} else if err != nil {
+		return nil, err
+	}
+	if binding.Fingerprint != fingerprint {
+		return nil, ErrConflict
+	}
+	return bson.Marshal(bson.M{"_id": binding.AccountID})
+}
+
 func accountIdentity(request *charging_datatype.AccountDebitRequest) (string, string, string, error) {
 	if request == nil || request.SubscriptionId == nil || request.MultipleServicesCreditControl == nil ||
 		request.SessionId == "" || request.OriginHost == "" {
@@ -236,16 +274,19 @@ func calculateAccountResponse(request *charging_datatype.AccountDebitRequest, qu
 func (a *Accounts) Apply(ctx context.Context, request *charging_datatype.AccountDebitRequest) (
 	*charging_datatype.AccountDebitResponse, error,
 ) {
-	subscriber, id, fingerprint, err := accountIdentity(request)
+	_, id, fingerprint, err := accountIdentity(request)
 	if err != nil {
 		return nil, err
 	}
 	if response, replayErr := a.completedOperation(ctx, id, fingerprint); replayErr != mongo.ErrNoDocuments {
 		return response, replayErr
 	}
-	filter := bson.M{"ueId": subscriber, "ratingGroup": request.MultipleServicesCreditControl.RatingGroup}
-	resolved, err := a.resolveAccount(ctx, filter)
+	bound, err := a.Bind(ctx, request)
 	if err != nil {
+		return nil, err
+	}
+	var resolved account
+	if err = bson.Unmarshal(bound, &resolved); err != nil {
 		return nil, err
 	}
 	// Freeze this binding during CAS retries; policy deletion/reuse cannot

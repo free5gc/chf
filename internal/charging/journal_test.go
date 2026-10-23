@@ -5,10 +5,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
 
+	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	chargingdb "github.com/free5gc/chf/internal/db"
 	"github.com/free5gc/chf/internal/testutil"
 )
 
@@ -106,4 +110,56 @@ func TestMongoJournalConcurrentClaimsExecuteOnce(t *testing.T) {
 	}
 	wg.Wait()
 	require.Equal(t, int32(1), accepted.Load())
+}
+
+func TestMongoJournalSettlementSnapshotsAreImmutableAndSurviveRestart(t *testing.T) {
+	db := testutil.Mongo(t)
+	ctx := context.Background()
+	journal := NewJournal(db)
+	record, _, err := journal.Begin(ctx, Identity{
+		Session: "session-plan", Sequence: 7, Operation: "update", Fingerprint: "original-request",
+	})
+	require.NoError(t, err)
+	stamp := time.Date(2026, time.October, 22, 10, 0, 0, 123456789, time.UTC)
+	request := accountRequest()
+	request.EventTimestamp = datatype.Time(stamp)
+	step := &SettlementStep{
+		UsageIndex: 0, RatingGroup: 10, UPFID: "upf-a", AccountRequest: request,
+		Before:  QuotaState{Known: true, Reserved: 100},
+		Planned: QuotaState{Known: true, Reserved: 0},
+		Ratings: []RatingExchange{{
+			Request: charging_datatype.ServiceUsageRequest{
+				ActualTime: datatype.Time(stamp), BeginTime: datatype.Time(stamp.Add(-time.Hour)),
+				ServiceRating: &charging_datatype.ServiceRating{ConsumedUnits: 40},
+			},
+			Response: charging_datatype.ServiceUsageResponse{
+				EventTimestamp: datatype.Time(stamp),
+				ServiceRating:  &charging_datatype.ServiceRating{Price: 40, ExpiryTime: datatype.Time(stamp.Add(time.Hour))},
+			},
+		}},
+	}
+	outcome := &SettlementOutcome{After: QuotaState{Known: true, Reserved: 0}}
+	require.ErrorIs(t, journal.SaveSettlementOutcome(ctx, record, 0, outcome), ErrConflict)
+	require.NoError(t, journal.SaveSettlementStep(ctx, record, step))
+	require.NoError(t, journal.SaveSettlementStep(ctx, record, step))
+	step.AccountRequest.MultipleServicesCreditControl.RequestedServiceUnit.CCTotalOctets++
+	require.ErrorIs(t, journal.SaveSettlementStep(ctx, record, step), ErrConflict)
+	step.AccountRequest.MultipleServicesCreditControl.RequestedServiceUnit.CCTotalOctets--
+	require.NoError(t, journal.SaveSettlementOutcome(ctx, record, 0, outcome))
+	require.NoError(t, journal.SaveSettlementOutcome(ctx, record, 0, outcome))
+	outcome.After.Reserved = 99
+	require.ErrorIs(t, journal.SaveSettlementOutcome(ctx, record, 0, outcome), ErrConflict)
+	outcome.After.Reserved = 0
+	require.NoError(t, journal.MarkUncertain(ctx, record, "interrupted after account answer"))
+	stored, err := NewJournal(db).load(ctx, record.ID)
+	require.NoError(t, err)
+	require.Equal(t, Uncertain, stored.State)
+	require.Equal(t, 1, stored.SettlementPlan.Version)
+	var restored SettlementStep
+	require.NoError(t, chargingdb.DecodeSnapshot(stored.SettlementPlan.Steps["0"], &restored))
+	require.Equal(t, *step, restored, "all request, RF and timestamp fields must survive a process restart")
+	var restoredOutcome SettlementOutcome
+	require.NoError(t, chargingdb.DecodeSnapshot(stored.SettlementPlan.Outcomes["0"], &restoredOutcome))
+	require.Equal(t, *outcome, restoredOutcome)
+	require.ErrorIs(t, journal.SaveSettlementStep(ctx, record, step), ErrPending)
 }
