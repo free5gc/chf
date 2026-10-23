@@ -13,10 +13,17 @@ import (
 	"github.com/free5gc/openapi/models"
 )
 
-// Steps follow original usage-entry indices, including repeated RGs. A later
-// step can depend on the actual credit granted by an earlier account answer.
+// QuotaKey identifies one independently granted UPF quota within a resource.
+// An empty UPFID represents a legacy single-UPF quota for that resource and RG.
+type QuotaKey struct {
+	ChargingDataRef string
+	RatingGroup     int32
+	UPFID           string
+}
+
+// Steps follow original usage-entry indices. Repeated entries for the same
+// quota owner can depend on an earlier entry's actual account grant.
 type SettlementPlan struct {
-	Version  int               `bson:"version"`
 	Steps    map[string][]byte `bson:"steps"`
 	Outcomes map[string][]byte `bson:"outcomes"`
 }
@@ -26,6 +33,8 @@ type QuotaState struct {
 	Reserved   int64
 	RatingType charging_datatype.RequestSubType
 	UnitCost   uint32
+	Exhausted  bool
+	Closed     bool
 }
 
 type RatingExchange struct {
@@ -34,6 +43,7 @@ type RatingExchange struct {
 }
 
 type SettlementStep struct {
+	QuotaKey    QuotaKey
 	UsageIndex  int
 	RatingGroup int32
 	UPFID       string
@@ -52,18 +62,26 @@ type SettlementStep struct {
 // An outcome records the account answer and proposed quota state. It does not
 // prove that live or future durable quota state has been updated.
 type SettlementOutcome struct {
+	QuotaKey        QuotaKey
 	After           QuotaState
 	AccountResponse *charging_datatype.AccountDebitResponse
 	UnitInformation models.Chf_ConvCharging_MultipleUnitInformation
 }
 
 func (j *MongoJournal) SaveSettlementStep(ctx context.Context, record *Record, step *SettlementStep) error {
+	if step.QuotaKey.ChargingDataRef != record.Session || step.QuotaKey.RatingGroup != step.RatingGroup ||
+		step.QuotaKey.UPFID != step.UPFID {
+		return fmt.Errorf("settlement step has inconsistent quota ownership")
+	}
 	return j.saveSettlementSnapshot(ctx, record, step.UsageIndex, "steps", step)
 }
 
 func (j *MongoJournal) SaveSettlementOutcome(
 	ctx context.Context, record *Record, index int, outcome *SettlementOutcome,
 ) error {
+	if outcome.QuotaKey.ChargingDataRef != record.Session {
+		return fmt.Errorf("settlement outcome belongs to a different charging resource")
+	}
 	return j.saveSettlementSnapshot(ctx, record, index, "outcomes", outcome)
 }
 
@@ -87,7 +105,7 @@ func (j *MongoJournal) saveSettlementSnapshot(
 		filter["settlementPlan.steps."+key] = bson.M{"$exists": true}
 	}
 	result, err := j.requests.UpdateOne(ctx, filter, bson.M{"$set": bson.M{
-		field: body, "settlementPlan.version": 1, "updatedAt": time.Now().UTC(),
+		field: body, "updatedAt": time.Now().UTC(),
 	}})
 	if err != nil {
 		return err

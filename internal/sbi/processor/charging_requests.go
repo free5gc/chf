@@ -205,3 +205,39 @@ func (p *Processor) saveSettlementOutcome(
 	}
 	return nil
 }
+
+// A legacy report without UPFID cannot identify one owner among named UPFs.
+// Validate the whole request before any entry changes an account or quota.
+func validateQuotaOwners(
+	ue *chf_context.ChfUe, data models.Chf_ConvCharging_ChargingDataRequest, ref string,
+) *models.ProblemDetails {
+	owners := make(map[int32]bool)
+	check := func(rg int32, named bool) *models.ProblemDetails {
+		if previous, exists := owners[rg]; exists && previous != named {
+			return &models.ProblemDetails{
+				Status: http.StatusBadRequest, Cause: "MANDATORY_IE_INCORRECT",
+				Detail: fmt.Sprintf("UPFID must be consistently present or absent for rating group %d", rg),
+			}
+		}
+		owners[rg] = named
+		return nil
+	}
+	for key, state := range ue.Quotas {
+		if key.ChargingDataRef == ref && !state.Closed {
+			if problem := check(key.RatingGroup, key.UPFID != ""); problem != nil {
+				return problem
+			}
+		}
+	}
+	for _, usage := range data.MultipleUnitUsage {
+		for _, units := range usage.UsedUnitContainer {
+			if units.QuotaManagementIndicator == models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING {
+				if problem := check(usage.RatingGroup, usage.UPFID != ""); problem != nil {
+					return problem
+				}
+				break
+			}
+		}
+	}
+	return nil
+}

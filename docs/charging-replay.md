@@ -106,8 +106,8 @@ outcome; a final grant also changes rating type to DEBIT. Both possible response
 branches are frozen before the account call. The outcome is a snapshot, not an
 atomic marker proving that the quota change has been applied.
 
-Steps are prepared sequentially because the next entry may share its RG with
-an earlier entry and depend on its actual grant. A crash can therefore leave an
+Steps are prepared sequentially because repeated entries for the same
+resource/RG/UPFID can depend on an earlier entry's actual grant. A crash can therefore leave an
 immutable prefix of prepared steps, with later entries not yet prepared. The
 original request preserves their order and input. Prepared steps need no new
 rating when reconciled; unprepared entries still need rating data. This change
@@ -120,6 +120,54 @@ and event times, zero values and nanoseconds; ordinary JSON would lose these
 fields. Identical snapshots can be written again while the request is processing;
 changed snapshots, outcomes without a step, and writes after processing ends are
 rejected. Storage failure never lets processing bypass the session fence.
+
+## Independent UPF quotas
+
+CHF now follows independently granted UPF quotas. `ChfUe.Quotas` is keyed by
+`ChargingDataRef + RatingGroup + UPFID`; each state keeps reserved account units,
+rating type, unit cost, `Exhausted` and `Closed`. UPFs and charging resources have
+separate state even when their RG is identical. ABMF continues to debit one
+shared account, and reserves funds for each UPF separately. This is not the
+shared-quota model where SMF redistributes one credit pool across UPFs.
+
+An ONLINE entry without RequestedUnit settles only its owner's reservation,
+returns zero granted units and marks that owner Closed in DEBIT mode. An explicit
+positive credit request selects RESERVE without requiring request-level FINAL;
+it can start a new cycle for a Closed owner. Request-level FINAL cannot switch
+another UPF's credit request into settlement. The request journal still prevents
+retransmissions from applying an old final report to a newer cycle.
+
+A genuine final grant from ABMF marks only that owner Exhausted and selects
+DEBIT. Credit requests on that still-open exhausted owner do not reserve again
+until recharge. Recharge clears exhaustion on live matching-RG owners under the
+UE lock, preserving Closed owners and other RGs. No persistent quota state or
+recovery worker is added in this step.
+
+Granted traffic volume is limited by RF's allowance, the requested volume and
+that owner's actual remaining reserved funds divided by the next unit cost.
+This also applies when ABMF grants fewer account units than requested, or zero;
+RF's requested-credit quote alone cannot fund a grant. Zero-cost quotes do not
+require monetary backing. Existing quota-threshold response fields are adjusted
+to the actual granted volume; a final-grant response keeps its existing trigger
+semantics.
+
+An empty UPFID remains supported for a legacy single-UPF resource/RG. Mixing
+missing and named UPFIDs in the same online request or while an existing quota is
+still open is rejected with HTTP 400 before accounting. Completed legacy owners
+can remain as Closed entries while a later cycle uses an explicit UPFID.
+
+Settlement steps and outcomes record the full QuotaKey without a schema-version
+field or version-dependent write conditions. Snapshot writes still check resource
+ownership and prevent overwriting a saved step or outcome with different content.
+Completed HTTP responses can still replay. Reconcile unfinished RG-wide plans
+separately and drain live sessions before deploying the new quota representation;
+this change does not migrate an old shared balance into separate UPF balances.
+Current live quota state is not restored automatically after restart.
+
+A request in processing/uncertain state still fences its entire charging
+resource. Per-UPF financial state isolation does not let a later invocation
+bypass an unresolved request on that resource; progress after failure still
+requires the remaining durable-state and recovery work.
 
 ## Failure behavior and limits
 
@@ -141,8 +189,8 @@ restart, deduplicate Initial requests, or enable SMF background retries.
 Completed records have no TTL; removing replay history requires a coordinated
 retention policy with charging clients. Startup imports history available in
 existing account documents; replay guarantees cannot cover earlier operations
-that were never recorded. Independent quota isolation across UPFs is a separate
-change.
+that were never recorded. Quota state remains in memory: persisting isolated
+quota state with atomic applied-operation markers is still a separate step.
 
 ## Tests
 
@@ -169,6 +217,9 @@ Tests are grouped by responsibility:
   and immutable settlement snapshots, including restart and exact timestamps.
 - `internal/sbi/processor/charging_requests_test.go`: Update/Release API behavior,
   failure injection and real MongoDB integration.
+- `internal/sbi/processor/charging_quota_test.go`: independent UPF/resource quota
+  state, order-independent final settlement, partial grants, recharge and legacy
+  UPFID handling; MongoDB cases verify the shared account balance.
 - `internal/sbi/processor/cdr_test.go`: CDR-specific regressions.
 - `internal/abmf/abmf_test.go`: wire answer decoding and identity validation.
 - `internal/testutil/mongo.go`: the single disposable database fixture used by tests.
@@ -179,4 +230,4 @@ account store. The Diameter network boundary and Rating Function are stubbed.
 They cover lost replies, context removal/recreation, partial accounting failure,
 concurrent duplicate/distinct debits, refunds, archival, immutable plans, binding/
 plan/outcome persistence failures, RF failure before debit, dependent same-RG
-usage entries and unresolved fences.
+usage entries, UPF/resource isolation, actual funded grants and unresolved fences.

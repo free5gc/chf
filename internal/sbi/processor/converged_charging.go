@@ -45,8 +45,13 @@ func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 		return
 	}
 
-	// If it is previosly set to debit mode due to quota exhausted, need to reverse to the reserve mode
-	ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
+	ue.CULock.Lock()
+	active := ue.RechargeRatingGroup(rg)
+	notifyURI := ue.NotifyUri
+	ue.CULock.Unlock()
+	if !active {
+		return
+	}
 	reauthorizationDetails = append(reauthorizationDetails, models.Chf_ConvCharging_ReauthorizationDetails{
 		RatingGroup: rg,
 	})
@@ -56,7 +61,7 @@ func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 		ReauthorizationDetails: reauthorizationDetails,
 	}
 
-	p.SendChargingNotification(ue.NotifyUri, notifyRequest)
+	p.SendChargingNotification(notifyURI, notifyRequest)
 }
 
 func (p *Processor) SendChargingNotification(
@@ -267,6 +272,10 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 
+	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
+		return nil, p.rejectChargingRequest(record, ownershipProblem)
+	}
+
 	// Online charging: Rate, Account, Reservation
 	responseBody, partialRecord, reservationErr := p.BuildConvergedChargingDataUpdateResopone(
 		chargingData, chargingSessionId, record)
@@ -406,6 +415,9 @@ func (p *Processor) ChargingDataRelease(
 	if !exists || cdr == nil {
 		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
+	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
+		return p.rejectChargingRequest(record, ownershipProblem)
+	}
 	if _, _, err := p.sessionChargingReservation(chargingData, chargingSessionId, record); err != nil {
 		return p.failChargingRequest(record, chargingProblem(err))
 	}
@@ -537,14 +549,13 @@ func (p *Processor) sessionChargingReservation(
 		var totalUsedUnit uint32
 		var finalUnitIndication models.Chf_ConvCharging_FinalUnitIndication
 		creditControl := false
-		finalSeen := false
 
 		rg := unitUsage.RatingGroup
-		before := charging.QuotaState{
-			Known: ue.FindRatingGroup(rg), Reserved: ue.ReservedQuota[rg],
-			RatingType: ue.RatingType[rg], UnitCost: ue.UnitCost[rg],
-		}
+		key := charging.QuotaKey{ChargingDataRef: chargingSessionId, RatingGroup: rg, UPFID: unitUsage.UPFID}
+		before, known := ue.Quotas[key]
+		before.Known = known
 		reservedQuota, ratingType, unitCost := before.Reserved, before.RatingType, before.UnitCost
+		exhausted, closed := before.Exhausted, before.Closed
 		if !before.Known {
 			ratingType = charging_datatype.REQ_SUBTYPE_RESERVE
 		}
@@ -586,8 +597,6 @@ func (p *Processor) sessionChargingReservation(
 					case t.TriggerType == models.Chf_ConvCharging_TriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
 					case t.TriggerType == models.Chf_ConvCharging_TriggerType_MANAGEMENT_INTERVENTION:
 					case t.TriggerType == models.Chf_ConvCharging_TriggerType_FINAL:
-						finalSeen = true
-						ratingType = charging_datatype.REQ_SUBTYPE_DEBIT
 						partialRecord = false
 					}
 				}
@@ -601,15 +610,22 @@ func (p *Processor) sessionChargingReservation(
 			logger.ChargingdataPostLog.Infof("Credit Control are not required for rating group: %d", rg)
 			continue
 		}
-		// TS 32.290 Table 7.1: ONLINE usage without Requested Unit is the last
-		// request for this rating group, even without an explicit FINAL trigger.
-		// Settle its usage and return unused reservations without granting new quota.
+		// In the independent-UPF model, omitting RequestedUnit ends this owner's
+		// quota cycle. Other UPFs using the same RG keep their own reservations.
 		if unitUsage.RequestedUnit == nil {
 			ratingType = charging_datatype.REQ_SUBTYPE_DEBIT
+			closed = true
 			partialRecord = false
-		} else if finalSeen && unitUsage.RequestedUnit.TotalVolume > 0 {
-			// A FINAL usage container can accompany a credit request for live services.
-			ratingType = charging_datatype.REQ_SUBTYPE_RESERVE
+		} else if unitUsage.RequestedUnit.TotalVolume > 0 {
+			// An explicit credit request starts/reuses this UPF's quota cycle.
+			// Only a genuine ABMF final grant blocks further credit until recharge.
+			if closed {
+				exhausted = false
+			}
+			closed = false
+			if !exhausted {
+				ratingType = charging_datatype.REQ_SUBTYPE_RESERVE
+			}
 		}
 
 		ccr := &charging_datatype.AccountDebitRequest{
@@ -791,11 +807,6 @@ func (p *Processor) sessionChargingReservation(
 						CCTotalOctets: datatype.Unsigned64(reservedRemained),
 					},
 				}
-				// Typically, the reserved quota will be exhausted for the flow (or PDU session)
-				// However, for the case the flow quota  and PDU session's quota is both last granted quota
-				// and the PDU session's quota is larger than the flow's quota
-				// PDU session's quota should be refund and set to reserved mode in order to reserve the quota for other flow
-				ratingType = charging_datatype.REQ_SUBTYPE_RESERVE
 			} else {
 				// The final consumed quota exceed the reserved quota
 				// Deduct the extra consumed quota from the user account
@@ -826,9 +837,10 @@ func (p *Processor) sessionChargingReservation(
 			}
 		}
 		step := &charging.SettlementStep{
-			UsageIndex: unitUsageNum, RatingGroup: rg, UPFID: unitUsage.UPFID,
+			UsageIndex: unitUsageNum, QuotaKey: key, RatingGroup: rg, UPFID: unitUsage.UPFID,
 			Before: before, Planned: charging.QuotaState{
 				Known: true, Reserved: reservedQuota, RatingType: ratingType, UnitCost: unitCost,
+				Exhausted: exhausted, Closed: closed,
 			},
 			Ratings: ratings, AccountRequest: accountRequest, AddGrantedUnits: addGrantedUnits,
 			UnitInformation: unitInformation, PartialRecord: partialRecord,
@@ -869,23 +881,38 @@ func (p *Processor) sessionChargingReservation(
 				if credit.FinalUnitIndication != nil &&
 					credit.FinalUnitIndication.FinalUnitAction == charging_datatype.TERMINATE {
 					ratingType = charging_datatype.REQ_SUBTYPE_DEBIT
+					exhausted = true
 					unitInformation = *step.FinalUnitInformation
 				}
 			}
 		}
+		// RF's allowance must also be backed by this owner's actual reserved
+		// funds. Partial/zero ABMF grants cannot finance another UPF's credit.
+		if unitInformation.GrantedUnit != nil && unitInformation.GrantedUnit.TotalVolume > 0 && unitCost > 0 {
+			fundedVolume := uint64(max(reservedQuota, 0)) / uint64(unitCost)
+			grantedVolume := min(uint64(unitInformation.GrantedUnit.TotalVolume), fundedVolume)
+			unitInformation.GrantedUnit = &models.Chf_ConvCharging_GrantedUnit{
+				TotalVolume: int32(grantedVolume), DownlinkVolume: int32(grantedVolume), UplinkVolume: int32(grantedVolume),
+			}
+			if !exhausted && thresholdIndex >= 0 {
+				unitInformation.VolumeQuotaThreshold = int32(float32(grantedVolume) * ue.VolumeThresholdRate)
+			}
+		}
 		outcome := &charging.SettlementOutcome{
+			QuotaKey: key,
 			After: charging.QuotaState{
 				Known: true, Reserved: reservedQuota, RatingType: ratingType, UnitCost: unitCost,
+				Exhausted: exhausted, Closed: closed,
 			},
 			AccountResponse: accountResponse, UnitInformation: unitInformation,
 		}
 		if err := p.saveSettlementOutcome(record, unitUsageNum, outcome); err != nil {
 			return nil, false, err
 		}
-		if !before.Known {
-			ue.RatingGroups = append(ue.RatingGroups, rg)
+		if ue.Quotas == nil {
+			ue.Quotas = make(map[charging.QuotaKey]charging.QuotaState)
 		}
-		ue.ReservedQuota[rg], ue.RatingType[rg], ue.UnitCost[rg] = reservedQuota, ratingType, unitCost
+		ue.Quotas[key] = outcome.After
 		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
 	}
 
