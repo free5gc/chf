@@ -213,6 +213,10 @@ func TestMongoJournalQuotaApplyIsAtomicOrderedAndSurvivesRestart(t *testing.T) {
 	// nor may replaying step 0 restore its older reservation of 100.
 	require.NoError(t, j.MarkUncertain(ctx, record, "crash after quota commit"))
 	j = NewJournal(db)
+	expireRecoveryLease(t, j, record)
+	record, err = j.ClaimRecovery(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, record)
 	for _, index := range []int{0, 2, 2} {
 		state, err = j.ApplyQuota(ctx, record, index)
 		require.NoError(t, err)
@@ -369,9 +373,121 @@ func TestMongoJournalFreshQuotaUsesAcknowledgedSnapshotsUntilRecovery(t *testing
 	require.Zero(t, requestReads.Load(), "normal apply reuses immutable acknowledged bytes")
 	require.Zero(t, sessionReads.Load(), "normal apply needs only the atomic session update")
 	require.NoError(t, j.MarkUncertain(ctx, record, "acknowledgement lost"))
+	expireRecoveryLease(t, j, record)
+	record, err = j.ClaimRecovery(ctx)
+	require.NoError(t, err)
 	requestReads.Store(0)
 	state, err = j.ApplyQuota(ctx, record, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), state.Reserved)
 	require.Positive(t, requestReads.Load(), "uncertain invocations reload the durable plan even in the same process")
+}
+
+func expireRecoveryLease(t *testing.T, j *MongoJournal, record *Record) {
+	t.Helper()
+	past := time.Now().UTC().Add(-time.Minute)
+	_, err := j.sessions.UpdateOne(context.Background(), bson.M{"_id": record.Session}, bson.M{"$set": bson.M{
+		"leaseUntil": past, "readyAt": past,
+	}})
+	require.NoError(t, err)
+	_, err = j.requests.UpdateOne(context.Background(), bson.M{"_id": record.ID},
+		bson.M{"$set": bson.M{"leaseUntil": past}})
+	require.NoError(t, err)
+}
+
+func TestMongoRecoveryLeaseFencesOldExecutorsAndBacksOff(t *testing.T) {
+	db := testutil.Mongo(t)
+	ctx := context.Background()
+	j := NewJournal(db)
+	require.NoError(t, chargingdb.InitializeSchema(ctx, db))
+	original, _, err := j.Begin(ctx, Identity{
+		Session: "lease-session", Sequence: 7, Operation: "update", Fingerprint: "usage",
+	})
+	require.NoError(t, err)
+	key := QuotaKey{ChargingDataRef: original.Session, RatingGroup: 10, UPFID: "upf-a"}
+	saveQuotaTransition(t, j, original, 0, key, QuotaState{}, QuotaState{Known: true, Reserved: 60})
+	_, err = j.ApplyQuota(ctx, original, 0)
+	require.NoError(t, err)
+	none, err := j.ClaimRecovery(ctx)
+	require.NoError(t, err)
+	require.Nil(t, none, "live requests cannot be reclaimed")
+	expireRecoveryLease(t, j, original)
+	var winners atomic.Int32
+	var winner *Record
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			claimed, claimErr := NewJournal(db).ClaimRecovery(ctx)
+			require.NoError(t, claimErr)
+			if claimed != nil {
+				winners.Add(1)
+				winner = claimed
+			}
+		})
+	}
+	wg.Wait()
+	require.Equal(t, int32(1), winners.Load())
+	require.NotEqual(t, original.Owner, winner.Owner)
+	require.ErrorIs(t, j.RenewLease(ctx, original), ErrPending)
+	require.ErrorIs(t, j.SaveSettlementOutcome(ctx, original, 0, &SettlementOutcome{QuotaKey: key}), ErrPending)
+	_, err = j.ApplyQuota(ctx, original, 0)
+	require.ErrorIs(t, err, ErrPending)
+	require.ErrorIs(t, j.Finish(ctx, original, Result{Status: 200}, Succeeded), ErrPending)
+	require.ErrorIs(t, j.MarkUncertain(ctx, original, "late failure"), ErrPending)
+	state, err := j.ApplyQuota(ctx, winner, 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(60), state.Reserved)
+	require.NoError(t, j.RenewLease(ctx, winner))
+	require.NoError(t, j.MarkUncertain(ctx, winner, "RF unavailable"))
+	none, err = j.ClaimRecovery(ctx)
+	require.NoError(t, err)
+	require.Nil(t, none, "failed work waits for its persisted backoff")
+	var queued struct {
+		ReadyAt time.Time `bson:"readyAt"`
+		Active  string    `bson:"active"`
+	}
+	require.NoError(t, j.sessions.FindOne(ctx, bson.M{"_id": original.Session}).Decode(&queued))
+	require.Equal(t, original.ID, queued.Active)
+	require.True(t, queued.ReadyAt.After(time.Now()))
+	expireRecoveryLease(t, j, winner)
+	next, err := j.ClaimRecovery(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, next.Attempts)
+	require.NoError(t, j.Finish(ctx, next, Result{Status: 200}, Succeeded))
+	replay, fresh, err := j.Begin(ctx, original.Identity)
+	require.NoError(t, err)
+	require.False(t, fresh)
+	require.Equal(t, Succeeded, replay.State)
+}
+
+func TestMongoRecoveryHealsCompletedFenceButRetainsMissingRequest(t *testing.T) {
+	for _, missing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "completed", true: "missing"}[missing], func(t *testing.T) {
+			j := NewJournal(testutil.Mongo(t))
+			ctx := context.Background()
+			record, _, err := j.Begin(ctx, Identity{Session: "fenced", Sequence: 1})
+			require.NoError(t, err)
+			if missing {
+				_, err = j.requests.DeleteOne(ctx, bson.M{"_id": record.ID})
+			} else {
+				_, err = j.requests.UpdateOne(ctx, bson.M{"_id": record.ID}, bson.M{"$set": bson.M{"state": Succeeded}})
+			}
+			require.NoError(t, err)
+			expireRecoveryLease(t, j, record)
+			claimed, err := j.ClaimRecovery(ctx)
+			require.Nil(t, claimed)
+			if missing {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			session, loadErr := j.loadQuotaSession(ctx, record.Session)
+			require.NoError(t, loadErr)
+			if missing {
+				require.Equal(t, record.ID, *session.Active)
+			} else {
+				require.Nil(t, session.Active)
+			}
+		})
+	}
 }

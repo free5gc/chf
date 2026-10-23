@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -21,10 +22,13 @@ type storedQuota struct {
 }
 
 type quotaSession struct {
-	Active    *string                `bson:"active"`
-	Quotas    map[string]storedQuota `bson:"quotas"`
-	Applied   map[string]string      `bson:"quotaApplied"`
-	Recharges map[string]bool        `bson:"recharges"`
+	CDRHead    string                 `bson:"cdrHead"`
+	Owner      string                 `bson:"owner"`
+	LeaseUntil time.Time              `bson:"leaseUntil"`
+	Active     *string                `bson:"active"`
+	Quotas     map[string]storedQuota `bson:"quotas"`
+	Applied    map[string]string      `bson:"quotaApplied"`
+	Recharges  map[string]bool        `bson:"recharges"`
 }
 
 func (j *MongoJournal) loadQuotaSession(ctx context.Context, ref string) (*quotaSession, error) {
@@ -93,9 +97,10 @@ func (j *MongoJournal) PrepareQuotas(ctx context.Context, record *Record) (map[Q
 		if loadErr != nil {
 			return nil, loadErr
 		}
-		if session.Active == nil || *session.Active != record.ID {
+		if !ownsSession(session, record) {
 			return nil, ErrPending
 		}
+		record.CDRHead = &session.CDRHead
 		states, stateErr := quotaStates(record.Session, session)
 		if stateErr != nil {
 			return nil, stateErr
@@ -103,7 +108,7 @@ func (j *MongoJournal) PrepareQuotas(ctx context.Context, record *Record) (map[Q
 		if len(session.Recharges) == 0 || (plan != nil && len(plan.Steps) != 0) {
 			return states, nil
 		}
-		filter := bson.M{"_id": record.Session, "active": record.ID}
+		filter := sessionLeaseFilter(record)
 		set := bson.M{}
 		unset := bson.M{}
 		for group, pending := range session.Recharges {
@@ -182,9 +187,8 @@ func (j *MongoJournal) ApplyQuota(ctx context.Context, record *Record, index int
 		return QuotaState{}, err
 	}
 	field, marker := "quotas."+quotaID, "quotaApplied."+key
-	filter := bson.M{
-		"_id": record.Session, "active": record.ID, marker: bson.M{"$exists": false},
-	}
+	filter := sessionLeaseFilter(record)
+	filter[marker] = bson.M{"$exists": false}
 	if step.Before.Known {
 		filter[field] = storedQuota{Key: step.QuotaKey, State: step.Before}
 	} else {
@@ -212,7 +216,7 @@ func (j *MongoJournal) ApplyQuota(ctx context.Context, record *Record, index int
 	if err != nil {
 		return QuotaState{}, err
 	}
-	if session.Active == nil || *session.Active != record.ID {
+	if !ownsSession(session, record) {
 		return QuotaState{}, ErrPending
 	}
 	if session.Applied[key] != fingerprint {

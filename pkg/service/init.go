@@ -224,6 +224,12 @@ func (a *ChfApp) Start() {
 	abmf.OpenServer(a.ctx, &a.wg, charging.NewAccounts(a.chargingDB))
 
 	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.processor.RunChargingRecovery(a.ctx)
+	}()
+
+	a.wg.Add(1)
 	go a.listenShutdownEvent()
 
 	if err := a.sbiServer.Run(context.Background(), &a.wg); err != nil {

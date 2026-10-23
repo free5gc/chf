@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -68,6 +69,10 @@ type Record struct {
 	SettlementPlan *SettlementPlan `bson:"settlementPlan,omitempty"`
 	CDR            *CDRMetadata    `bson:"cdrEvent,omitempty"`
 	CreatedAt      time.Time       `bson:"createdAt"`
+	Owner          string          `bson:"owner"`
+	LeaseUntil     time.Time       `bson:"leaseUntil"`
+	Attempts       int             `bson:"-"`
+	CDRHead        *string         `bson:"-"`
 
 	// Only the journal that began a fresh invocation may reuse acknowledged
 	// snapshot bytes. Loaded records always read their durable plan on recovery.
@@ -76,7 +81,7 @@ type Record struct {
 }
 
 // Journal never expires unresolved operations or completed replay records.
-// An interrupted operation is blocked for reconciliation, not executed again.
+// Interrupted operations retain their fence until recovery completes them.
 type Journal interface {
 	Begin(context.Context, Identity) (*Record, bool, error)
 	Finish(context.Context, *Record, Result, string) error
@@ -121,8 +126,12 @@ func checkRecord(record *Record, identity Identity) error {
 }
 
 func (j *MongoJournal) unlock(ctx context.Context, record *Record) error {
+	completed := bson.M{"active": nil}
+	if record.CDR != nil {
+		completed["cdrHead"] = record.ID
+	}
 	_, err := j.sessions.UpdateOne(ctx,
-		bson.M{"_id": record.Session, "active": record.ID}, bson.M{"$set": bson.M{"active": nil}})
+		bson.M{"_id": record.Session, "active": record.ID}, bson.M{"$set": completed})
 	return err
 }
 
@@ -162,16 +171,24 @@ func (j *MongoJournal) Begin(ctx context.Context, identity Identity) (*Record, b
 			return nil, false, err
 		}
 	}
+	stamp := time.Now().UTC()
+	owner := uuid.NewString()
+	until := stamp.Add(LeaseDuration)
 	claim, err := j.sessions.UpdateOne(ctx, bson.M{"_id": identity.Session, "active": nil},
-		bson.M{"$set": bson.M{"active": id, "quotaApplied": bson.M{}}})
+		bson.M{"$set": bson.M{
+			"active": id, "quotaApplied": bson.M{}, "owner": owner,
+			"leaseUntil": until, "readyAt": until, "attempts": 0,
+		}})
 	if err != nil {
 		return nil, false, err
 	}
 	if claim.MatchedCount != 1 {
 		return nil, false, ErrPending
 	}
-	stamp := time.Now().UTC()
-	record := &Record{ID: id, Identity: identity, State: Processing, CreatedAt: stamp, UpdatedAt: stamp}
+	record := &Record{
+		ID: id, Identity: identity, State: Processing, CreatedAt: stamp, UpdatedAt: stamp,
+		Owner: owner, LeaseUntil: until,
+	}
 	_, err = j.requests.InsertOne(ctx, record)
 	if mongo.IsDuplicateKeyError(err) {
 		// A concurrent original invocation may have finished after the first lookup.
@@ -204,7 +221,7 @@ func (j *MongoJournal) Finish(ctx context.Context, record *Record, result Result
 	if state == Succeeded && record.CDR != nil {
 		completed["cdrEvent"] = record.CDR
 	}
-	update, err := j.requests.UpdateOne(ctx, bson.M{"_id": record.ID, "state": Processing},
+	update, err := j.requests.UpdateOne(ctx, requestLeaseFilter(record),
 		bson.M{"$set": completed})
 	if err != nil {
 		return err
@@ -217,8 +234,5 @@ func (j *MongoJournal) Finish(ctx context.Context, record *Record, result Result
 }
 
 func (j *MongoJournal) MarkUncertain(ctx context.Context, record *Record, detail string) error {
-	record.localJournal, record.localPlan = nil, nil
-	_, err := j.requests.UpdateOne(ctx, bson.M{"_id": record.ID, "state": Processing},
-		bson.M{"$set": bson.M{"state": Uncertain, "detail": detail, "updatedAt": time.Now().UTC()}})
-	return err
+	return j.retryRecovery(ctx, record, detail)
 }

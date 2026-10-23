@@ -77,11 +77,9 @@ func (context *CHFContext) NewCHFUe(supi string) (*ChfUe, error) {
 		ue := ChfUe{}
 		ue.init()
 
-		if supi != "" {
-			context.AddChfUeToUePool(&ue, supi)
-		}
-
-		return &ue, nil
+		ue.Supi = supi
+		actual, _ := context.UePool.LoadOrStore(supi, &ue)
+		return actual.(*ChfUe), nil
 	} else {
 		return nil, fmt.Errorf(" add Ue context fail ")
 	}
