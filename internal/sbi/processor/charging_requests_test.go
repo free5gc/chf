@@ -66,7 +66,9 @@ func (j *testJournal) Begin(_ context.Context, identity charging.Identity) (*cha
 	if j.active[identity.Session] != "" {
 		return nil, false, charging.ErrPending
 	}
-	record := &charging.Record{ID: identity.ID(), Identity: identity, State: charging.Processing}
+	record := &charging.Record{
+		ID: identity.ID(), Identity: identity, State: charging.Processing, CreatedAt: time.Now().UTC(),
+	}
 	j.records[record.ID] = record
 	j.active[record.Session] = record.ID
 	copyRecord := *record
@@ -81,6 +83,9 @@ func (j *testJournal) Finish(_ context.Context, record *charging.Record, result 
 	}
 	j.records[record.ID].State = state
 	j.records[record.ID].Result = result
+	if state == charging.Succeeded {
+		j.records[record.ID].CDR = record.CDR
+	}
 	delete(j.active, record.Session)
 	return nil
 }
@@ -185,6 +190,14 @@ func (j *testJournal) QueueRecharge(_ context.Context, ref string, rg int32) err
 		}
 	}
 	return nil
+}
+
+func (j *testJournal) InitializeCDR(context.Context, string, *charging.CDRState) error {
+	return nil
+}
+
+func (j *testJournal) LoadCDRHistory(context.Context, string) ([]charging.CDRHistory, error) {
+	return nil, errors.New("use MongoDB to test CDR reconstruction")
 }
 
 func chargingRequestSession(t *testing.T) (*Processor, models.Chf_ConvCharging_ChargingDataRequest, string) {

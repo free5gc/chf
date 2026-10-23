@@ -17,8 +17,9 @@ import (
 )
 
 type ChfUe struct {
-	Supi   string
-	Quotas map[charging.QuotaKey]charging.QuotaState
+	Supi        string
+	Quotas      map[charging.QuotaKey]charging.QuotaState
+	CDRProgress map[string]charging.CDRProgress
 
 	QuotaValidityTime    int32
 	VolumeLimit          int32

@@ -17,11 +17,15 @@ replayed Update decodes the stored response.
 Collections in the configured database:
 
 - `chf.chargingRequests`: original request, fingerprint, processing state,
-  immutable settlement steps/outcomes and completed response. `processing` or
+  immutable settlement steps/outcomes, compact CDR replay metadata (`cdrEvent`)
+  committed with the completed response, and an immutable request creation time.
+  `processing` or
   `uncertain` operations require reconciliation.
 - `chf.chargingSessions`: the resource fence, authoritative per-UPF quota state,
   applied-step fingerprints for the active invocation, and pending recharge
-  notices. A single-document update changes quota and its applied marker together.
+  notices. The initial CDR/notification metadata is saved once as `cdrInitial`;
+  subsequent CDR reports do not read or rewrite it. Quota changes and their
+  applied markers remain atomic. There is no separate CDR archive collection.
 - `chf.accounts`: ABMF-owned authoritative balances, `chargingVersion` and recent
   `chargingOperations`. Its `_id` is the source policy document's immutable `_id`;
   `ueId` and `ratingGroup` are lookup fields, not a permanent account identity.
@@ -34,7 +38,7 @@ Collections in the configured database:
 
 ## Account lifecycle and rollout
 
-Startup calls `internal/db.InitializeSchema` to create account lookup
+Startup calls `internal/db.InitializeSchema` to create account and CDR lookup
 indexes, then constructs `Accounts` and imports existing runtime charging records
 before accepting traffic. Index creation and shared MongoDB read/write settings live in `internal/db`;
 account operations depend on this storage package. Provisioning templates without a rating group
@@ -169,7 +173,8 @@ Completed HTTP responses can still replay. Reconcile unfinished RG-wide plans
 separately and drain live sessions before deploying the new quota representation;
 this change does not migrate an old shared balance into separate UPF balances.
 Update and Release restore quota state before processing a valid live session.
-Restoring the full UE/CDR context after restart remains separate work.
+CDR context/file reconstruction is available separately; automatic recovery of
+the complete UE and invocation remains later work.
 
 A request in processing/uncertain state still fences its entire charging
 resource. Per-UPF financial state isolation does not let a later invocation
@@ -211,7 +216,8 @@ one atomic write, then returns the acknowledged quota state without reading it
 back. Notices arriving after a settlement step is prepared wait for
 the next invocation. An uncertain invocation therefore retains both its fence
 and any pending notice for later reconciliation. The normal API still requires
-a live UE/CDR; this stage does not reconstruct the full session after a restart.
+a live UE/CDR; the recovery helpers can reconstruct CDR state separately, but
+this stage does not reconnect Diameter clients or resume whole invocations.
 
 
 For a fresh invocation with no pending recharge or conflict, quota persistence
@@ -219,6 +225,59 @@ adds one session read per invocation and one atomic session write per processed
 online usage entry. Earlier request-journal, settlement and account operations
 remain. Replay/conflict and recovery paths may perform additional reads. These
 are code-path operation counts, not latency or throughput measurements.
+
+
+## Lightweight CDR replay and recovery
+
+Create saves the initial CDR/notification metadata once before acknowledging its
+UUID-based resource. This does not deduplicate repeated Initial requests.
+Update/Release use the live CDR projection and its in-memory event cursor. A
+released projection rejects new charging requests before any accounting.
+
+Normal CDR processing performs no MongoDB reads or writes of its own. The
+original request is already in the journal. Preparing a CDR change operates on
+a private copy, then installs the result in memory and regenerates the local file.
+The request's event ID prevents applying the same in-flight request twice to that
+projection. File replacement uses a temporary file and atomic rename.
+
+The existing successful `Finish` write also saves a small `cdrEvent` object:
+
+- `previous`: the preceding CDR event ID for that resource;
+- `partial`: whether this request closes a partial record;
+- `stamp`: the fixed event time as RFC3339Nano, preserving its UTC offset;
+- `localSequences`: local record numbers allocated by any new segments.
+
+The event is committed atomically with the completed response, with no additional
+CDR write. No per-request Before/After CDR snapshots, applied-state documents or
+closed-record copies are stored. Each report adds metadata to an existing write,
+not more database round trips. Account/quota durability is unchanged. Local file
+output remains synchronous in this stage; no background exporter is introduced.
+
+`RestoreCDRs` is an explicit, more expensive reconstruction path. It loads the
+initial seed and completed original requests, follows their predecessor links,
+and replays usage into a new projection. It does not assume invocation numbers
+increase monotonically. Missing/branching history is rejected rather than guessed.
+Partial and size-based boundaries, timestamps and local numbers are reproduced
+from metadata; replay does not call RF/ABMF or allocate new record numbers. The
+rebuilt projection replaces the old one and regenerates the file. History scans
+use session/subscriber indexes created by `internal/db.InitializeSchema`.
+
+Only succeeded requests with CDR metadata belong to the completed projection.
+Processing, uncertain and rejected requests are excluded. A request interrupted
+before completion remains in the original request journal and retains its active
+fence; it has not lost its reported usage. A future recovery worker must reconcile
+account/quota progress first, reconstruct the completed CDR prefix, then apply the
+pending original request once and finish it. An in-memory cursor handles a local
+file retry without appending usage again. If the process died before completion,
+provisional CDR output is rebuilt from the completed prefix; pending segment local
+numbers are fixed when that request eventually completes. This is the deliberate
+tradeoff for removing per-report durable CDR snapshots.
+
+The caller holds the UE lock during reconstruction/retry. This stage does not
+resume whole invocations automatically, reconnect Diameter clients, or provide
+exactly-once CGF/FTP ingestion. Old resources lacking the initial seed or replay
+metadata cannot be reconstructed through this path; drain/reconcile them during
+rollout. Request history and initial metadata must be retained for reconstruction.
 
 ## Failure behavior and limits
 
@@ -234,9 +293,10 @@ Do not clear an unresolved fence or delete its request to retry. Reconciliation
 must inspect the original request, saved settlement steps/outcomes, account
 operation results, reservation state and CDR effects before deciding what remains
 to be applied. Durable quota state and atomic applied-step markers now cover
-quota application. CDR deduplication and a worker that resumes the remaining
-steps are still needed. This change does not reconstruct full live UE/CDR
-contexts after restart, deduplicate Initial requests, or enable SMF background retries.
+quota application; initial metadata and completed request events cover CDR
+reconstruction. A worker must still resume unfinished invocations and
+persist their final replies. This change does not reconstruct complete live UE
+contexts, deduplicate Initial requests, or enable SMF background retries.
 Completed records have no TTL; removing replay history requires a coordinated
 retention policy with charging clients. Startup imports history available in
 existing account documents; replay guarantees cannot cover earlier operations
@@ -273,7 +333,9 @@ Tests are grouped by responsibility:
   state, final settlement, funded grants, recharge, UPFID validation, RF/ABMF
   sequencing and settlement storage failures. MongoDB cases verify balances,
   restoring quota caches and lost quota-commit acknowledgements.
-- `internal/sbi/processor/cdr_test.go`: CDR-specific regressions.
+- `internal/sbi/processor/cdr_test.go`: initial persistence, zero normal CDR DB
+  commands, predecessor-ordered reconstruction, partial/rollover reproduction,
+  file failure, lost completion acknowledgement and released-resource validation.
 - `internal/abmf/abmf_test.go`: wire answer decoding and identity validation.
 - `internal/testutil/mongo.go`: the single disposable database fixture used by tests.
 
