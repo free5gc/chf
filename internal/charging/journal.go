@@ -59,12 +59,13 @@ type Result struct {
 }
 
 type Record struct {
-	ID        string `bson:"_id"`
-	Identity  `bson:",inline"`
-	State     string    `bson:"state"`
-	Result    Result    `bson:"result"`
-	Detail    string    `bson:"detail,omitempty"`
-	UpdatedAt time.Time `bson:"updatedAt"`
+	ID             string `bson:"_id"`
+	Identity       `bson:",inline"`
+	State          string          `bson:"state"`
+	Result         Result          `bson:"result"`
+	Detail         string          `bson:"detail,omitempty"`
+	UpdatedAt      time.Time       `bson:"updatedAt"`
+	SettlementPlan *SettlementPlan `bson:"settlementPlan,omitempty"`
 }
 
 // Journal never expires unresolved operations or completed replay records.
@@ -73,6 +74,8 @@ type Journal interface {
 	Begin(context.Context, Identity) (*Record, bool, error)
 	Finish(context.Context, *Record, Result, string) error
 	MarkUncertain(context.Context, *Record, string) error
+	SaveSettlementStep(context.Context, *Record, *SettlementStep) error
+	SaveSettlementOutcome(context.Context, *Record, int, *SettlementOutcome) error
 }
 
 type MongoJournal struct {

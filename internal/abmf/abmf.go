@@ -34,6 +34,8 @@ func SendAccountDebitRequest(
 		return nil, fmt.Errorf("peer metadata unavailable")
 	}
 
+	request := *ccr
+	ccr = &request
 	ccr.DestinationRealm = datatype.DiameterIdentity(meta.OriginRealm)
 	ccr.DestinationHost = datatype.DiameterIdentity(meta.OriginHost)
 

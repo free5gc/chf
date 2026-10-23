@@ -314,3 +314,39 @@ func TestMongoAccountStartupImportRetainsUnusedAccounts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "60", readBalance(t, db).Quota)
 }
+
+func TestMongoAccountBindingSurvivesReuseBeforeFirstDebit(t *testing.T) {
+	db := testutil.Mongo(t)
+	ctx := context.Background()
+	seedAccount(t, db, "100")
+	request := accountRequest()
+	accounts := NewAccounts(db)
+	bound, err := accounts.Bind(ctx, request)
+	require.NoError(t, err)
+	var oldAccount account
+	require.NoError(t, bson.Unmarshal(bound, &oldAccount))
+	require.Equal(t, "100", readBalance(t, db).Quota, "binding does not debit the account")
+	_, err = accounts.policies.DeleteMany(ctx, bson.M{})
+	require.NoError(t, err)
+	seedAccount(t, db, "500")
+	newRequest := accountRequest()
+	newRequest.SessionId = "new-policy"
+	_, err = accounts.Apply(ctx, newRequest)
+	require.NoError(t, err)
+	// Restart after the policy changed, before the old request ever debited.
+	accounts = NewAccounts(db)
+	first, err := accounts.Apply(ctx, request)
+	require.NoError(t, err)
+	replay, err := accounts.Apply(ctx, request)
+	require.NoError(t, err)
+	require.Equal(t, first, replay)
+	require.NoError(t, accounts.balances.FindOne(ctx, bson.M{"_id": oldAccount.ID}).Decode(&oldAccount))
+	require.Equal(t, "60", oldAccount.Quota)
+	var currentPolicy, newAccount account
+	require.NoError(t, accounts.policies.FindOne(ctx, bson.M{}).Decode(&currentPolicy))
+	require.NoError(t, accounts.balances.FindOne(ctx, bson.M{"_id": currentPolicy.ID}).Decode(&newAccount))
+	require.Equal(t, "460", newAccount.Quota)
+	request.MultipleServicesCreditControl.RequestedServiceUnit.CCTotalOctets++
+	_, err = accounts.Bind(ctx, request)
+	require.ErrorIs(t, err, ErrConflict)
+}

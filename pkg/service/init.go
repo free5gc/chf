@@ -93,7 +93,7 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 	if err := accounts.ImportLegacy(dbCtx); err != nil {
 		return nil, err
 	}
-	processor, err_p := processor.NewProcessor(chf, charging.NewJournal(chf.chargingDB))
+	processor, err_p := processor.NewProcessor(chf, charging.NewJournal(chf.chargingDB), accounts)
 	if err_p != nil {
 		return chf, err_p
 	}

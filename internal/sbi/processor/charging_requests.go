@@ -12,6 +12,7 @@ import (
 	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
+	chargingdb "github.com/free5gc/chf/internal/db"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/openapi/models"
@@ -143,4 +144,64 @@ func (p *Processor) failChargingRequest(
 		logger.ChargingdataPostLog.Errorf("Persist uncertain charging operation: %v", err)
 	}
 	return chargingProblem(fmt.Errorf("charging operation requires reconciliation: %s", detail))
+}
+
+func (p *Processor) captureServiceUsage(
+	ue *chf_context.ChfUe, request *charging_datatype.ServiceUsageRequest, ratings *[]charging.RatingExchange,
+) (*charging_datatype.ServiceUsageResponse, error) {
+	response, err := p.sendServiceUsage(ue, request)
+	if err != nil {
+		return nil, err
+	}
+	if response == nil {
+		return nil, fmt.Errorf("rating response is nil")
+	}
+	// The caller reuses SUR and tariff pointers. Freeze a deep copy immediately.
+	body, err := chargingdb.EncodeSnapshot(charging.RatingExchange{Request: *request, Response: *response})
+	if err != nil {
+		return nil, err
+	}
+	var exchange charging.RatingExchange
+	if err = chargingdb.DecodeSnapshot(body, &exchange); err != nil {
+		return nil, err
+	}
+	*ratings = append(*ratings, exchange)
+	return &exchange.Response, nil
+}
+
+func (p *Processor) saveSettlementStep(record *charging.Record, step *charging.SettlementStep) error {
+	if record == nil {
+		// Initial requests have no invocation journal yet.
+		return nil
+	}
+	ctx, cancel := journalContext()
+	defer cancel()
+	if step.AccountRequest != nil {
+		if p.bindAccount == nil {
+			return fmt.Errorf("account binding store is unavailable")
+		}
+		binding, err := p.bindAccount(ctx, step.AccountRequest)
+		if err != nil {
+			return fmt.Errorf("bind account: %w", err)
+		}
+		step.AccountBinding = binding
+	}
+	if err := p.journal.SaveSettlementStep(ctx, record, step); err != nil {
+		return fmt.Errorf("persist settlement step: %w", err)
+	}
+	return nil
+}
+
+func (p *Processor) saveSettlementOutcome(
+	record *charging.Record, index int, outcome *charging.SettlementOutcome,
+) error {
+	if record == nil {
+		return nil
+	}
+	ctx, cancel := journalContext()
+	defer cancel()
+	if err := p.journal.SaveSettlementOutcome(ctx, record, index, outcome); err != nil {
+		return fmt.Errorf("persist settlement outcome: %w", err)
+	}
+	return nil
 }
