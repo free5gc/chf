@@ -46,9 +46,13 @@ func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 	}
 
 	ue.CULock.Lock()
-	active := ue.RechargeRatingGroup(rg)
+	active, rechargeErr := p.rechargeQuotas(ue, rg)
 	notifyURI := ue.NotifyUri
 	ue.CULock.Unlock()
+	if rechargeErr != nil {
+		logger.NotifyEventLog.Errorf("Queue quota recharge: %v", rechargeErr)
+		return
+	}
 	if !active {
 		return
 	}
@@ -272,6 +276,9 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 
+	if err := p.restoreQuotas(ue, record); err != nil {
+		return nil, p.failChargingRequest(record, chargingProblem(err))
+	}
 	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
 		return nil, p.rejectChargingRequest(record, ownershipProblem)
 	}
@@ -414,6 +421,9 @@ func (p *Processor) ChargingDataRelease(
 	cdr, exists := ue.Cdr[chargingSessionId]
 	if !exists || cdr == nil {
 		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	}
+	if err := p.restoreQuotas(ue, record); err != nil {
+		return p.failChargingRequest(record, chargingProblem(err))
 	}
 	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
 		return p.rejectChargingRequest(record, ownershipProblem)
@@ -912,7 +922,15 @@ func (p *Processor) sessionChargingReservation(
 		if ue.Quotas == nil {
 			ue.Quotas = make(map[charging.QuotaKey]charging.QuotaState)
 		}
-		ue.Quotas[key] = outcome.After
+		after := outcome.After
+		if record != nil {
+			var applyErr error
+			after, applyErr = p.applyQuota(record, unitUsageNum)
+			if applyErr != nil {
+				return nil, false, applyErr
+			}
+		}
+		ue.Quotas[key] = after
 		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
 	}
 

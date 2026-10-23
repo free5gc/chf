@@ -41,6 +41,9 @@ type testJournal struct {
 	finishErr  error
 	stepErr    error
 	outcomeErr error
+	quotaErr   error
+	loadErr    error
+	quotas     map[charging.QuotaKey]charging.QuotaState
 }
 
 func newTestJournal() *testJournal {
@@ -139,6 +142,51 @@ func (j *testJournal) saveSnapshot(record *charging.Record, index int, value any
 	return nil
 }
 
+func (j *testJournal) PrepareQuotas(_ context.Context, record *charging.Record) (
+	map[charging.QuotaKey]charging.QuotaState, error,
+) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.loadErr != nil {
+		return nil, j.loadErr
+	}
+	states := make(map[charging.QuotaKey]charging.QuotaState)
+	for key, state := range j.quotas {
+		if key.ChargingDataRef == record.Session {
+			states[key] = state
+		}
+	}
+	return states, nil
+}
+
+func (j *testJournal) ApplyQuota(_ context.Context, record *charging.Record, index int) (charging.QuotaState, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.quotaErr != nil {
+		return charging.QuotaState{}, j.quotaErr
+	}
+	var outcome charging.SettlementOutcome
+	body := j.records[record.ID].SettlementPlan.Outcomes[strconv.Itoa(index)]
+	if err := chargingdb.DecodeSnapshot(body, &outcome); err != nil {
+		return charging.QuotaState{}, err
+	}
+	j.quotas[outcome.QuotaKey] = outcome.After
+	return outcome.After, nil
+}
+
+func (j *testJournal) QueueRecharge(_ context.Context, ref string, rg int32) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for key, state := range j.quotas {
+		if key.ChargingDataRef == ref && key.RatingGroup == rg && !state.Closed {
+			state.Exhausted = false
+			state.RatingType = charging_datatype.REQ_SUBTYPE_RESERVE
+			j.quotas[key] = state
+		}
+	}
+	return nil
+}
+
 func chargingRequestSession(t *testing.T) (*Processor, models.Chf_ConvCharging_ChargingDataRequest, string) {
 	t.Helper()
 	const supi, ref = "imsi-208930000001226", "charging-1226"
@@ -170,7 +218,9 @@ func chargingRequestSession(t *testing.T) (*Processor, models.Chf_ConvCharging_C
 			}},
 		}},
 	}
-	p := &Processor{journal: newTestJournal()}
+	journal := newTestJournal()
+	journal.quotas = ue.Quotas
+	p := &Processor{journal: journal}
 	p.bindAccount = func(context.Context, *charging_datatype.AccountDebitRequest) ([]byte, error) {
 		return bson.Marshal(bson.M{"_id": "test-account"})
 	}
@@ -512,7 +562,15 @@ func TestMongoChargingLostResponseReplaysWithoutAnotherDebit(t *testing.T) {
 			ue.Quotas[key] = charging.QuotaState{
 				Known: true, Reserved: tc.reserved, RatingType: charging_datatype.REQ_SUBTYPE_RESERVE,
 			}
-			_, err := db.Collection("policyData.ues.chargingData").InsertOne(context.Background(), bson.M{
+			quotaID, err := charging.Digest(key)
+			require.NoError(t, err)
+			_, err = db.Collection("chf.chargingSessions").InsertOne(context.Background(), bson.M{
+				"_id": ref, "active": nil, "quotas": bson.M{quotaID: bson.D{
+					{Key: "key", Value: key}, {Key: "state", Value: ue.Quotas[key]},
+				}},
+			})
+			require.NoError(t, err)
+			_, err = db.Collection("policyData.ues.chargingData").InsertOne(context.Background(), bson.M{
 				"ueId": request.SubscriberIdentifier, "ratingGroup": 10, "quota": initialBalance,
 			})
 			require.NoError(t, err)
