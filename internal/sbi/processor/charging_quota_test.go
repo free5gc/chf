@@ -366,7 +366,7 @@ func TestChargingLegacyUPFIDMustRemainUnambiguous(t *testing.T) {
 func TestChargingSettlementPersistenceFailurePreservesQuota(t *testing.T) {
 	const outcomeFailure = "outcome"
 	for _, operation := range []string{chargingUpdateOperation, chargingReleaseOperation} {
-		for _, failure := range []string{"restore", "binding", "plan", outcomeFailure, "quota"} {
+		for _, failure := range []string{"restore", "binding", "plan", outcomeFailure, recoveryQuota} {
 			t.Run(operation+"/"+failure, func(t *testing.T) {
 				p, request, ref := chargingRequestSession(t)
 				ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
@@ -379,7 +379,7 @@ func TestChargingSettlementPersistenceFailurePreservesQuota(t *testing.T) {
 				switch failure {
 				case "restore":
 					journal.loadErr = errors.New("quota storage unavailable")
-				case "quota":
+				case recoveryQuota:
 					journal.quotaErr = errors.New("quota commit unavailable")
 				case "binding":
 					p.bindAccount = func(context.Context, *charging_datatype.AccountDebitRequest) ([]byte, error) {
@@ -396,7 +396,7 @@ func TestChargingSettlementPersistenceFailurePreservesQuota(t *testing.T) {
 					require.Equal(t, http.StatusServiceUnavailable, reply.Code)
 				}
 				expected := int32(0)
-				if failure == outcomeFailure || failure == "quota" {
+				if failure == outcomeFailure || failure == recoveryQuota {
 					expected = 1
 				}
 				require.Equal(t, expected, calls.Load())
@@ -610,6 +610,11 @@ func TestMongoChargingRestoresQuotaAndDoesNotRepeatCommittedSettlement(t *testin
 	}).Decode(&record))
 	require.Equal(t, charging.Uncertain, record.State)
 	restarted := charging.NewJournal(db)
+	makeRecoveryReady(t, db, ref)
+	claimed, claimErr := restarted.ClaimRecovery(ctx)
+	require.NoError(t, claimErr)
+	require.NotNil(t, claimed)
+	record = *claimed
 	for range 2 {
 		state, err := restarted.ApplyQuota(ctx, &record, 0)
 		require.NoError(t, err)

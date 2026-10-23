@@ -117,15 +117,20 @@ func (p *Processor) finishChargingRequest(
 func (p *Processor) rejectChargingRequest(
 	record *charging.Record, problem *models.ProblemDetails,
 ) *models.ProblemDetails {
-	body, err := json.Marshal(problem)
-	if err != nil {
+	if err := p.storeChargingRejection(record, problem); err != nil {
 		return chargingProblem(err)
 	}
-	if storageProblem := p.finishChargingRequest(record,
-		charging.Result{Status: int(problem.Status), Body: body}, charging.Rejected); storageProblem != nil {
-		return storageProblem
-	}
 	return problem
+}
+
+func (p *Processor) storeChargingRejection(record *charging.Record, problem *models.ProblemDetails) error {
+	body, err := json.Marshal(problem)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := journalContext()
+	defer cancel()
+	return p.journal.Finish(ctx, record, charging.Result{Status: int(problem.Status), Body: body}, charging.Rejected)
 }
 
 func (p *Processor) failChargingRequest(
@@ -143,7 +148,7 @@ func (p *Processor) failChargingRequest(
 	if err := p.journal.MarkUncertain(ctx, record, detail); err != nil {
 		logger.ChargingdataPostLog.Errorf("Persist uncertain charging operation: %v", err)
 	}
-	return chargingProblem(fmt.Errorf("charging operation requires reconciliation: %s", detail))
+	return chargingProblem(fmt.Errorf("charging operation pending recovery: %s", detail))
 }
 
 func (p *Processor) captureServiceUsage(
@@ -242,13 +247,21 @@ func validateQuotaOwners(
 	return nil
 }
 
-// Restore just this resource; another resource of the same UE keeps its state.
-func (p *Processor) restoreQuotas(ue *chf_context.ChfUe, record *charging.Record) error {
+// Restore this resource's quotas and refresh a stale subscriber CDR projection
+// using the completed cursor included in the existing quota read.
+func (p *Processor) restoreChargingState(ue *chf_context.ChfUe, record *charging.Record) error {
 	ctx, cancel := journalContext()
 	defer cancel()
 	states, err := p.journal.PrepareQuotas(ctx, record)
 	if err != nil {
 		return fmt.Errorf("restore charging quotas: %w", err)
+	}
+	// The existing quota read carries the completed CDR cursor. Another CHF
+	// instance may have recovered this resource while this projection was idle.
+	if record.CDRHead != nil && ue.CDRProgress[record.Session].EventID != *record.CDRHead {
+		if err = p.RestoreCDRs(ue); err != nil {
+			return fmt.Errorf("restore charging CDR: %w", err)
+		}
 	}
 	if ue.Quotas == nil {
 		ue.Quotas = make(map[charging.QuotaKey]charging.QuotaState)

@@ -23,8 +23,12 @@ func InitializeSchema(ctx context.Context, db *mongo.Database) error {
 	if err != nil {
 		return err
 	}
-	if _, err = DurableCollection(db, "chf.chargingSessions").Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "cdrSubscriber", Value: 1}},
+	if _, err = DurableCollection(db, "chf.chargingSessions").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "cdrSubscriber", Value: 1}}},
+		{
+			Keys:    bson.D{{Key: "readyAt", Value: 1}},
+			Options: options.Index().SetPartialFilterExpression(bson.M{"active": bson.M{"$type": "string"}}),
+		},
 	}); err != nil {
 		return err
 	}

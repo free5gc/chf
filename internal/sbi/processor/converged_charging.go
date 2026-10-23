@@ -277,6 +277,8 @@ func (p *Processor) ChargingDataUpdate(
 		return &response, nil
 	}
 
+	stopLease := p.keepChargingLease(record)
+	defer stopLease()
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
@@ -292,11 +294,11 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 
+	if err := p.restoreChargingState(ue, record); err != nil {
+		return nil, p.failChargingRequest(record, chargingProblem(err))
+	}
 	if ue.CDRProgress[chargingSessionId].Closed {
 		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
-	}
-	if err := p.restoreQuotas(ue, record); err != nil {
-		return nil, p.failChargingRequest(record, chargingProblem(err))
 	}
 	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
 		return nil, p.rejectChargingRequest(record, ownershipProblem)
@@ -344,6 +346,8 @@ func (p *Processor) ChargingDataRelease(
 		return nil
 	}
 
+	stopLease := p.keepChargingLease(record)
+	defer stopLease()
 	self := chf_context.GetSelf()
 	ueId := chargingData.SubscriberIdentifier
 	ue, ok := self.ChfUeFindBySupi(ueId)
@@ -358,11 +362,11 @@ func (p *Processor) ChargingDataRelease(
 	if !exists || cdr == nil {
 		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
+	if err := p.restoreChargingState(ue, record); err != nil {
+		return p.failChargingRequest(record, chargingProblem(err))
+	}
 	if ue.CDRProgress[chargingSessionId].Closed {
 		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
-	}
-	if err := p.restoreQuotas(ue, record); err != nil {
-		return p.failChargingRequest(record, chargingProblem(err))
 	}
 	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
 		return p.rejectChargingRequest(record, ownershipProblem)
@@ -474,6 +478,16 @@ func (p *Processor) sessionChargingReservation(
 	}
 
 	for unitUsageNum, unitUsage := range chargingData.MultipleUnitUsage {
+		if record != nil && record.SettlementPlan != nil &&
+			len(record.SettlementPlan.Steps[strconv.Itoa(unitUsageNum)]) != 0 {
+			info, partial, resumeErr := p.resumeSettlementEntry(ue, record, unitUsageNum)
+			if resumeErr != nil {
+				return nil, false, resumeErr
+			}
+			multipleUnitInformation = append(multipleUnitInformation, info)
+			partialRecord = partial
+			continue
+		}
 		var totalUsedUnit uint32
 		var finalUnitIndication models.Chf_ConvCharging_FinalUnitIndication
 		creditControl := false
@@ -772,6 +786,7 @@ func (p *Processor) sessionChargingReservation(
 			},
 			Ratings: ratings, AccountRequest: accountRequest, AddGrantedUnits: addGrantedUnits,
 			UnitInformation: unitInformation, PartialRecord: partialRecord,
+			ThresholdRate: ue.VolumeThresholdRate, AdjustThreshold: thresholdIndex >= 0,
 		}
 		if addGrantedUnits {
 			// Freeze both response branches before ABMF can return a final grant.
@@ -790,50 +805,12 @@ func (p *Processor) sessionChargingReservation(
 		if err := p.saveSettlementStep(record, step); err != nil {
 			return nil, false, err
 		}
-		var accountResponse *charging_datatype.AccountDebitResponse
-		if accountRequest != nil {
-			var err error
-			accountResponse, err = p.sendAccountDebit(ue, accountRequest)
-			if err != nil {
-				return nil, false, fmt.Errorf("account operation: %w", err)
-			}
-			if accountResponse == nil {
-				return nil, false, fmt.Errorf("account response is nil")
-			}
-			if addGrantedUnits {
-				credit := accountResponse.MultipleServicesCreditControl
-				if credit == nil || credit.GrantedServiceUnit == nil {
-					return nil, false, fmt.Errorf("account response is missing granted units")
-				}
-				reservedQuota += int64(credit.GrantedServiceUnit.CCTotalOctets)
-				if credit.FinalUnitIndication != nil &&
-					credit.FinalUnitIndication.FinalUnitAction == charging_datatype.TERMINATE {
-					ratingType = charging_datatype.REQ_SUBTYPE_DEBIT
-					exhausted = true
-					unitInformation = *step.FinalUnitInformation
-				}
-			}
+		outcome, executeErr := p.executeSettlementStep(ue, step)
+		if executeErr != nil {
+			return nil, false, executeErr
 		}
-		// RF's allowance must also be backed by this owner's actual reserved
-		// funds. Partial/zero ABMF grants cannot finance another UPF's credit.
-		if unitInformation.GrantedUnit != nil && unitInformation.GrantedUnit.TotalVolume > 0 && unitCost > 0 {
-			fundedVolume := uint64(max(reservedQuota, 0)) / uint64(unitCost)
-			grantedVolume := min(uint64(unitInformation.GrantedUnit.TotalVolume), fundedVolume)
-			unitInformation.GrantedUnit = &models.Chf_ConvCharging_GrantedUnit{
-				TotalVolume: int32(grantedVolume), DownlinkVolume: int32(grantedVolume), UplinkVolume: int32(grantedVolume),
-			}
-			if !exhausted && thresholdIndex >= 0 {
-				unitInformation.VolumeQuotaThreshold = int32(float32(grantedVolume) * ue.VolumeThresholdRate)
-			}
-		}
-		outcome := &charging.SettlementOutcome{
-			QuotaKey: key,
-			After: charging.QuotaState{
-				Known: true, Reserved: reservedQuota, RatingType: ratingType, UnitCost: unitCost,
-				Exhausted: exhausted, Closed: closed,
-			},
-			AccountResponse: accountResponse, UnitInformation: unitInformation,
-		}
+		unitInformation = outcome.UnitInformation
+
 		if err := p.saveSettlementOutcome(record, unitUsageNum, outcome); err != nil {
 			return nil, false, err
 		}

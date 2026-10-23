@@ -19,11 +19,12 @@ Collections in the configured database:
 - `chf.chargingRequests`: original request, fingerprint, processing state,
   immutable settlement steps/outcomes, compact CDR replay metadata (`cdrEvent`)
   committed with the completed response, and an immutable request creation time.
-  `processing` or
-  `uncertain` operations require reconciliation.
+  Processing and uncertain operations retain an execution owner/lease and are
+  resumed by the background worker after expiry/backoff.
 - `chf.chargingSessions`: the resource fence, authoritative per-UPF quota state,
   applied-step fingerprints for the active invocation, and pending recharge
-  notices. The initial CDR/notification metadata is saved once as `cdrInitial`;
+  notices, execution leases, retry scheduling and the completed CDR cursor
+  (`cdrHead`). The initial CDR/notification metadata is saved once as `cdrInitial`;
   subsequent CDR reports do not read or rewrite it. Quota changes and their
   applied markers remain atomic. There is no separate CDR archive collection.
 - `chf.accounts`: ABMF-owned authoritative balances, `chargingVersion` and recent
@@ -120,7 +121,8 @@ immutable prefix of prepared steps, with later entries not yet prepared. The
 original request preserves their order and input. Prepared steps need no new
 rating when reconciled; unprepared entries still need rating data. This change
 does not guarantee completion of every unfinished invocation after policy data
-has been removed, and does not implement a recovery worker.
+has been removed: unprepared entries still need RF/account lookup. The worker
+leaves failures fenced and retries with backoff instead of guessing.
 
 Snapshots are BSON binary documents using `internal/db.EncodeSnapshot` and
 `DecodeSnapshot`. The codec preserves Diameter Time fields, including expiry
@@ -151,7 +153,7 @@ until recharge. Recharge clears exhaustion on live matching-RG owners under the
 UE lock, preserving Closed owners and other RGs. The notice is persisted first,
 and consumed before preparing the next invocation's first settlement step.
 Notices for an already-prepared invocation remain queued, without changing its
-frozen Before state. No recovery worker is added in this step.
+frozen Before state. Recovery follows the same quota rules.
 
 Granted traffic volume is limited by RF's allowance, the requested volume and
 that owner's actual remaining reserved funds divided by the next unit cost.
@@ -173,13 +175,13 @@ Completed HTTP responses can still replay. Reconcile unfinished RG-wide plans
 separately and drain live sessions before deploying the new quota representation;
 this change does not migrate an old shared balance into separate UPF balances.
 Update and Release restore quota state before processing a valid live session.
-CDR context/file reconstruction is available separately; automatic recovery of
-the complete UE and invocation remains later work.
+The worker reconstructs CDR context/files and Diameter clients before resuming
+an unfinished invocation.
 
 A request in processing/uncertain state still fences its entire charging
 resource. Per-UPF financial state isolation does not let a later invocation
-bypass an unresolved request on that resource; progress after failure still
-requires the remaining durable-state and recovery work.
+bypass an unresolved request on that resource. The worker must finish it before
+another invocation can acquire that resource.
 
 
 ## Atomic quota application
@@ -215,9 +217,10 @@ clears exhaustion only on open matching-RG quotas and consumes those notices in
 one atomic write, then returns the acknowledged quota state without reading it
 back. Notices arriving after a settlement step is prepared wait for
 the next invocation. An uncertain invocation therefore retains both its fence
-and any pending notice for later reconciliation. The normal API still requires
-a live UE/CDR; the recovery helpers can reconstruct CDR state separately, but
-this stage does not reconnect Diameter clients or resume whole invocations.
+and any pending notice for recovery. The normal API still requires a live UE/CDR;
+the worker recreates that context for pending invocations. It restores the completed
+CDR prefix and resumes the original request without consuming queued recharge
+notices underneath an already-prepared plan.
 
 
 For a fresh invocation with no pending recharge or conflict, quota persistence
@@ -265,38 +268,77 @@ use session/subscriber indexes created by `internal/db.InitializeSchema`.
 Only succeeded requests with CDR metadata belong to the completed projection.
 Processing, uncertain and rejected requests are excluded. A request interrupted
 before completion remains in the original request journal and retains its active
-fence; it has not lost its reported usage. A future recovery worker must reconcile
-account/quota progress first, reconstruct the completed CDR prefix, then apply the
-pending original request once and finish it. An in-memory cursor handles a local
+fence; it has not lost its reported usage. The worker reconstructs the completed
+CDR prefix, reconciles account/quota progress, then applies the pending original
+request once and finishes it. An in-memory cursor handles a local
 file retry without appending usage again. If the process died before completion,
 provisional CDR output is rebuilt from the completed prefix; pending segment local
 numbers are fixed when that request eventually completes. This is the deliberate
 tradeoff for removing per-report durable CDR snapshots.
 
-The caller holds the UE lock during reconstruction/retry. This stage does not
-resume whole invocations automatically, reconnect Diameter clients, or provide
-exactly-once CGF/FTP ingestion. Old resources lacking the initial seed or replay
+The caller holds the UE lock during reconstruction/retry. The recovery worker
+initializes Diameter clients through NewCHFUe, using LoadOrStore to keep one live
+UE lock per subscriber. Exactly-once CGF/FTP ingestion remains outside this change. Old resources lacking the initial seed or replay
 metadata cannot be reconstructed through this path; drain/reconcile them during
 rollout. Request history and initial metadata must be retained for reconstruction.
 
-## Failure behavior and limits
+## Background recovery and failure behavior
 
-A completed request whose HTTP reply was lost can be replayed automatically by
-the caller, including after CHF restarts. An operation interrupted during
-accounting or CDR processing is deliberately fenced, even if ABMF knows its own
-part completed. CHF returns 503 rather than repeating partially applied rating,
-reservation or CDR changes. Reusing an invocation with changed content/type
-returns 409. A session lookup rejection before accounting is stored and replayed
-as a rejection, and does not retain the session fence.
+Service startup starts one worker after RF/ABMF startup. It joins the service
+wait group; shutdown stops new claims and waits for the current invocation.
+When idle it polls active sessions through an index on readyAt every two seconds.
+For a live lease readyAt equals its expiry; on failure it is the retry time. Thus
+idle polling skips both live requests and retries whose backoff has not elapsed. It handles one invocation at a time, bounding recovery concurrency.
 
-Do not clear an unresolved fence or delete its request to retry. Reconciliation
-must inspect the original request, saved settlement steps/outcomes, account
-operation results, reservation state and CDR effects before deciding what remains
-to be applied. Durable quota state and atomic applied-step markers now cover
-quota application; initial metadata and completed request events cover CDR
-reconstruction. A worker must still resume unfinished invocations and
-persist their final replies. This change does not reconstruct complete live UE
-contexts, deduplicate Initial requests, or enable SMF background retries.
+Normal Begin claims an execution owner UUID and a one-minute lease in its existing
+session/request writes. Requests lasting over twenty seconds renew both leases.
+Recovery atomically claims an expired resource first, then replaces its expired
+request owner. Request/settlement completion writes and quota writes check the
+owner and unexpired lease; a stale executor cannot finish or overwrite quota after
+another worker takes over. Failed lease acquisition/renewal never clears active.
+A crash between the two lease writes retains the fence until expiry. These are
+execution tokens, not quota schema versions or invocation sequence numbers.
+
+The worker reads the saved original request and recreates the UE's Diameter clients
+and completed CDR projection under its UE lock. It resumes entries in original order:
+
+1. A saved outcome skips ABMF and proceeds to idempotent quota application.
+2. A saved step without an outcome resends its exact account request. ABMF replays
+   the original result if the debit/refund already committed. No RF quote or current
+   account generation replaces the saved business request.
+3. Unprepared later entries go through the ordinary rating/planning flow using
+   restored quota state. Threshold policy needed to compute an outcome is frozen
+   with the response template, so a config change cannot alter prepared results.
+4. After quota application, CHF applies the original usage once to the rebuilt
+   CDR prefix, saves its response/CDR metadata and only then clears active.
+
+A recovered Update saves HTTP 200 with the original invocation sequence; Release
+saves HTTP 204. The client obtains that saved reply by retrying the original request.
+The worker does not send an unsolicited response to SMF. Completion committed just
+before a crash remains replayable; the worker can also clear a leftover completed
+fence without performing accounting again.
+
+Failures save uncertain/detail and retain active. Retry delay starts at two seconds,
+doubles with recovery attempts and caps at five minutes. The attempt count and
+next eligible time are durable. RF/storage/file errors do not become successful
+charging responses. An ambiguous Begin that left an active reference without its
+request remains fenced and logged: the worker cannot reconstruct missing input.
+
+The existing unlock write also advances cdrHead after a successful CDR event. The
+existing PrepareQuotas session read carries that cursor. If another CHF instance
+recovered the resource, a stale live CDR projection is rebuilt before the next
+account operation or closed-resource check. A matching projection causes no extra
+DB reads. Normal short requests add lease/cursor fields to existing writes; they
+do not add heartbeat writes. CDR application itself still performs no DB commands.
+
+The worker rebuilds local CDR files; it does not implement a CGF export queue or
+exactly-once FTP ingestion. Missing seeds/history or an unavailable RF for unprepared
+entries remain fenced with retry diagnostics. Stop old CHF writers and drain or
+reconcile old requests without execution leases before deployment; this does not
+migrate old RG-wide plans into independent UPF quotas. Already-completed resources
+with no pending invocation are not eagerly hydrated at startup. Initial request
+deduplication and SMF durable pending requests/retry scheduling remain separate work.
+
 Completed records have no TTL; removing replay history requires a coordinated
 retention policy with charging clients. Startup imports history available in
 existing account documents; replay guarantees cannot cover earlier operations
@@ -326,7 +368,8 @@ Tests are grouped by responsibility:
   archived replay.
 - `internal/charging/journal_test.go`: persistent request identity, session fences,
   immutable snapshots, atomic quota application, ordered replay and queued recharge
-  across restarts.
+  across restarts, competing recovery claims, lease fencing, durable backoff and
+  completed/missing-request fence handling.
 - `internal/sbi/processor/charging_requests_test.go`: shared API fixtures,
   Update/Release replay and rejection behavior, and account failure integration.
 - `internal/sbi/processor/charging_quota_test.go`: independent UPF/resource quota
@@ -336,6 +379,10 @@ Tests are grouped by responsibility:
 - `internal/sbi/processor/cdr_test.go`: initial persistence, zero normal CDR DB
   commands, predecessor-ordered reconstruction, partial/rollover reproduction,
   file failure, lost completion acknowledgement and released-resource validation.
+- `internal/sbi/processor/charging_recovery_test.go`: the running background loop
+  across account/outcome/quota/CDR/completion interruptions, newly initialized
+  Diameter clients, frozen rating reuse, later unprepared entries, Release,
+  partial-record boundaries, failed recovery backoff and stale projection repair.
 - `internal/abmf/abmf_test.go`: wire answer decoding and identity validation.
 - `internal/testutil/mongo.go`: the single disposable database fixture used by tests.
 

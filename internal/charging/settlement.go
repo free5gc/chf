@@ -56,6 +56,8 @@ type SettlementStep struct {
 	AccountRequest       *charging_datatype.AccountDebitRequest
 	UnitInformation      models.Chf_ConvCharging_MultipleUnitInformation
 	FinalUnitInformation *models.Chf_ConvCharging_MultipleUnitInformation
+	ThresholdRate        float32
+	AdjustThreshold      bool
 	PartialRecord        bool
 }
 
@@ -97,10 +99,8 @@ func (j *MongoJournal) saveSettlementSnapshot(
 	}
 	key := strconv.Itoa(index)
 	field := "settlementPlan." + kind + "." + key
-	filter := bson.M{
-		"_id": record.ID, "state": Processing,
-		"$or": bson.A{bson.M{field: bson.M{"$exists": false}}, bson.M{field: body}},
-	}
+	filter := requestLeaseFilter(record)
+	filter["$or"] = bson.A{bson.M{field: bson.M{"$exists": false}}, bson.M{field: body}}
 	if kind == "outcomes" {
 		filter["settlementPlan.steps."+key] = bson.M{"$exists": true}
 	}
@@ -115,7 +115,7 @@ func (j *MongoJournal) saveSettlementSnapshot(
 		if loadErr != nil {
 			return loadErr
 		}
-		if stored.State != Processing {
+		if stored.State != Processing || stored.Owner != record.Owner || !stored.LeaseUntil.After(time.Now().UTC()) {
 			return ErrPending
 		}
 		return ErrConflict
