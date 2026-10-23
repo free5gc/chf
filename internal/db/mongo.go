@@ -20,6 +20,17 @@ func InitializeSchema(ctx context.Context, db *mongo.Database) error {
 			Options: options.Index().SetUnique(true).SetSparse(true),
 		},
 	})
+	if err != nil {
+		return err
+	}
+	if _, err = DurableCollection(db, "chf.chargingSessions").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "cdrSubscriber", Value: 1}},
+	}); err != nil {
+		return err
+	}
+	_, err = DurableCollection(db, "chf.chargingRequests").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "session", Value: 1}, {Key: "state", Value: 1}},
+	})
 	return err
 }
 

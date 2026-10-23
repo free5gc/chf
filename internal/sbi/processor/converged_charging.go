@@ -15,8 +15,6 @@ import (
 	"golang.org/x/exp/constraints"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
-	"github.com/free5gc/chf/cdr/asn"
-	"github.com/free5gc/chf/cdr/cdrConvert"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/cgf"
 	"github.com/free5gc/chf/internal/charging"
@@ -193,9 +191,7 @@ func (p *Processor) ChargingDataCreate(
 	ue.NotifyUri = chargingData.NotifyUri
 
 	consumerId := chargingData.NfConsumerIdentification.NFName
-	if !chargingData.OneTimeEvent {
-		chargingSessionId = ueId + "-" + consumerId + "-" + uuid.NewString()
-	}
+	chargingSessionId = ueId + "-" + consumerId + "-" + uuid.NewString()
 	cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("OpenCDR failed: %v", err)
@@ -213,9 +209,6 @@ func (p *Processor) ChargingDataCreate(
 		return nil, "", problemDetails
 	}
 
-	ue.Cdr[chargingSessionId] = cdr
-	ue.Records = append(ue.Records, ue.Cdr[chargingSessionId])
-
 	if chargingData.OneTimeEvent {
 		err = p.CloseCDR(cdr, false)
 		if err != nil {
@@ -224,6 +217,29 @@ func (p *Processor) ChargingDataCreate(
 			}
 			return nil, "", problemDetails
 		}
+	}
+
+	if p.journal == nil {
+		return nil, "", chargingProblem(fmt.Errorf("charging journal is unavailable"))
+	}
+	ctx, cancel := journalContext()
+	err = p.journal.InitializeCDR(ctx, chargingSessionId, &charging.CDRState{
+		Subscriber: ueId, NotifyURI: ue.NotifyUri, Current: cdr, Closed: chargingData.OneTimeEvent,
+	})
+	cancel()
+	if err != nil {
+		return nil, "", chargingProblem(err)
+	}
+	ue.Cdr[chargingSessionId] = cdr
+	if ue.CDRProgress == nil {
+		ue.CDRProgress = make(map[string]charging.CDRProgress)
+	}
+	ue.CDRProgress[chargingSessionId] = charging.CDRProgress{Closed: chargingData.OneTimeEvent}
+	if err = mergeCDRRecords(ue, []*cdrType.CHFRecord{cdr}); err != nil {
+		return nil, "", chargingProblem(err)
+	}
+	if err = p.writeCDRs(ueId, ue.Records); err != nil {
+		return nil, "", chargingProblem(err)
 	}
 
 	// CDR Transfer
@@ -276,6 +292,9 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 
+	if ue.CDRProgress[chargingSessionId].Closed {
+		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	}
 	if err := p.restoreQuotas(ue, record); err != nil {
 		return nil, p.failChargingRequest(record, chargingProblem(err))
 	}
@@ -290,94 +309,11 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, p.failChargingRequest(record, chargingProblem(reservationErr))
 	}
 
-	cdrBytes, errCdrBer := asn.BerMarshalWithParams(&cdr, "explicit,choice")
-	if errCdrBer != nil {
-		logger.ChargingdataPostLog.Error(errCdrBer)
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-			Detail: errCdrBer.Error(),
-		}
-		return nil, p.failChargingRequest(record, problemDetails)
+	if err := p.applyChargingCDR(ue, record, partialRecord); err != nil {
+		return nil, p.failChargingRequest(record, chargingProblem(err))
 	}
 
-	var chgDataBytes []byte
-	var errChgDataBer error
-	if len(chargingData.MultipleUnitUsage) != 0 {
-		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
-		chgDataBytes, errChgDataBer = asn.BerMarshalWithParams(&cdrMultiUnitUsage, "explicit,choice")
-		if errChgDataBer != nil {
-			logger.ChargingdataPostLog.Error(errChgDataBer)
-			problemDetails := &models.ProblemDetails{
-				Status: http.StatusBadRequest,
-				Detail: errChgDataBer.Error(),
-			}
-			return nil, p.failChargingRequest(record, problemDetails)
-		}
-	}
-
-	if len(cdrBytes)+len(chgDataBytes) > math.MaxUint16 {
-		var newRecord *cdrType.CHFRecord
-		cdrJson, err := json.Marshal(cdr)
-		if err != nil {
-			return nil, p.failChargingRequest(record, chargingProblem(err))
-		}
-		err = json.Unmarshal(cdrJson, &newRecord)
-		if err != nil {
-			return nil, p.failChargingRequest(record, chargingProblem(err))
-		}
-
-		newRecord.ChargingFunctionRecord.ListOfMultipleUnitUsage = []cdrType.MultipleUnitUsage{}
-		cdr = newRecord
-		ue.Cdr[chargingSessionId] = cdr
-		ue.Records = append(ue.Records, cdr)
-	}
-
-	err := p.UpdateCDR(cdr, chargingData)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return nil, p.failChargingRequest(record, problemDetails)
-	}
-
-	if partialRecord {
-		ueId = chargingData.SubscriberIdentifier
-
-		close_err := p.CloseCDR(cdr, partialRecord)
-		if close_err != nil {
-			return nil, p.failChargingRequest(record, chargingProblem(close_err))
-		}
-		err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
-		if err != nil {
-			problemDetails := &models.ProblemDetails{
-				Status: http.StatusBadRequest,
-			}
-			return nil, p.failChargingRequest(record, problemDetails)
-		}
-
-		reopenedCdr, oper_err := p.OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
-		if oper_err != nil {
-			logger.ChargingdataPostLog.Error("OpenCDR error:", oper_err)
-			problemDetails := &models.ProblemDetails{
-				Status: http.StatusBadRequest,
-				Detail: oper_err.Error(),
-			}
-			return nil, p.failChargingRequest(record, problemDetails)
-		}
-		ue.Cdr[chargingSessionId] = reopenedCdr
-		logger.ChargingdataPostLog.Tracef(
-			"CDR Record Sequence Number after Reopen %+v", *cdr.ChargingFunctionRecord.RecordSequenceNumber)
-	}
-
-	err = dumpCdrFile(ueId, ue.Records)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return nil, p.failChargingRequest(record, problemDetails)
-	}
-
-	err = cgf.SendCDR(chargingData.SubscriberIdentifier)
+	err := cgf.SendCDR(chargingData.SubscriberIdentifier)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain %v", err)
 	}
@@ -422,6 +358,9 @@ func (p *Processor) ChargingDataRelease(
 	if !exists || cdr == nil {
 		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
+	if ue.CDRProgress[chargingSessionId].Closed {
+		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	}
 	if err := p.restoreQuotas(ue, record); err != nil {
 		return p.failChargingRequest(record, chargingProblem(err))
 	}
@@ -432,29 +371,8 @@ func (p *Processor) ChargingDataRelease(
 		return p.failChargingRequest(record, chargingProblem(err))
 	}
 
-	err := p.UpdateCDR(cdr, chargingData)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-			Cause:  err.Error(),
-		}
-		return p.failChargingRequest(record, problemDetails)
-	}
-
-	err = p.CloseCDR(cdr, false)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return p.failChargingRequest(record, problemDetails)
-	}
-
-	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return p.failChargingRequest(record, problemDetails)
+	if err := p.applyChargingCDR(ue, record, false); err != nil {
+		return p.failChargingRequest(record, chargingProblem(err))
 	}
 
 	return p.finishChargingRequest(record, charging.Result{Status: http.StatusNoContent}, charging.Succeeded)

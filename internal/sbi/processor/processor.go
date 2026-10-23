@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/pkg/app"
@@ -28,6 +29,7 @@ type Processor struct {
 	accountDebit accountDebitFunc
 	bindAccount  func(context.Context, *charging_datatype.AccountDebitRequest) ([]byte, error)
 	serviceUsage serviceUsageFunc
+	cdrWriter    func(string, []*cdrType.CHFRecord) error
 }
 
 type HandlerResponse struct {

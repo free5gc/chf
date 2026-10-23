@@ -66,6 +66,8 @@ type Record struct {
 	Detail         string          `bson:"detail,omitempty"`
 	UpdatedAt      time.Time       `bson:"updatedAt"`
 	SettlementPlan *SettlementPlan `bson:"settlementPlan,omitempty"`
+	CDR            *CDRMetadata    `bson:"cdrEvent,omitempty"`
+	CreatedAt      time.Time       `bson:"createdAt"`
 
 	// Only the journal that began a fresh invocation may reuse acknowledged
 	// snapshot bytes. Loaded records always read their durable plan on recovery.
@@ -84,6 +86,8 @@ type Journal interface {
 	PrepareQuotas(context.Context, *Record) (map[QuotaKey]QuotaState, error)
 	ApplyQuota(context.Context, *Record, int) (QuotaState, error)
 	QueueRecharge(context.Context, string, int32) error
+	InitializeCDR(context.Context, string, *CDRState) error
+	LoadCDRHistory(context.Context, string) ([]CDRHistory, error)
 }
 
 type MongoJournal struct {
@@ -166,7 +170,8 @@ func (j *MongoJournal) Begin(ctx context.Context, identity Identity) (*Record, b
 	if claim.MatchedCount != 1 {
 		return nil, false, ErrPending
 	}
-	record := &Record{ID: id, Identity: identity, State: Processing, UpdatedAt: time.Now().UTC()}
+	stamp := time.Now().UTC()
+	record := &Record{ID: id, Identity: identity, State: Processing, CreatedAt: stamp, UpdatedAt: stamp}
 	_, err = j.requests.InsertOne(ctx, record)
 	if mongo.IsDuplicateKeyError(err) {
 		// A concurrent original invocation may have finished after the first lookup.
@@ -195,8 +200,12 @@ func (j *MongoJournal) Finish(ctx context.Context, record *Record, result Result
 		return fmt.Errorf("invalid completed state %q", state)
 	}
 	record.localJournal, record.localPlan = nil, nil
+	completed := bson.M{"state": state, "result": result, "updatedAt": time.Now().UTC()}
+	if state == Succeeded && record.CDR != nil {
+		completed["cdrEvent"] = record.CDR
+	}
 	update, err := j.requests.UpdateOne(ctx, bson.M{"_id": record.ID, "state": Processing},
-		bson.M{"$set": bson.M{"state": state, "result": result, "updatedAt": time.Now().UTC()}})
+		bson.M{"$set": completed})
 	if err != nil {
 		return err
 	}
