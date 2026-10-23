@@ -13,7 +13,7 @@ import (
 )
 
 // Mongo opens an isolated test database and drops only that database on cleanup.
-func Mongo(t *testing.T) *mongo.Database {
+func Mongo(t *testing.T, clientOptions ...*options.ClientOptions) *mongo.Database {
 	t.Helper()
 	uri := os.Getenv("CHF_TEST_MONGO_URI")
 	if uri == "" {
@@ -21,7 +21,8 @@ func Mongo(t *testing.T) *mongo.Database {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	clientOptions = append([]*options.ClientOptions{options.Client().ApplyURI(uri)}, clientOptions...)
+	client, err := mongo.Connect(ctx, clientOptions...)
 	require.NoError(t, err)
 	db := client.Database("chf_test_" + uuid.NewString())
 	t.Cleanup(func() {

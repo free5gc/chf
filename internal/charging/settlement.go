@@ -59,8 +59,8 @@ type SettlementStep struct {
 	PartialRecord        bool
 }
 
-// An outcome records the account answer and proposed quota state. It does not
-// prove that live or future durable quota state has been updated.
+// An outcome records the account answer and proposed quota state. Only the
+// session document's quotaApplied marker proves that durable state was updated.
 type SettlementOutcome struct {
 	QuotaKey        QuotaKey
 	After           QuotaState
@@ -119,6 +119,13 @@ func (j *MongoJournal) saveSettlementSnapshot(
 			return ErrPending
 		}
 		return ErrConflict
+	}
+	if record.localJournal == j && record.localPlan != nil {
+		if kind == "steps" {
+			record.localPlan.Steps[key] = body
+		} else {
+			record.localPlan.Outcomes[key] = body
+		}
 	}
 	return nil
 }

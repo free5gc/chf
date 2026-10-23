@@ -19,8 +19,9 @@ Collections in the configured database:
 - `chf.chargingRequests`: original request, fingerprint, processing state,
   immutable settlement steps/outcomes and completed response. `processing` or
   `uncertain` operations require reconciliation.
-- `chf.chargingSessions`: a fence preventing later invocations on a session from
-  bypassing its unresolved operation.
+- `chf.chargingSessions`: the resource fence, authoritative per-UPF quota state,
+  applied-step fingerprints for the active invocation, and pending recharge
+  notices. A single-document update changes quota and its applied marker together.
 - `chf.accounts`: ABMF-owned authoritative balances, `chargingVersion` and recent
   `chargingOperations`. Its `_id` is the source policy document's immutable `_id`;
   `ueId` and `ratingGroup` are lookup fields, not a permanent account identity.
@@ -98,13 +99,16 @@ online entry that changes quota, CHF now:
    transport on a copy; it does not mutate the persisted request. Identity and
    financial content remain fixed.
 6. Persists `settlementPlan.outcomes.<usage-index>` with the actual account answer,
-   resulting quota state and response units, before updating live quota maps.
+   resulting quota state and response units.
+7. Atomically writes that quota state and its applied-step fingerprint to the
+   session document, then updates the live quota map. A missing acknowledgement
+   leaves the invocation fenced; retrying the saved step cannot apply it twice.
 
 `Planned.Reserved` is the balance after accounting for reported usage. When
 `AddGrantedUnits` is true, the actual ABMF grant is added to it to obtain the
 outcome; a final grant also changes rating type to DEBIT. Both possible response
-branches are frozen before the account call. The outcome is a snapshot, not an
-atomic marker proving that the quota change has been applied.
+branches are frozen before the account call. The outcome is a snapshot; the session
+quota and `quotaApplied` marker prove that the quota change has been applied.
 
 Steps are prepared sequentially because repeated entries for the same
 resource/RG/UPFID can depend on an earlier entry's actual grant. A crash can therefore leave an
@@ -140,8 +144,10 @@ retransmissions from applying an old final report to a newer cycle.
 A genuine final grant from ABMF marks only that owner Exhausted and selects
 DEBIT. Credit requests on that still-open exhausted owner do not reserve again
 until recharge. Recharge clears exhaustion on live matching-RG owners under the
-UE lock, preserving Closed owners and other RGs. No persistent quota state or
-recovery worker is added in this step.
+UE lock, preserving Closed owners and other RGs. The notice is persisted first,
+and consumed before preparing the next invocation's first settlement step.
+Notices for an already-prepared invocation remain queued, without changing its
+frozen Before state. No recovery worker is added in this step.
 
 Granted traffic volume is limited by RF's allowance, the requested volume and
 that owner's actual remaining reserved funds divided by the next unit cost.
@@ -162,12 +168,57 @@ ownership and prevent overwriting a saved step or outcome with different content
 Completed HTTP responses can still replay. Reconcile unfinished RG-wide plans
 separately and drain live sessions before deploying the new quota representation;
 this change does not migrate an old shared balance into separate UPF balances.
-Current live quota state is not restored automatically after restart.
+Update and Release restore quota state before processing a valid live session.
+Restoring the full UE/CDR context after restart remains separate work.
 
 A request in processing/uncertain state still fences its entire charging
 resource. Per-UPF financial state isolation does not let a later invocation
 bypass an unresolved request on that resource; progress after failure still
 requires the remaining durable-state and recovery work.
+
+
+## Atomic quota application
+
+The session document keeps `quotas.<quota-key-hash>` entries containing the full
+key and authoritative state. `quotaApplied.<usage-index>` stores a fingerprint
+of the immutable step and outcome, scoped by `active` to that invocation. No
+quota or settlement schema-version field is used.
+
+A fresh invocation retains private immutable snapshot bytes only after their
+journal writes are acknowledged. `PrepareQuotas` reads the session once without
+reloading that request. `ApplyQuota` reuses the acknowledged step/outcome bytes;
+it does not read the growing request document again for each usage entry.
+Caller-owned structs or public record fields cannot replace those saved bytes.
+The cache is scoped to the journal instance that began the invocation, and is
+discarded when finishing or marking it uncertain. Loaded/recovered invocations
+read their durable plan instead. No new persistent fields are needed for this cache.
+
+Both paths check ownership, the active resource fence, the expected Before state
+and markers for earlier prepared entries. They atomically replace the quota
+with After and write its marker. A repeated application verifies the fingerprint
+and returns the current durable state, including when a later entry for that
+owner has advanced it. It never rolls state back to an earlier After snapshot.
+
+Claiming the next invocation clears the previous marker map in the same write
+that acquires `active`, keeping marker storage bounded to one invocation. Quotas
+and recharge notices remain. An old invocation cannot apply after its fence has
+been released or transferred. Completed invocations continue replaying from the
+request journal, whose history is retained independently.
+
+Pending recharge RGs share the session document. Preparing a new invocation
+clears exhaustion only on open matching-RG quotas and consumes those notices in
+one atomic write, then returns the acknowledged quota state without reading it
+back. Notices arriving after a settlement step is prepared wait for
+the next invocation. An uncertain invocation therefore retains both its fence
+and any pending notice for later reconciliation. The normal API still requires
+a live UE/CDR; this stage does not reconstruct the full session after a restart.
+
+
+For a fresh invocation with no pending recharge or conflict, quota persistence
+adds one session read per invocation and one atomic session write per processed
+online usage entry. Earlier request-journal, settlement and account operations
+remain. Replay/conflict and recovery paths may perform additional reads. These
+are code-path operation counts, not latency or throughput measurements.
 
 ## Failure behavior and limits
 
@@ -182,15 +233,15 @@ as a rejection, and does not retain the session fence.
 Do not clear an unresolved fence or delete its request to retry. Reconciliation
 must inspect the original request, saved settlement steps/outcomes, account
 operation results, reservation state and CDR effects before deciding what remains
-to be applied. Durable quota state and atomic applied-operation markers are still
-needed before a worker can safely restore live quota. This change does not
-implement that reconciliation worker, restore live UE/reservation contexts after
-restart, deduplicate Initial requests, or enable SMF background retries.
+to be applied. Durable quota state and atomic applied-step markers now cover
+quota application. CDR deduplication and a worker that resumes the remaining
+steps are still needed. This change does not reconstruct full live UE/CDR
+contexts after restart, deduplicate Initial requests, or enable SMF background retries.
 Completed records have no TTL; removing replay history requires a coordinated
 retention policy with charging clients. Startup imports history available in
 existing account documents; replay guarantees cannot cover earlier operations
-that were never recorded. Quota state remains in memory: persisting isolated
-quota state with atomic applied-operation markers is still a separate step.
+that were never recorded. Live quota maps are caches of the persisted resource
+state; they are updated only after the quota write is acknowledged.
 
 ## Tests
 
@@ -213,13 +264,15 @@ Tests are grouped by responsibility:
 - `internal/charging/accounts_test.go`: arithmetic, atomic account operations,
   migration, policy deletion, RG reuse before the first debit, concurrency and
   archived replay.
-- `internal/charging/journal_test.go`: persistent request identity, session fences
-  and immutable settlement snapshots, including restart and exact timestamps.
-- `internal/sbi/processor/charging_requests_test.go`: Update/Release API behavior,
-  failure injection and real MongoDB integration.
+- `internal/charging/journal_test.go`: persistent request identity, session fences,
+  immutable snapshots, atomic quota application, ordered replay and queued recharge
+  across restarts.
+- `internal/sbi/processor/charging_requests_test.go`: shared API fixtures,
+  Update/Release replay and rejection behavior, and account failure integration.
 - `internal/sbi/processor/charging_quota_test.go`: independent UPF/resource quota
-  state, order-independent final settlement, partial grants, recharge and legacy
-  UPFID handling; MongoDB cases verify the shared account balance.
+  state, final settlement, funded grants, recharge, UPFID validation, RF/ABMF
+  sequencing and settlement storage failures. MongoDB cases verify balances,
+  restoring quota caches and lost quota-commit acknowledgements.
 - `internal/sbi/processor/cdr_test.go`: CDR-specific regressions.
 - `internal/abmf/abmf_test.go`: wire answer decoding and identity validation.
 - `internal/testutil/mongo.go`: the single disposable database fixture used by tests.
@@ -229,5 +282,6 @@ integration tests additionally run the real processor, CDR writer, journal and a
 account store. The Diameter network boundary and Rating Function are stubbed.
 They cover lost replies, context removal/recreation, partial accounting failure,
 concurrent duplicate/distinct debits, refunds, archival, immutable plans, binding/
-plan/outcome persistence failures, RF failure before debit, dependent same-RG
-usage entries, UPF/resource isolation, actual funded grants and unresolved fences.
+plan/outcome/quota persistence failures, RF failure before debit, dependent entries
+for the same quota owner, UPF/resource isolation, actual funded grants, atomic
+quota replay, durable recharge notices and unresolved fences.

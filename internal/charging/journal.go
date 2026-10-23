@@ -66,6 +66,11 @@ type Record struct {
 	Detail         string          `bson:"detail,omitempty"`
 	UpdatedAt      time.Time       `bson:"updatedAt"`
 	SettlementPlan *SettlementPlan `bson:"settlementPlan,omitempty"`
+
+	// Only the journal that began a fresh invocation may reuse acknowledged
+	// snapshot bytes. Loaded records always read their durable plan on recovery.
+	localJournal *MongoJournal
+	localPlan    *SettlementPlan
 }
 
 // Journal never expires unresolved operations or completed replay records.
@@ -76,6 +81,9 @@ type Journal interface {
 	MarkUncertain(context.Context, *Record, string) error
 	SaveSettlementStep(context.Context, *Record, *SettlementStep) error
 	SaveSettlementOutcome(context.Context, *Record, int, *SettlementOutcome) error
+	PrepareQuotas(context.Context, *Record) (map[QuotaKey]QuotaState, error)
+	ApplyQuota(context.Context, *Record, int) (QuotaState, error)
+	QueueRecharge(context.Context, string, int32) error
 }
 
 type MongoJournal struct {
@@ -151,7 +159,7 @@ func (j *MongoJournal) Begin(ctx context.Context, identity Identity) (*Record, b
 		}
 	}
 	claim, err := j.sessions.UpdateOne(ctx, bson.M{"_id": identity.Session, "active": nil},
-		bson.M{"$set": bson.M{"active": id}})
+		bson.M{"$set": bson.M{"active": id, "quotaApplied": bson.M{}}})
 	if err != nil {
 		return nil, false, err
 	}
@@ -177,6 +185,8 @@ func (j *MongoJournal) Begin(ctx context.Context, identity Identity) (*Record, b
 	if err != nil {
 		return nil, false, err
 	}
+	record.localJournal = j
+	record.localPlan = &SettlementPlan{Steps: make(map[string][]byte), Outcomes: make(map[string][]byte)}
 	return record, true, nil
 }
 
@@ -184,6 +194,7 @@ func (j *MongoJournal) Finish(ctx context.Context, record *Record, result Result
 	if state != Succeeded && state != Rejected {
 		return fmt.Errorf("invalid completed state %q", state)
 	}
+	record.localJournal, record.localPlan = nil, nil
 	update, err := j.requests.UpdateOne(ctx, bson.M{"_id": record.ID, "state": Processing},
 		bson.M{"$set": bson.M{"state": state, "result": result, "updatedAt": time.Now().UTC()}})
 	if err != nil {
@@ -197,6 +208,7 @@ func (j *MongoJournal) Finish(ctx context.Context, record *Record, result Result
 }
 
 func (j *MongoJournal) MarkUncertain(ctx context.Context, record *Record, detail string) error {
+	record.localJournal, record.localPlan = nil, nil
 	_, err := j.requests.UpdateOne(ctx, bson.M{"_id": record.ID, "state": Processing},
 		bson.M{"$set": bson.M{"state": Uncertain, "detail": detail, "updatedAt": time.Now().UTC()}})
 	return err

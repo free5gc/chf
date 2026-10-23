@@ -241,3 +241,57 @@ func validateQuotaOwners(
 	}
 	return nil
 }
+
+// Restore just this resource; another resource of the same UE keeps its state.
+func (p *Processor) restoreQuotas(ue *chf_context.ChfUe, record *charging.Record) error {
+	ctx, cancel := journalContext()
+	defer cancel()
+	states, err := p.journal.PrepareQuotas(ctx, record)
+	if err != nil {
+		return fmt.Errorf("restore charging quotas: %w", err)
+	}
+	if ue.Quotas == nil {
+		ue.Quotas = make(map[charging.QuotaKey]charging.QuotaState)
+	}
+	for key := range ue.Quotas {
+		if key.ChargingDataRef == record.Session {
+			delete(ue.Quotas, key)
+		}
+	}
+	for key, state := range states {
+		ue.Quotas[key] = state
+	}
+	return nil
+}
+
+func (p *Processor) applyQuota(record *charging.Record, index int) (charging.QuotaState, error) {
+	ctx, cancel := journalContext()
+	defer cancel()
+	state, err := p.journal.ApplyQuota(ctx, record, index)
+	if err != nil {
+		return charging.QuotaState{}, fmt.Errorf("persist charging quota: %w", err)
+	}
+	return state, nil
+}
+
+// Persist notices first. The next invocation consumes them before freezing any
+// settlement step; an unfinished invocation keeps both its fence and the notice.
+func (p *Processor) rechargeQuotas(ue *chf_context.ChfUe, rg int32) (bool, error) {
+	if p.journal == nil {
+		return false, fmt.Errorf("charging journal is unavailable")
+	}
+	refs := make(map[string]bool)
+	for key, state := range ue.Quotas {
+		if key.RatingGroup == rg && !state.Closed {
+			refs[key.ChargingDataRef] = true
+		}
+	}
+	ctx, cancel := journalContext()
+	defer cancel()
+	for ref := range refs {
+		if err := p.journal.QueueRecharge(ctx, ref, rg); err != nil {
+			return false, fmt.Errorf("persist recharge notice: %w", err)
+		}
+	}
+	return ue.RechargeRatingGroup(rg), nil
+}

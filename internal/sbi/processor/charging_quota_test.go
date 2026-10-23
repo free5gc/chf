@@ -310,7 +310,9 @@ func TestChargingExhaustionRechargeAndNewQuotaCycle(t *testing.T) {
 		Known: true, Exhausted: true,
 		RatingType: charging_datatype.REQ_SUBTYPE_DEBIT,
 	}
-	require.True(t, ue.RechargeRatingGroup(10))
+	active, err := p.rechargeQuotas(ue, 10)
+	require.NoError(t, err)
+	require.True(t, active)
 	require.False(t, ue.Quotas[key].Exhausted)
 	require.True(t, ue.Quotas[closedKey].Closed)
 	require.True(t, ue.Quotas[closedKey].Exhausted)
@@ -324,7 +326,9 @@ func TestChargingExhaustionRechargeAndNewQuotaCycle(t *testing.T) {
 	_, problem = p.ChargingDataUpdate(request, ref)
 	require.Nil(t, problem)
 	require.True(t, ue.Quotas[key].Closed)
-	require.False(t, ue.RechargeRatingGroup(10), "recharge must not reopen completed quotas")
+	active, err = p.rechargeQuotas(ue, 10)
+	require.NoError(t, err)
+	require.False(t, active, "recharge must not reopen completed quotas")
 	request.InvocationSequenceNumber++
 	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 0, true)}
 	response, problem = p.ChargingDataUpdate(request, ref)
@@ -362,7 +366,7 @@ func TestChargingLegacyUPFIDMustRemainUnambiguous(t *testing.T) {
 func TestChargingSettlementPersistenceFailurePreservesQuota(t *testing.T) {
 	const outcomeFailure = "outcome"
 	for _, operation := range []string{chargingUpdateOperation, chargingReleaseOperation} {
-		for _, failure := range []string{"binding", "plan", outcomeFailure} {
+		for _, failure := range []string{"restore", "binding", "plan", outcomeFailure, "quota"} {
 			t.Run(operation+"/"+failure, func(t *testing.T) {
 				p, request, ref := chargingRequestSession(t)
 				ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
@@ -373,6 +377,10 @@ func TestChargingSettlementPersistenceFailurePreservesQuota(t *testing.T) {
 				}
 				journal := p.journal.(*testJournal)
 				switch failure {
+				case "restore":
+					journal.loadErr = errors.New("quota storage unavailable")
+				case "quota":
+					journal.quotaErr = errors.New("quota commit unavailable")
 				case "binding":
 					p.bindAccount = func(context.Context, *charging_datatype.AccountDebitRequest) ([]byte, error) {
 						return nil, errors.New("account binding unavailable")
@@ -388,7 +396,7 @@ func TestChargingSettlementPersistenceFailurePreservesQuota(t *testing.T) {
 					require.Equal(t, http.StatusServiceUnavailable, reply.Code)
 				}
 				expected := int32(0)
-				if failure == outcomeFailure {
+				if failure == outcomeFailure || failure == "quota" {
 					expected = 1
 				}
 				require.Equal(t, expected, calls.Load())
@@ -544,4 +552,79 @@ func TestChargingRepeatedQuotaOwnerUsesPreviousActualGrant(t *testing.T) {
 	require.True(t, step.Before.Exhausted)
 	require.Equal(t, int64(20), step.Before.Reserved)
 	require.Equal(t, charging_datatype.REQ_SUBTYPE_DEBIT, step.Before.RatingType)
+}
+
+// Simulate MongoDB committing quota+marker while the acknowledgement is lost.
+type lostQuotaAnswerJournal struct {
+	charging.Journal
+}
+
+func (j *lostQuotaAnswerJournal) ApplyQuota(
+	ctx context.Context, record *charging.Record, index int,
+) (charging.QuotaState, error) {
+	if _, err := j.Journal.ApplyQuota(ctx, record, index); err != nil {
+		return charging.QuotaState{}, err
+	}
+	return charging.QuotaState{}, errors.New("quota acknowledgement lost after commit")
+}
+
+func TestMongoChargingRestoresQuotaAndDoesNotRepeatCommittedSettlement(t *testing.T) {
+	db := testutil.Mongo(t)
+	ctx := context.Background()
+	p, request, ref := chargingRequestSession(t)
+	p.serviceUsage = fixedQuotaRating(1)
+	useMongoQuotaAccount(t, p, db, request.SubscriberIdentifier, "1000")
+	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{
+		onlineQuotaUsage("upf-a", 0, true), onlineQuotaUsage("upf-b", 0, true),
+	}
+	_, problem := p.ChargingDataUpdate(request, ref)
+	require.Nil(t, problem)
+	ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
+	require.True(t, ok)
+	a := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-a"}
+	b := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-b"}
+	// Discard the quota cache, retaining the live CDR. Complete UE/CDR recovery
+	// belongs to a later stage; this verifies the durable quota boundary itself.
+	ue.Quotas = nil
+	p.journal = charging.NewJournal(db)
+	request.InvocationSequenceNumber++
+	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-b", 40, true)}
+	response, problem := p.ChargingDataUpdate(request, ref)
+	require.Nil(t, problem)
+	require.Equal(t, int32(60), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+	require.Equal(t, int64(100), ue.Quotas[a].Reserved)
+	require.Equal(t, int64(60), ue.Quotas[b].Reserved)
+	requireQuotaBalance(t, db, request.SubscriberIdentifier, 800)
+	p.journal = &lostQuotaAnswerJournal{Journal: charging.NewJournal(db)}
+	calls := countAccountCalls(p)
+	request.InvocationSequenceNumber++
+	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 40, false)}
+	_, problem = p.ChargingDataUpdate(request, ref)
+	require.NotNil(t, problem)
+	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
+	require.Equal(t, int64(100), ue.Quotas[a].Reserved, "no live update after a lost durable acknowledgement")
+	requireQuotaBalance(t, db, request.SubscriberIdentifier, 860)
+	var record charging.Record
+	require.NoError(t, db.Collection("chf.chargingRequests").FindOne(ctx, bson.M{
+		"_id": (charging.Identity{Session: ref, Sequence: request.InvocationSequenceNumber}).ID(),
+	}).Decode(&record))
+	require.Equal(t, charging.Uncertain, record.State)
+	restarted := charging.NewJournal(db)
+	for range 2 {
+		state, err := restarted.ApplyQuota(ctx, &record, 0)
+		require.NoError(t, err)
+		require.Zero(t, state.Reserved)
+		require.True(t, state.Closed)
+	}
+	states, err := restarted.LoadQuotas(ctx, ref)
+	require.NoError(t, err)
+	require.Zero(t, states[a].Reserved)
+	require.Equal(t, int64(60), states[b].Reserved)
+	requireQuotaBalance(t, db, request.SubscriberIdentifier, 860)
+	_, problem = p.ChargingDataUpdate(request, ref)
+	require.NotNil(t, problem)
+	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
+	request.InvocationSequenceNumber++
+	require.NotNil(t, p.ChargingDataRelease(request, ref))
+	require.Equal(t, int32(1), calls.Load(), "unresolved CDR work still fences the resource")
 }
