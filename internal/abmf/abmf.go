@@ -34,6 +34,8 @@ func SendAccountDebitRequest(
 		return nil, fmt.Errorf("peer metadata unavailable")
 	}
 
+	request := *ccr
+	ccr = &request
 	ccr.DestinationRealm = datatype.DiameterIdentity(meta.OriginRealm)
 	ccr.DestinationHost = datatype.DiameterIdentity(meta.OriginHost)
 
@@ -52,12 +54,8 @@ func SendAccountDebitRequest(
 
 	select {
 	case m := <-ue.AcctChan:
-		var cca charging_datatype.AccountDebitResponse
-		if errMarshal := m.Unmarshal(&cca); err != nil {
-			return nil, fmt.Errorf("failed to parse message from %v", errMarshal)
-		}
+		return decodeAccountAnswer(ccr, m)
 
-		return &cca, nil
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout: no rate answer received")
 	}
@@ -69,4 +67,31 @@ func HandleCCA(abmfChan chan *diam.Message) diam.HandlerFunc {
 
 		abmfChan <- m
 	}
+}
+
+// An error CCA, or a late answer for a different request, is not an acknowledgement.
+func validateAccountAnswer(
+	request *charging_datatype.AccountDebitRequest, response *charging_datatype.AccountDebitResponse,
+) error {
+	if response.ResultCode != diam.Success {
+		return fmt.Errorf("ABMF rejected account operation: result=%d", response.ResultCode)
+	}
+	if response.SessionId != request.SessionId || response.CcRequestNumber != request.CcRequestNumber ||
+		response.CcRequestType != request.CcRequestType {
+		return fmt.Errorf("ABMF answer does not match account request")
+	}
+	return nil
+}
+
+func decodeAccountAnswer(
+	request *charging_datatype.AccountDebitRequest, message *diam.Message,
+) (*charging_datatype.AccountDebitResponse, error) {
+	var response charging_datatype.AccountDebitResponse
+	if err := message.Unmarshal(&response); err != nil {
+		return nil, fmt.Errorf("decode account answer: %w", err)
+	}
+	if err := validateAccountAnswer(request, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
 }

@@ -12,12 +12,14 @@ import (
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
+	"github.com/free5gc/chf/internal/charging"
 	"github.com/free5gc/chf/pkg/factory"
 )
 
 type ChfUe struct {
-	Supi         string
-	RatingGroups []int32
+	Supi        string
+	Quotas      map[charging.QuotaKey]charging.QuotaState
+	CDRProgress map[string]charging.CDRProgress
 
 	QuotaValidityTime    int32
 	VolumeLimit          int32
@@ -27,19 +29,15 @@ type ChfUe struct {
 	RecordSequenceNumber int64
 
 	// ABMF
-	ReservedQuota  map[int32]int64
-	UnitCost       map[int32]uint32
-	AcctRequestNum map[int32]uint32
-	AbmfClient     *sm.Client
-	AbmfMux        *sm.StateMachine
-	AcctChan       chan *diam.Message
-	AcctSessionId  uint32
+	AbmfClient    *sm.Client
+	AbmfMux       *sm.StateMachine
+	AcctChan      chan *diam.Message
+	AcctSessionId uint32
 
 	// Rating
 	RatingClient  *sm.Client
 	RatingMux     *sm.StateMachine
 	RatingChan    chan *diam.Message
-	RatingType    map[int32]charging_datatype.RequestSubType
 	RateSessionId uint32
 	Records       []*cdrType.CHFRecord
 
@@ -48,13 +46,20 @@ type ChfUe struct {
 	CULock sync.Mutex
 }
 
-func (ue *ChfUe) FindRatingGroup(ratingGroup int32) bool {
-	for _, rg := range ue.RatingGroups {
-		if rg == ratingGroup {
-			return true
+// RechargeRatingGroup reactivates live quotas without reopening final reports.
+// Callers serialize changes with CULock.
+func (ue *ChfUe) RechargeRatingGroup(ratingGroup int32) bool {
+	active := false
+	for key, state := range ue.Quotas {
+		if key.RatingGroup != ratingGroup || state.Closed {
+			continue
 		}
+		state.Exhausted = false
+		state.RatingType = charging_datatype.REQ_SUBTYPE_RESERVE
+		ue.Quotas[key] = state
+		active = true
 	}
-	return false
+	return active
 }
 
 func (ue *ChfUe) init() {
@@ -66,18 +71,15 @@ func (ue *ChfUe) init() {
 	ue.VolumeLimitPDU = config.Configuration.VolumeLimitPDU
 	ue.QuotaValidityTime = config.Configuration.QuotaValidityTime
 	ue.VolumeThresholdRate = config.Configuration.VolumeThresholdRate
-	ue.AcctRequestNum = make(map[int32]uint32)
 	// This needed to be added if rating server do not locate in the same machine
 	// err := dict.Default.Load(bytes.NewReader([]byte(charging_dict.RateDictionary)))
 	// if err != nil {
 	// 	log.Fatal(err)
 	// }
-	ue.ReservedQuota = make(map[int32]int64)
-	ue.UnitCost = make(map[int32]uint32)
+	ue.Quotas = make(map[charging.QuotaKey]charging.QuotaState)
 
 	ue.RatingChan = make(chan *diam.Message)
 	ue.AcctChan = make(chan *diam.Message)
-	ue.RatingType = make(map[int32]charging_datatype.RequestSubType)
 	// Create the state machine (it's a diam.ServeMux) and client.
 	ue.RatingMux = sm.New(chfContext.RatingCfg)
 	ue.RatingClient = &sm.Client{
