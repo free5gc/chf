@@ -11,15 +11,16 @@ import (
 	tlsAtomic "sync/atomic"
 	"testing"
 
+	"github.com/h2non/gock"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+	tlsYAML "gopkg.in/yaml.v2"
+
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/pkg/app"
 	tlsFactory "github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi"
 	tlsNFM "github.com/free5gc/openapi/nrf/NFMgmt"
-	"github.com/h2non/gock"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
-	tlsYAML "gopkg.in/yaml.v2"
 )
 
 func Test_nnrfService_RegisterNFInstance(t *testing.T) {
@@ -80,13 +81,19 @@ func Test_nnrfService_SendDeregisterNFInstance(t *testing.T) {
 // generated NRF client used in production. No deployment files are modified.
 func TestSBIConfigTLSVerification(t *testing.T) {
 	t.Cleanup(func() {
-		_ = openapi.ConfigureHTTP2Clients(openapi.TransportReadIdleTimeout, openapi.TransportPingTimeout, false)
+		if err := openapi.ConfigureHTTP2Clients(
+			openapi.TransportReadIdleTimeout, openapi.TransportPingTimeout, false,
+		); err != nil {
+			t.Errorf("restore HTTP clients: %v", err)
+		}
 	})
 	var requests tlsAtomic.Int32
 	server := tlsServer.NewUnstartedServer(tlsHTTP.HandlerFunc(func(w tlsHTTP.ResponseWriter, r *tlsHTTP.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = tlsIO.WriteString(w, `{}`)
+		if _, err := tlsIO.WriteString(w, `{}`); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	server.EnableHTTP2 = true
 	server.Config.ErrorLog = tlsLog.New(tlsIO.Discard, "", 0)
@@ -105,7 +112,9 @@ func TestSBIConfigTLSVerification(t *testing.T) {
 			if cfg.GetTLSVerify() != (value == "true") {
 				t.Fatal("verify parsing mismatch")
 			}
-			if err := openapi.ConfigureHTTP2Clients(cfg.GetReadIdleTimeout(), cfg.GetPingTimeout(), cfg.GetTLSVerify()); err != nil {
+			if err := openapi.ConfigureHTTP2Clients(
+				cfg.GetReadIdleTimeout(), cfg.GetPingTimeout(), cfg.GetTLSVerify(),
+			); err != nil {
 				t.Fatal(err)
 			}
 			apiCfg := tlsNFM.NewConfiguration()
