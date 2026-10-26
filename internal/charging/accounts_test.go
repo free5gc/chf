@@ -1,6 +1,7 @@
 package charging
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"math"
@@ -8,12 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
+	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
 	chargingdb "github.com/free5gc/chf/internal/db"
 	"github.com/free5gc/chf/internal/testutil"
 )
@@ -349,4 +354,75 @@ func TestMongoAccountBindingSurvivesReuseBeforeFirstDebit(t *testing.T) {
 	request.MultipleServicesCreditControl.RequestedServiceUnit.CCTotalOctets++
 	_, err = accounts.Bind(ctx, request)
 	require.ErrorIs(t, err, ErrConflict)
+}
+
+var accountWireDictionary sync.Once
+
+// Use a real serialized CCR: in-memory account calls do not exercise optional
+// grouped AVPs, whose decoded representation can differ from the original.
+func accountWireRequest(
+	t *testing.T, request *charging_datatype.AccountDebitRequest,
+) *charging_datatype.AccountDebitRequest {
+	t.Helper()
+	accountWireDictionary.Do(func() {
+		require.NoError(t, dict.Default.Load(bytes.NewReader([]byte(charging_dict.AbmfDictionary))))
+	})
+	message := diam.NewRequest(charging_code.ABMF_CreditControl, charging_code.Re_interface, dict.Default)
+	require.NoError(t, message.Marshal(request))
+	encoded, err := message.Serialize()
+	require.NoError(t, err)
+	wireMessage, err := diam.ReadMessage(bytes.NewReader(encoded), dict.Default)
+	require.NoError(t, err)
+	var decoded charging_datatype.AccountDebitRequest
+	require.NoError(t, wireMessage.Unmarshal(&decoded))
+	return &decoded
+}
+
+func TestAccountIdentitySurvivesDiameterEncoding(t *testing.T) {
+	for _, operation := range []string{"reserve", "refund", "debit"} {
+		t.Run(operation, func(t *testing.T) {
+			request := accountRequest()
+			switch operation {
+			case "refund":
+				request.RequestedAction = charging_datatype.REFUND_ACCOUNT
+			case "debit":
+				request.CcRequestType = charging_datatype.TERMINATION_REQUEST
+				request.MultipleServicesCreditControl.RequestedServiceUnit = nil
+				request.MultipleServicesCreditControl.UsedServiceUnit = &charging_datatype.UsedServiceUnit{CCTotalOctets: 40}
+			}
+			decoded := accountWireRequest(t, request)
+			require.Nil(t, decoded.MultipleServicesCreditControl.GSUPoolReference,
+				"an unused optional pool reference must stay absent on the wire")
+			beforeSubscriber, beforeID, beforeFingerprint, err := accountIdentity(request)
+			require.NoError(t, err)
+			afterSubscriber, afterID, afterFingerprint, err := accountIdentity(decoded)
+			require.NoError(t, err)
+			require.Equal(t, beforeSubscriber, afterSubscriber)
+			require.Equal(t, beforeID, afterID)
+			require.Equal(t, beforeFingerprint, afterFingerprint)
+		})
+	}
+}
+
+func TestMongoAccountBindingAcceptsWireRequestAndReplays(t *testing.T) {
+	db := testutil.Mongo(t)
+	ctx := context.Background()
+	seedAccount(t, db, "100")
+	request := accountRequest()
+	_, err := NewAccounts(db).Bind(ctx, request)
+	require.NoError(t, err)
+	wireRequest := accountWireRequest(t, request)
+	first, err := NewAccounts(db).Apply(ctx, wireRequest)
+	require.NoError(t, err)
+	require.Equal(t, datatype.Unsigned64(40), first.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
+	require.Equal(t, "60", readBalance(t, db).Quota)
+	// A restart/retransmission may switch between the frozen and decoded forms.
+	replay, err := NewAccounts(db).Apply(ctx, request)
+	require.NoError(t, err)
+	require.Equal(t, first, replay)
+	require.Equal(t, "60", readBalance(t, db).Quota)
+	wireRequest.MultipleServicesCreditControl.RequestedServiceUnit.CCTotalOctets++
+	_, err = NewAccounts(db).Apply(ctx, wireRequest)
+	require.ErrorIs(t, err, ErrConflict, "real changes to units must still be rejected")
+	require.Equal(t, "60", readBalance(t, db).Quota)
 }
