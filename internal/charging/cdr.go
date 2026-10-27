@@ -2,6 +2,7 @@ package charging
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -79,7 +80,19 @@ func (j *MongoJournal) InitializeCDR(ctx context.Context, ref string, state *CDR
 	return err
 }
 
-// History scans are confined to explicit reconstruction, never normal Update/Release.
+// CDRExists validates a cold resource's owner before allocating a live UE.
+// A journal fence alone is not evidence that Create persisted a CDR seed.
+func (j *MongoJournal) CDRExists(ctx context.Context, ref, subscriber string) (bool, error) {
+	err := j.sessions.FindOne(ctx, bson.M{
+		"_id": ref, "cdrSubscriber": subscriber, "cdrInitial": bson.M{"$exists": true},
+	}, options.FindOne().SetProjection(bson.M{"_id": 1})).Err()
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// History scans are confined to reconstruction after a cache miss or stale cursor.
 func (j *MongoJournal) LoadCDRHistory(ctx context.Context, subscriber string) ([]CDRHistory, error) {
 	cursor, err := j.sessions.Find(ctx, bson.M{"cdrSubscriber": subscriber}, options.Find().SetProjection(
 		bson.M{"cdrInitial": 1},

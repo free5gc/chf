@@ -595,17 +595,22 @@ func (p *Processor) RestoreCDRs(ue *chf_context.ChfUe) error {
 	if len(histories) == 0 {
 		return fmt.Errorf("no initial CDR metadata for subscriber %s", ue.Supi)
 	}
+	return p.restoreCDRHistories(ue, histories)
+}
+
+// The caller holds CULock and has validated the requested resource, if any.
+func (p *Processor) restoreCDRHistories(ue *chf_context.ChfUe, histories []charging.CDRHistory) error {
 	rebuilt := &chf_context.ChfUe{Supi: ue.Supi}
 	for _, history := range histories {
 		initial := &cdrChange{After: history.Initial}
-		if err = installCDRChange(rebuilt, history.Resource, "", initial); err != nil {
+		if err := installCDRChange(rebuilt, history.Resource, "", initial); err != nil {
 			return err
 		}
-		if err = p.replayCDRHistory(rebuilt, history); err != nil {
+		if err := p.replayCDRHistory(rebuilt, history); err != nil {
 			return err
 		}
 	}
-	if err = p.writeCDRs(ue.Supi, rebuilt.Records); err != nil {
+	if err := p.writeCDRs(ue.Supi, rebuilt.Records); err != nil {
 		return err
 	}
 	ue.Cdr, ue.Records, ue.CDRProgress = rebuilt.Cdr, rebuilt.Records, rebuilt.CDRProgress

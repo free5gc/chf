@@ -196,8 +196,13 @@ func (j *testJournal) InitializeCDR(context.Context, string, *charging.CDRState)
 	return nil
 }
 
+func (j *testJournal) CDRExists(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
 func (j *testJournal) LoadCDRHistory(context.Context, string) ([]charging.CDRHistory, error) {
-	return nil, errors.New("use MongoDB to test CDR reconstruction")
+	// This stub has no durable CDR seeds; reconstruction is covered with MongoDB.
+	return nil, nil
 }
 
 func chargingRequestSession(t *testing.T) (*Processor, models.Chf_ConvCharging_ChargingDataRequest, string) {
