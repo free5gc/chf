@@ -92,6 +92,7 @@ type Journal interface {
 	ApplyQuota(context.Context, *Record, int) (QuotaState, error)
 	QueueRecharge(context.Context, string, int32) error
 	InitializeCDR(context.Context, string, *CDRState) error
+	CDRExists(context.Context, string, string) (bool, error)
 	LoadCDRHistory(context.Context, string) ([]CDRHistory, error)
 }
 

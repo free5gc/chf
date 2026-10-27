@@ -247,6 +247,59 @@ func validateQuotaOwners(
 	return nil
 }
 
+func (p *Processor) findChargingUE(
+	supi string, record *charging.Record,
+) (*chf_context.ChfUe, *models.ProblemDetails) {
+	self := chf_context.GetSelf()
+	if ue, ok := self.ChfUeFindBySupi(supi); ok {
+		return ue, nil
+	}
+	ctx, cancel := journalContext()
+	exists, err := p.journal.CDRExists(ctx, record.Session, supi)
+	cancel()
+	if err != nil {
+		return nil, p.failChargingRequest(record, chargingProblem(err))
+	}
+	if !exists {
+		return nil, p.rejectChargingRequest(record, missingChargingSession(record.Session))
+	}
+	ue, err := self.NewCHFUe(supi)
+	if err != nil {
+		return nil, p.failChargingRequest(record, chargingProblem(err))
+	}
+	return ue, nil
+}
+
+// A cache miss is not evidence that a durable resource is gone. The caller
+// holds CULock so reconstruction cannot overwrite a concurrent local update.
+func (p *Processor) restoreChargingResource(
+	ue *chf_context.ChfUe, record *charging.Record,
+) *models.ProblemDetails {
+	if ue.Cdr[record.Session] != nil {
+		return nil
+	}
+	ctx, cancel := journalContext()
+	histories, err := p.journal.LoadCDRHistory(ctx, ue.Supi)
+	cancel()
+	if err != nil {
+		return p.failChargingRequest(record, chargingProblem(err))
+	}
+	for _, history := range histories {
+		if history.Resource != record.Session {
+			continue
+		}
+		// Validate ownership before installing any subscriber projection.
+		if history.Initial.Subscriber != ue.Supi {
+			return p.failChargingRequest(record, chargingProblem(charging.ErrConflict))
+		}
+		if err = p.restoreCDRHistories(ue, histories); err != nil {
+			return p.failChargingRequest(record, chargingProblem(err))
+		}
+		return nil
+	}
+	return p.rejectChargingRequest(record, missingChargingSession(record.Session))
+}
+
 // Restore this resource's quotas and refresh a stale subscriber CDR projection
 // using the completed cursor included in the existing quota read.
 func (p *Processor) restoreChargingState(ue *chf_context.ChfUe, record *charging.Record) error {

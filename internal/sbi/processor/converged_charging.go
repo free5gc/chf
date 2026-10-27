@@ -279,19 +279,16 @@ func (p *Processor) ChargingDataUpdate(
 
 	stopLease := p.keepChargingLease(record)
 	defer stopLease()
-	self := chf_context.GetSelf()
-	ueId := chargingData.SubscriberIdentifier
-	ue, ok := self.ChfUeFindBySupi(ueId)
-	if !ok {
-		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	ue, problem := p.findChargingUE(chargingData.SubscriberIdentifier, record)
+	if problem != nil {
+		return nil, problem
 	}
 
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
-	cdr, ok := ue.Cdr[chargingSessionId]
-	if !ok || cdr == nil {
-		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	if problem = p.restoreChargingResource(ue, record); problem != nil {
+		return nil, problem
 	}
 
 	if err := p.restoreChargingState(ue, record); err != nil {
@@ -348,19 +345,16 @@ func (p *Processor) ChargingDataRelease(
 
 	stopLease := p.keepChargingLease(record)
 	defer stopLease()
-	self := chf_context.GetSelf()
-	ueId := chargingData.SubscriberIdentifier
-	ue, ok := self.ChfUeFindBySupi(ueId)
-	if !ok {
-		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	ue, problem := p.findChargingUE(chargingData.SubscriberIdentifier, record)
+	if problem != nil {
+		return problem
 	}
 
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
-	cdr, exists := ue.Cdr[chargingSessionId]
-	if !exists || cdr == nil {
-		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	if problem = p.restoreChargingResource(ue, record); problem != nil {
+		return problem
 	}
 	if err := p.restoreChargingState(ue, record); err != nil {
 		return p.failChargingRequest(record, chargingProblem(err))
