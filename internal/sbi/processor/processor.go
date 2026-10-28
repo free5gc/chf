@@ -1,9 +1,6 @@
 package processor
 
 import (
-	"context"
-	"fmt"
-
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/charging"
@@ -25,9 +22,8 @@ type serviceUsageFunc func(
 
 type Processor struct {
 	ProcessorChf
-	journal      charging.Journal
+	requests     charging.RequestCache
 	accountDebit accountDebitFunc
-	bindAccount  func(context.Context, *charging_datatype.AccountDebitRequest) ([]byte, error)
 	serviceUsage serviceUsageFunc
 	cdrWriter    func(string, []*cdrType.CHFRecord) error
 }
@@ -38,14 +34,6 @@ type HandlerResponse struct {
 	Body    interface{}
 }
 
-func NewProcessor(chf ProcessorChf, journal charging.Journal, accounts *charging.Accounts) (*Processor, error) {
-	if accounts == nil {
-		return nil, fmt.Errorf("account binding store is unavailable")
-	}
-	p := &Processor{
-		ProcessorChf: chf,
-		journal:      journal,
-		bindAccount:  accounts.Bind,
-	}
-	return p, nil
+func NewProcessor(chf ProcessorChf) (*Processor, error) {
+	return &Processor{ProcessorChf: chf}, nil
 }

@@ -2,22 +2,16 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
 	"sync"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/free5gc/chf/internal/cgf"
-	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
-	chargingdb "github.com/free5gc/chf/internal/db"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/sbi"
 	"github.com/free5gc/chf/internal/sbi/consumer"
@@ -43,12 +37,10 @@ type ChfApp struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	sbiServer      *sbi.Server
-	metricsServer  *metrics.Server
-	consumer       *consumer.Consumer
-	processor      *processor.Processor
-	chargingDB     *mongo.Database
-	chargingClient *mongo.Client
+	sbiServer     *sbi.Server
+	metricsServer *metrics.Server
+	consumer      *consumer.Consumer
+	processor     *processor.Processor
 }
 
 func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*ChfApp, error) {
@@ -64,36 +56,7 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 	chf.SetReportCaller(cfg.GetLogReportCaller())
 	chf_context.Init()
 
-	dbCfg := cfg.Configuration.Mongodb
-	if dbCfg == nil {
-		return nil, fmt.Errorf("charging MongoDB configuration is missing")
-	}
-	dbCtx, dbCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer dbCancel()
-	chargingClient, dbErr := mongo.Connect(dbCtx, options.Client().ApplyURI(dbCfg.Url))
-	if dbErr != nil {
-		return nil, dbErr
-	}
-	chf.chargingClient = chargingClient
-	chf.chargingDB = chargingClient.Database(dbCfg.Name)
-	initialized := false
-	defer func() {
-		if !initialized {
-			closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer closeCancel()
-			if closeErr := chargingClient.Disconnect(closeCtx); closeErr != nil {
-				logger.InitLog.Errorf("Close charging MongoDB: %v", closeErr)
-			}
-		}
-	}()
-	if err := chargingdb.InitializeSchema(dbCtx, chf.chargingDB); err != nil {
-		return nil, err
-	}
-	accounts := charging.NewAccounts(chf.chargingDB)
-	if err := accounts.ImportLegacy(dbCtx); err != nil {
-		return nil, err
-	}
-	processor, err_p := processor.NewProcessor(chf, charging.NewJournal(chf.chargingDB), accounts)
+	processor, err_p := processor.NewProcessor(chf)
 	if err_p != nil {
 		return chf, err_p
 	}
@@ -124,7 +87,6 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ch
 
 	CHF = chf
 
-	initialized = true
 	return chf, nil
 }
 
@@ -221,13 +183,7 @@ func (a *ChfApp) Start() {
 	rf.OpenServer(a.ctx, &a.wg)
 
 	a.wg.Add(1)
-	abmf.OpenServer(a.ctx, &a.wg, charging.NewAccounts(a.chargingDB))
-
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-		a.processor.RunChargingRecovery(a.ctx)
-	}()
+	abmf.OpenServer(a.ctx, &a.wg)
 
 	a.wg.Add(1)
 	go a.listenShutdownEvent()
@@ -291,12 +247,5 @@ func (a *ChfApp) CallServerStop() {
 
 func (a *ChfApp) WaitRoutineStopped() {
 	a.wg.Wait()
-	if a.chargingClient != nil {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer closeCancel()
-		if err := a.chargingClient.Disconnect(closeCtx); err != nil {
-			logger.MainLog.Errorf("Close charging MongoDB: %v", err)
-		}
-	}
 	logger.MainLog.Infof("CHF App is terminated")
 }

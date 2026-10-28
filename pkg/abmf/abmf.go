@@ -33,13 +33,20 @@ import (
 	"github.com/free5gc/chf/internal/charging"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
+	"github.com/free5gc/util/mongoapi"
 )
 
-func OpenServer(ctx context.Context, wg *sync.WaitGroup, accounts *charging.Accounts) {
+func OpenServer(ctx context.Context, wg *sync.WaitGroup) {
 	// Load our custom dictionary on top of the default one, which
 	// always have the Base Protocol (RFC6733) and Credit Control
 	// Application (RFC4006).
 	logger.AcctLog.Infof("Open Account Balance Management Server")
+	mongodb := factory.ChfConfig.Configuration.Mongodb
+	if err := mongoapi.SetMongoDB(mongodb.Name, mongodb.Url); err != nil {
+		logger.InitLog.Errorf("Initialize ABMF MongoDB: %v", err)
+		return
+	}
+	accounts := charging.NewAccounts(mongoapi.Client.Database(mongodb.Name))
 
 	err := dict.Default.Load(bytes.NewReader([]byte(charging_dict.AbmfDictionary)))
 	if err != nil {

@@ -1,4 +1,4 @@
-package db
+package charging
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 )
 
 // Diameter Time is a distinct Go type without a BSON codec. Preserve every
-// timestamp (including zero values and nanoseconds) in settlement snapshots.
+// timestamp (including zero values and nanoseconds) in memory copies. No snapshots are written to storage.
 var snapshotRegistry = newSnapshotRegistry()
 
 func newSnapshotRegistry() *bsoncodec.Registry {
