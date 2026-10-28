@@ -11,7 +11,6 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/internal/charging"
@@ -20,87 +19,6 @@ import (
 	"github.com/free5gc/chf/internal/testutil"
 	"github.com/free5gc/openapi/models"
 )
-
-func onlineQuotaUsage(upf string, used int32, requestCredit bool) models.Chf_ConvCharging_MultipleUnitUsage {
-	usage := models.Chf_ConvCharging_MultipleUnitUsage{
-		RatingGroup: 10, UPFID: upf,
-		UsedUnitContainer: []models.Chf_ConvCharging_UsedUnitContainer{{
-			TotalVolume:              used,
-			QuotaManagementIndicator: models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING,
-		}},
-	}
-	if requestCredit {
-		usage.RequestedUnit = &models.Chf_ConvCharging_RequestedUnit{TotalVolume: 100}
-	}
-	return usage
-}
-
-func fixedQuotaRating(cost uint32) serviceUsageFunc {
-	return func(_ *chf_context.ChfUe, request *charging_datatype.ServiceUsageRequest) (
-		*charging_datatype.ServiceUsageResponse, error,
-	) {
-		rating := &charging_datatype.ServiceRating{
-			MonetaryTariff: &charging_datatype.MonetaryTariff{RateElement: &charging_datatype.RateElement{
-				UnitCost: &charging_datatype.UnitCost{ValueDigits: datatype.Integer64(cost)},
-			}},
-		}
-		if request.ServiceRating.RequestSubType == charging_datatype.REQ_SUBTYPE_DEBIT {
-			rating.Price = request.ServiceRating.ConsumedUnits * datatype.Unsigned32(cost)
-		} else {
-			rating.AllowedUnits = request.ServiceRating.MonetaryQuota / datatype.Unsigned32(cost)
-		}
-		return &charging_datatype.ServiceUsageResponse{ServiceRating: rating}, nil
-	}
-}
-
-func grantQuotaRequest(_ *chf_context.ChfUe, request *charging_datatype.AccountDebitRequest) (
-	*charging_datatype.AccountDebitResponse, error,
-) {
-	response := &charging_datatype.AccountDebitResponse{
-		SessionId: request.SessionId, CcRequestNumber: request.CcRequestNumber,
-		CcRequestType: request.CcRequestType, ResultCode: diam.Success,
-	}
-	if request.RequestedAction == charging_datatype.DIRECT_DEBITING &&
-		request.MultipleServicesCreditControl.RequestedServiceUnit != nil {
-		response.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-			GrantedServiceUnit: &charging_datatype.GrantedServiceUnit{
-				CCTotalOctets: request.MultipleServicesCreditControl.RequestedServiceUnit.CCTotalOctets,
-			},
-		}
-	}
-	return response, nil
-}
-
-func useMongoQuotaAccount(
-	t *testing.T, p *Processor, db *mongo.Database, subscriber string, balance string,
-) {
-	t.Helper()
-	require.NoError(t, chargingdb.InitializeSchema(context.Background(), db))
-	_, err := db.Collection("policyData.ues.chargingData").InsertOne(context.Background(), bson.M{
-		"ueId": subscriber, "ratingGroup": 10, "quota": balance,
-	})
-	require.NoError(t, err)
-	accounts := charging.NewAccounts(db)
-	p.journal = charging.NewJournal(db)
-	p.bindAccount = accounts.Bind
-	p.accountDebit = func(_ *chf_context.ChfUe, request *charging_datatype.AccountDebitRequest) (
-		*charging_datatype.AccountDebitResponse, error,
-	) {
-		return accounts.Apply(context.Background(), request)
-	}
-	chf_context.GetSelf().AbmfCfg.OriginHost = testAccountOriginHost
-}
-
-func requireQuotaBalance(t *testing.T, db *mongo.Database, subscriber string, expected int64) {
-	t.Helper()
-	var balance struct {
-		Quota string `bson:"quota"`
-	}
-	require.NoError(t, db.Collection("chf.accounts").FindOne(context.Background(), bson.M{
-		"ueId": subscriber, "ratingGroup": 10,
-	}).Decode(&balance))
-	require.Equal(t, strconv.FormatInt(expected, 10), balance.Quota)
-}
 
 func TestMongoChargingUPFFinalDoesNotChangeOtherReservation(t *testing.T) {
 	for _, used := range []int32{40, 100, 130} {
