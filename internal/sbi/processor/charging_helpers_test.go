@@ -1,15 +1,12 @@
 package processor
 
 import (
-	"bytes"
 	"context"
 	"net/http/httptest"
 	"os"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
@@ -23,180 +20,10 @@ import (
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
-	chargingdb "github.com/free5gc/chf/internal/db"
 	"github.com/free5gc/openapi/models"
 )
 
 const testAccountOriginHost = "chf-test"
-
-// The API methods, reservation logic and HTTP handlers are the production
-// implementations; only journal storage and external account/rating calls are stubbed.
-type testJournal struct {
-	mu         sync.Mutex
-	records    map[string]*charging.Record
-	active     map[string]string
-	stepErr    error
-	outcomeErr error
-	quotaErr   error
-	loadErr    error
-	quotas     map[charging.QuotaKey]charging.QuotaState
-}
-
-func newTestJournal() *testJournal {
-	return &testJournal{records: make(map[string]*charging.Record), active: make(map[string]string)}
-}
-
-func (j *testJournal) Begin(_ context.Context, identity charging.Identity) (*charging.Record, bool, error) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if record := j.records[identity.ID()]; record != nil {
-		if record.Fingerprint != identity.Fingerprint || record.Operation != identity.Operation {
-			return nil, false, charging.ErrConflict
-		}
-		if record.State != charging.Succeeded && record.State != charging.Rejected {
-			return nil, false, charging.ErrPending
-		}
-		copyRecord := *record
-		return &copyRecord, false, nil
-	}
-	if j.active[identity.Session] != "" {
-		return nil, false, charging.ErrPending
-	}
-	record := &charging.Record{
-		ID: identity.ID(), Identity: identity, State: charging.Processing, CreatedAt: time.Now().UTC(),
-	}
-	j.records[record.ID] = record
-	j.active[record.Session] = record.ID
-	copyRecord := *record
-	return &copyRecord, true, nil
-}
-
-func (j *testJournal) Finish(_ context.Context, record *charging.Record, result charging.Result, state string) error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.records[record.ID].State = state
-	j.records[record.ID].Result = result
-	if state == charging.Succeeded {
-		j.records[record.ID].CDR = record.CDR
-	}
-	delete(j.active, record.Session)
-	return nil
-}
-
-func (j *testJournal) MarkUncertain(_ context.Context, record *charging.Record, detail string) error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.records[record.ID].State = charging.Uncertain
-	j.records[record.ID].Detail = detail
-	return nil
-}
-
-func (j *testJournal) SaveSettlementStep(
-	_ context.Context, record *charging.Record, step *charging.SettlementStep,
-) error {
-	return j.saveSnapshot(record, step.UsageIndex, step, false)
-}
-
-func (j *testJournal) SaveSettlementOutcome(
-	_ context.Context, record *charging.Record, index int, outcome *charging.SettlementOutcome,
-) error {
-	return j.saveSnapshot(record, index, outcome, true)
-}
-
-func (j *testJournal) saveSnapshot(record *charging.Record, index int, value any, outcome bool) error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if !outcome && j.stepErr != nil {
-		return j.stepErr
-	}
-	if outcome && j.outcomeErr != nil {
-		return j.outcomeErr
-	}
-	stored := j.records[record.ID]
-	if stored == nil || stored.State != charging.Processing {
-		return charging.ErrPending
-	}
-	if stored.SettlementPlan == nil {
-		stored.SettlementPlan = &charging.SettlementPlan{
-			Steps: make(map[string][]byte), Outcomes: make(map[string][]byte),
-		}
-	}
-	values := stored.SettlementPlan.Steps
-	key := strconv.Itoa(index)
-	if outcome {
-		if values[key] == nil {
-			return charging.ErrConflict
-		}
-		values = stored.SettlementPlan.Outcomes
-	}
-	body, err := chargingdb.EncodeSnapshot(value)
-	if err != nil {
-		return err
-	}
-	if previous := values[key]; previous != nil && !bytes.Equal(previous, body) {
-		return charging.ErrConflict
-	}
-	values[key] = body
-	return nil
-}
-
-func (j *testJournal) PrepareQuotas(_ context.Context, record *charging.Record) (
-	map[charging.QuotaKey]charging.QuotaState, error,
-) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if j.loadErr != nil {
-		return nil, j.loadErr
-	}
-	states := make(map[charging.QuotaKey]charging.QuotaState)
-	for key, state := range j.quotas {
-		if key.ChargingDataRef == record.Session {
-			states[key] = state
-		}
-	}
-	return states, nil
-}
-
-func (j *testJournal) ApplyQuota(_ context.Context, record *charging.Record, index int) (charging.QuotaState, error) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if j.quotaErr != nil {
-		return charging.QuotaState{}, j.quotaErr
-	}
-	var outcome charging.SettlementOutcome
-	body := j.records[record.ID].SettlementPlan.Outcomes[strconv.Itoa(index)]
-	if err := chargingdb.DecodeSnapshot(body, &outcome); err != nil {
-		return charging.QuotaState{}, err
-	}
-	j.quotas[outcome.QuotaKey] = outcome.After
-	return outcome.After, nil
-}
-
-func (j *testJournal) QueueRecharge(_ context.Context, ref string, rg int32) error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	for key, state := range j.quotas {
-		if key.ChargingDataRef == ref && key.RatingGroup == rg && !state.Closed {
-			state.Exhausted = false
-			state.RatingType = charging_datatype.REQ_SUBTYPE_RESERVE
-			j.quotas[key] = state
-		}
-	}
-	return nil
-}
-
-func (j *testJournal) InitializeCDR(context.Context, string, *charging.CDRState) error {
-	return nil
-}
-
-func (j *testJournal) CDRExists(context.Context, string, string) (bool, error) {
-	return false, nil
-}
-
-func (j *testJournal) LoadCDRHistory(context.Context, string) ([]charging.CDRHistory, error) {
-	// This stub has no durable CDR seeds; reconstruction is covered with MongoDB.
-	return nil, nil
-}
 
 func chargingRequestSession(t *testing.T) (*Processor, models.Chf_ConvCharging_ChargingDataRequest, string) {
 	t.Helper()
@@ -229,12 +56,7 @@ func chargingRequestSession(t *testing.T) (*Processor, models.Chf_ConvCharging_C
 			}},
 		}},
 	}
-	journal := newTestJournal()
-	journal.quotas = ue.Quotas
-	p := &Processor{journal: journal}
-	p.bindAccount = func(context.Context, *charging_datatype.AccountDebitRequest) ([]byte, error) {
-		return bson.Marshal(bson.M{"_id": "test-account"})
-	}
+	p := &Processor{}
 	cdr, err := p.OpenCDR(request, ue, ref, false)
 	require.NoError(t, err)
 	ue.Cdr[ref] = cdr
@@ -339,14 +161,11 @@ func useMongoQuotaAccount(
 	t *testing.T, p *Processor, db *mongo.Database, subscriber string, balance string,
 ) {
 	t.Helper()
-	require.NoError(t, chargingdb.InitializeSchema(context.Background(), db))
 	_, err := db.Collection("policyData.ues.chargingData").InsertOne(context.Background(), bson.M{
 		"ueId": subscriber, "ratingGroup": 10, "quota": balance,
 	})
 	require.NoError(t, err)
 	accounts := charging.NewAccounts(db)
-	p.journal = charging.NewJournal(db)
-	p.bindAccount = accounts.Bind
 	p.accountDebit = func(_ *chf_context.ChfUe, request *charging_datatype.AccountDebitRequest) (
 		*charging_datatype.AccountDebitResponse, error,
 	) {
@@ -360,7 +179,7 @@ func requireQuotaBalance(t *testing.T, db *mongo.Database, subscriber string, ex
 	var balance struct {
 		Quota string `bson:"quota"`
 	}
-	require.NoError(t, db.Collection("chf.accounts").FindOne(context.Background(), bson.M{
+	require.NoError(t, db.Collection("policyData.ues.chargingData").FindOne(context.Background(), bson.M{
 		"ueId": subscriber, "ratingGroup": 10,
 	}).Decode(&balance))
 	require.Equal(t, strconv.FormatInt(expected, 10), balance.Quota)

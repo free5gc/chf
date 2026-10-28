@@ -176,7 +176,7 @@ func (p *Processor) ChargingDataCreate(
 	// Open CDR
 	// ChargingDataRef(charging session id):
 	// A unique identifier for a charging data resource in a PLMN
-	// Include a UUID so restarting CHF cannot reuse a persisted resource identity.
+	// Use a unique identity for each charging resource.
 	ue, err := self.NewCHFUe(ueId)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
@@ -219,17 +219,6 @@ func (p *Processor) ChargingDataCreate(
 		}
 	}
 
-	if p.journal == nil {
-		return nil, "", chargingProblem(fmt.Errorf("charging journal is unavailable"))
-	}
-	ctx, cancel := journalContext()
-	err = p.journal.InitializeCDR(ctx, chargingSessionId, &charging.CDRState{
-		Subscriber: ueId, NotifyURI: ue.NotifyUri, Current: cdr, Closed: chargingData.OneTimeEvent,
-	})
-	cancel()
-	if err != nil {
-		return nil, "", chargingProblem(err)
-	}
 	ue.Cdr[chargingSessionId] = cdr
 	if ue.CDRProgress == nil {
 		ue.CDRProgress = make(map[string]charging.CDRProgress)
@@ -277,8 +266,6 @@ func (p *Processor) ChargingDataUpdate(
 		return &response, nil
 	}
 
-	stopLease := p.keepChargingLease(record)
-	defer stopLease()
 	ue, problem := p.findChargingUE(chargingData.SubscriberIdentifier, record)
 	if problem != nil {
 		return nil, problem
@@ -287,19 +274,17 @@ func (p *Processor) ChargingDataUpdate(
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
-	if problem = p.restoreChargingResource(ue, record); problem != nil {
-		return nil, problem
+	if ue.Cdr[chargingSessionId] == nil {
+		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
-
-	if err := p.restoreChargingState(ue, record); err != nil {
-		return nil, p.failChargingRequest(record, chargingProblem(err))
-	}
-	if ue.CDRProgress[chargingSessionId].Closed {
+	if ue.CDRProgress[chargingSessionId].Closed && ue.CDRProgress[chargingSessionId].EventID != record.ID {
 		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
 		return nil, p.rejectChargingRequest(record, ownershipProblem)
 	}
+
+	applyPendingRecharges(ue, record)
 
 	// Online charging: Rate, Account, Reservation
 	responseBody, partialRecord, reservationErr := p.BuildConvergedChargingDataUpdateResopone(
@@ -325,10 +310,7 @@ func (p *Processor) ChargingDataUpdate(
 	if encodeErr != nil {
 		return nil, p.failChargingRequest(record, chargingProblem(encodeErr))
 	}
-	if problem = p.finishChargingRequest(record, charging.Result{Status: http.StatusOK, Body: body},
-		charging.Succeeded); problem != nil {
-		return nil, problem
-	}
+	p.requests.Finish(record, charging.Result{Status: http.StatusOK, Body: body}, charging.Succeeded)
 	return &responseBody, nil
 }
 
@@ -343,8 +325,6 @@ func (p *Processor) ChargingDataRelease(
 		return nil
 	}
 
-	stopLease := p.keepChargingLease(record)
-	defer stopLease()
 	ue, problem := p.findChargingUE(chargingData.SubscriberIdentifier, record)
 	if problem != nil {
 		return problem
@@ -353,18 +333,16 @@ func (p *Processor) ChargingDataRelease(
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
-	if problem = p.restoreChargingResource(ue, record); problem != nil {
-		return problem
+	if ue.Cdr[chargingSessionId] == nil {
+		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
-	if err := p.restoreChargingState(ue, record); err != nil {
-		return p.failChargingRequest(record, chargingProblem(err))
-	}
-	if ue.CDRProgress[chargingSessionId].Closed {
+	if ue.CDRProgress[chargingSessionId].Closed && ue.CDRProgress[chargingSessionId].EventID != record.ID {
 		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
 	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
 		return p.rejectChargingRequest(record, ownershipProblem)
 	}
+	applyPendingRecharges(ue, record)
 	if _, _, err := p.sessionChargingReservation(chargingData, chargingSessionId, record); err != nil {
 		return p.failChargingRequest(record, chargingProblem(err))
 	}
@@ -373,7 +351,8 @@ func (p *Processor) ChargingDataRelease(
 		return p.failChargingRequest(record, chargingProblem(err))
 	}
 
-	return p.finishChargingRequest(record, charging.Result{Status: http.StatusNoContent}, charging.Succeeded)
+	p.requests.Finish(record, charging.Result{Status: http.StatusNoContent}, charging.Succeeded)
+	return nil
 }
 
 func (p *Processor) BuildOnlineChargingDataCreateResopone(

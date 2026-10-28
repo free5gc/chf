@@ -1,19 +1,16 @@
 package processor
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
+	"strconv"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
-	chargingdb "github.com/free5gc/chf/internal/db"
-	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/openapi/models"
 )
@@ -52,12 +49,6 @@ func (p *Processor) sendServiceUsage(ue *chf_context.ChfUe, request *charging_da
 	return rating.SendServiceUsageRequest(ue, request)
 }
 
-func journalContext() (context.Context, context.CancelFunc) {
-	// Client disconnects must not cancel the durable acknowledgement of an
-	// accounting operation that may already have changed the balance.
-	return context.WithTimeout(context.Background(), 5*time.Second)
-}
-
 // beginChargingRequest only claims or looks up an invocation. Each API owns
 // its typed response, session validation, accounting and CDR processing.
 func (p *Processor) beginChargingRequest(
@@ -65,9 +56,6 @@ func (p *Processor) beginChargingRequest(
 ) (*charging.Record, *models.ProblemDetails) {
 	if ref == "" || data.SubscriberIdentifier == "" || data.InvocationSequenceNumber < 0 {
 		return nil, &models.ProblemDetails{Status: http.StatusBadRequest, Cause: "MANDATORY_IE_INCORRECT"}
-	}
-	if p.journal == nil {
-		return nil, chargingProblem(fmt.Errorf("charging journal is unavailable"))
 	}
 	canonical := data
 	canonical.RetransmissionIndicator = false
@@ -83,9 +71,7 @@ func (p *Processor) beginChargingRequest(
 		Request: body, Session: ref, Sequence: data.InvocationSequenceNumber,
 		Operation: operation, Fingerprint: fingerprint,
 	}
-	ctx, cancel := journalContext()
-	record, _, err := p.journal.Begin(ctx, identity)
-	cancel()
+	record, err := p.requests.Begin(identity)
 	if err != nil {
 		if errors.Is(err, charging.ErrConflict) {
 			return nil, &models.ProblemDetails{Status: http.StatusConflict, Cause: "CHARGING_FAILED", Detail: err.Error()}
@@ -102,35 +88,16 @@ func (p *Processor) beginChargingRequest(
 	return record, nil
 }
 
-func (p *Processor) finishChargingRequest(
-	record *charging.Record, result charging.Result, state string,
-) *models.ProblemDetails {
-	ctx, cancel := journalContext()
-	defer cancel()
-	if err := p.journal.Finish(ctx, record, result, state); err != nil {
-		return chargingProblem(err)
-	}
-	return nil
-}
-
 // A lookup rejection occurs before any accounting effect and can release the fence.
 func (p *Processor) rejectChargingRequest(
 	record *charging.Record, problem *models.ProblemDetails,
 ) *models.ProblemDetails {
-	if err := p.storeChargingRejection(record, problem); err != nil {
-		return chargingProblem(err)
-	}
-	return problem
-}
-
-func (p *Processor) storeChargingRejection(record *charging.Record, problem *models.ProblemDetails) error {
 	body, err := json.Marshal(problem)
 	if err != nil {
-		return err
+		return chargingProblem(err)
 	}
-	ctx, cancel := journalContext()
-	defer cancel()
-	return p.journal.Finish(ctx, record, charging.Result{Status: int(problem.Status), Body: body}, charging.Rejected)
+	p.requests.Finish(record, charging.Result{Status: int(problem.Status), Body: body}, charging.Rejected)
+	return problem
 }
 
 func (p *Processor) failChargingRequest(
@@ -143,12 +110,8 @@ func (p *Processor) failChargingRequest(
 	if detail == "" {
 		detail = http.StatusText(int(problem.Status))
 	}
-	ctx, cancel := journalContext()
-	defer cancel()
-	if err := p.journal.MarkUncertain(ctx, record, detail); err != nil {
-		logger.ChargingdataPostLog.Errorf("Persist uncertain charging operation: %v", err)
-	}
-	return chargingProblem(fmt.Errorf("charging operation pending recovery: %s", detail))
+	p.requests.Fail(record)
+	return chargingProblem(fmt.Errorf("charging operation awaiting the same invocation retry: %s", detail))
 }
 
 func (p *Processor) captureServiceUsage(
@@ -162,12 +125,12 @@ func (p *Processor) captureServiceUsage(
 		return nil, fmt.Errorf("rating response is nil")
 	}
 	// The caller reuses SUR and tariff pointers. Freeze a deep copy immediately.
-	body, err := chargingdb.EncodeSnapshot(charging.RatingExchange{Request: *request, Response: *response})
+	body, err := charging.EncodeSnapshot(charging.RatingExchange{Request: *request, Response: *response})
 	if err != nil {
 		return nil, err
 	}
 	var exchange charging.RatingExchange
-	if err = chargingdb.DecodeSnapshot(body, &exchange); err != nil {
+	if err = charging.DecodeSnapshot(body, &exchange); err != nil {
 		return nil, err
 	}
 	*ratings = append(*ratings, exchange)
@@ -176,24 +139,13 @@ func (p *Processor) captureServiceUsage(
 
 func (p *Processor) saveSettlementStep(record *charging.Record, step *charging.SettlementStep) error {
 	if record == nil {
-		// Initial requests have no invocation journal yet.
 		return nil
 	}
-	ctx, cancel := journalContext()
-	defer cancel()
-	if step.AccountRequest != nil {
-		if p.bindAccount == nil {
-			return fmt.Errorf("account binding store is unavailable")
-		}
-		binding, err := p.bindAccount(ctx, step.AccountRequest)
-		if err != nil {
-			return fmt.Errorf("bind account: %w", err)
-		}
-		step.AccountBinding = binding
+	body, err := charging.EncodeSnapshot(step)
+	if err != nil {
+		return err
 	}
-	if err := p.journal.SaveSettlementStep(ctx, record, step); err != nil {
-		return fmt.Errorf("persist settlement step: %w", err)
-	}
+	record.SettlementPlan.Steps[strconv.Itoa(step.UsageIndex)] = body
 	return nil
 }
 
@@ -203,11 +155,11 @@ func (p *Processor) saveSettlementOutcome(
 	if record == nil {
 		return nil
 	}
-	ctx, cancel := journalContext()
-	defer cancel()
-	if err := p.journal.SaveSettlementOutcome(ctx, record, index, outcome); err != nil {
-		return fmt.Errorf("persist settlement outcome: %w", err)
+	body, err := charging.EncodeSnapshot(outcome)
+	if err != nil {
+		return err
 	}
+	record.SettlementPlan.Outcomes[strconv.Itoa(index)] = body
 	return nil
 }
 
@@ -247,117 +199,48 @@ func validateQuotaOwners(
 	return nil
 }
 
-func (p *Processor) findChargingUE(
-	supi string, record *charging.Record,
-) (*chf_context.ChfUe, *models.ProblemDetails) {
-	self := chf_context.GetSelf()
-	if ue, ok := self.ChfUeFindBySupi(supi); ok {
-		return ue, nil
-	}
-	ctx, cancel := journalContext()
-	exists, err := p.journal.CDRExists(ctx, record.Session, supi)
-	cancel()
-	if err != nil {
-		return nil, p.failChargingRequest(record, chargingProblem(err))
-	}
-	if !exists {
+func (p *Processor) findChargingUE(supi string, record *charging.Record) (*chf_context.ChfUe, *models.ProblemDetails) {
+	ue, ok := chf_context.GetSelf().ChfUeFindBySupi(supi)
+	if !ok {
 		return nil, p.rejectChargingRequest(record, missingChargingSession(record.Session))
-	}
-	ue, err := self.NewCHFUe(supi)
-	if err != nil {
-		return nil, p.failChargingRequest(record, chargingProblem(err))
 	}
 	return ue, nil
 }
 
-// A cache miss is not evidence that a durable resource is gone. The caller
-// holds CULock so reconstruction cannot overwrite a concurrent local update.
-func (p *Processor) restoreChargingResource(
-	ue *chf_context.ChfUe, record *charging.Record,
-) *models.ProblemDetails {
-	if ue.Cdr[record.Session] != nil {
-		return nil
-	}
-	ctx, cancel := journalContext()
-	histories, err := p.journal.LoadCDRHistory(ctx, ue.Supi)
-	cancel()
-	if err != nil {
-		return p.failChargingRequest(record, chargingProblem(err))
-	}
-	for _, history := range histories {
-		if history.Resource != record.Session {
-			continue
-		}
-		// Validate ownership before installing any subscriber projection.
-		if history.Initial.Subscriber != ue.Supi {
-			return p.failChargingRequest(record, chargingProblem(charging.ErrConflict))
-		}
-		if err = p.restoreCDRHistories(ue, histories); err != nil {
-			return p.failChargingRequest(record, chargingProblem(err))
-		}
-		return nil
-	}
-	return p.rejectChargingRequest(record, missingChargingSession(record.Session))
-}
-
-// Restore this resource's quotas and refresh a stale subscriber CDR projection
-// using the completed cursor included in the existing quota read.
-func (p *Processor) restoreChargingState(ue *chf_context.ChfUe, record *charging.Record) error {
-	ctx, cancel := journalContext()
-	defer cancel()
-	states, err := p.journal.PrepareQuotas(ctx, record)
-	if err != nil {
-		return fmt.Errorf("restore charging quotas: %w", err)
-	}
-	// The existing quota read carries the completed CDR cursor. Another CHF
-	// instance may have recovered this resource while this projection was idle.
-	if record.CDRHead != nil && ue.CDRProgress[record.Session].EventID != *record.CDRHead {
-		if err = p.RestoreCDRs(ue); err != nil {
-			return fmt.Errorf("restore charging CDR: %w", err)
-		}
-	}
-	if ue.Quotas == nil {
-		ue.Quotas = make(map[charging.QuotaKey]charging.QuotaState)
-	}
-	for key := range ue.Quotas {
-		if key.ChargingDataRef == record.Session {
-			delete(ue.Quotas, key)
-		}
-	}
-	for key, state := range states {
-		ue.Quotas[key] = state
-	}
-	return nil
-}
-
 func (p *Processor) applyQuota(record *charging.Record, index int) (charging.QuotaState, error) {
-	ctx, cancel := journalContext()
-	defer cancel()
-	state, err := p.journal.ApplyQuota(ctx, record, index)
-	if err != nil {
-		return charging.QuotaState{}, fmt.Errorf("persist charging quota: %w", err)
-	}
-	return state, nil
+	var outcome charging.SettlementOutcome
+	err := charging.DecodeSnapshot(record.SettlementPlan.Outcomes[strconv.Itoa(index)], &outcome)
+	return outcome.After, err
 }
 
-// Persist notices first. The next invocation consumes them before freezing any
-// settlement step; an unfinished invocation keeps both its fence and the notice.
 func (p *Processor) rechargeQuotas(ue *chf_context.ChfUe, rg int32) (bool, error) {
-	if p.journal == nil {
-		return false, fmt.Errorf("charging journal is unavailable")
+	if ue.PendingRecharges == nil {
+		ue.PendingRecharges = make(map[charging.QuotaKey]bool)
 	}
-	refs := make(map[string]bool)
 	for key, state := range ue.Quotas {
 		if key.RatingGroup == rg && !state.Closed {
-			refs[key.ChargingDataRef] = true
-		}
-	}
-	ctx, cancel := journalContext()
-	defer cancel()
-	for ref := range refs {
-		if err := p.journal.QueueRecharge(ctx, ref, rg); err != nil {
-			return false, fmt.Errorf("persist recharge notice: %w", err)
+			ue.PendingRecharges[key] = true
 		}
 	}
 	return ue.RechargeRatingGroup(rg), nil
+}
+
+// A recharge cannot change the result of an already-started invocation. Keep
+// its notice in memory until a fresh invocation can use the recharged balance.
+func applyPendingRecharges(ue *chf_context.ChfUe, record *charging.Record) {
+	if len(record.SettlementPlan.Steps) != 0 {
+		return
+	}
+	for key := range ue.PendingRecharges {
+		if key.ChargingDataRef != record.Session {
+			continue
+		}
+		state := ue.Quotas[key]
+		if !state.Closed {
+			state.Exhausted = false
+			state.RatingType = charging_datatype.REQ_SUBTYPE_RESERVE
+			ue.Quotas[key] = state
+		}
+		delete(ue.PendingRecharges, key)
+	}
 }

@@ -1,7 +1,6 @@
 package processor
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -10,12 +9,10 @@ import (
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/bson"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
-	chargingdb "github.com/free5gc/chf/internal/db"
 	"github.com/free5gc/chf/internal/testutil"
 	"github.com/free5gc/openapi/models"
 )
@@ -98,19 +95,6 @@ func TestMongoChargingUPFFinalDoesNotChangeOtherReservation(t *testing.T) {
 				require.Nil(t, problem)
 				requireQuotaBalance(t, db, request.SubscriberIdentifier, 800-int64(used))
 				require.Equal(t, int64(100), ue.Quotas[b].Reserved)
-				var record charging.Record
-				require.NoError(t, db.Collection("chf.chargingRequests").FindOne(context.Background(), bson.M{
-					"_id": (charging.Identity{Session: ref, Sequence: finalRequest.InvocationSequenceNumber}).ID(),
-				}).Decode(&record))
-				for index, snapshot := range record.SettlementPlan.Steps {
-					var step charging.SettlementStep
-					require.NoError(t, chargingdb.DecodeSnapshot(snapshot, &step))
-					require.Equal(t, ref, step.QuotaKey.ChargingDataRef)
-					require.Equal(t, step.UPFID, step.QuotaKey.UPFID)
-					var outcome charging.SettlementOutcome
-					require.NoError(t, chargingdb.DecodeSnapshot(record.SettlementPlan.Outcomes[index], &outcome))
-					require.Equal(t, step.QuotaKey, outcome.QuotaKey)
-				}
 			})
 		}
 	}
@@ -281,56 +265,6 @@ func TestChargingLegacyUPFIDMustRemainUnambiguous(t *testing.T) {
 	}
 }
 
-func TestChargingSettlementPersistenceFailurePreservesQuota(t *testing.T) {
-	const outcomeFailure = "outcome"
-	for _, operation := range []string{chargingUpdateOperation, chargingReleaseOperation} {
-		for _, failure := range []string{"restore", "binding", "plan", outcomeFailure, recoveryQuota} {
-			t.Run(operation+"/"+failure, func(t *testing.T) {
-				p, request, ref := chargingRequestSession(t)
-				ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
-				require.True(t, ok)
-				key := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-a"}
-				ue.Quotas[key] = charging.QuotaState{
-					Known: true, Reserved: 100, RatingType: charging_datatype.REQ_SUBTYPE_RESERVE,
-				}
-				journal := p.journal.(*testJournal)
-				switch failure {
-				case "restore":
-					journal.loadErr = errors.New("quota storage unavailable")
-				case recoveryQuota:
-					journal.quotaErr = errors.New("quota commit unavailable")
-				case "binding":
-					p.bindAccount = func(context.Context, *charging_datatype.AccountDebitRequest) ([]byte, error) {
-						return nil, errors.New("account binding unavailable")
-					}
-				case "plan":
-					journal.stepErr = errors.New("plan storage unavailable")
-				case outcomeFailure:
-					journal.outcomeErr = errors.New("outcome storage unavailable")
-				}
-				calls := countAccountCalls(p)
-				for attempt := 0; attempt < 2; attempt++ {
-					reply := chargingAPIResponse(t, p, request, ref, operation)
-					require.Equal(t, http.StatusServiceUnavailable, reply.Code)
-				}
-				expected := int32(0)
-				if failure == outcomeFailure || failure == recoveryQuota {
-					expected = 1
-				}
-				require.Equal(t, expected, calls.Load())
-				require.Equal(t, int64(100), ue.Quotas[key].Reserved)
-				require.Equal(t, charging_datatype.REQ_SUBTYPE_RESERVE, ue.Quotas[key].RatingType)
-				record := journal.records[(charging.Identity{Session: ref, Sequence: 7}).ID()]
-				require.Equal(t, charging.Uncertain, record.State)
-				if failure == outcomeFailure {
-					require.NotEmpty(t, record.SettlementPlan.Steps["0"])
-					require.Empty(t, record.SettlementPlan.Outcomes)
-				}
-			})
-		}
-	}
-}
-
 func TestChargingReservationFreezesAllRatingResultsBeforeDebit(t *testing.T) {
 	p, request, ref := chargingRequestSession(t)
 	request.MultipleUnitUsage[0].RequestedUnit = &models.Chf_ConvCharging_RequestedUnit{TotalVolume: 100}
@@ -362,17 +296,6 @@ func TestChargingReservationFreezesAllRatingResultsBeforeDebit(t *testing.T) {
 	) {
 		accountCalled = true
 		require.Equal(t, 3, calls)
-		record := p.journal.(*testJournal).records[(charging.Identity{Session: ref, Sequence: 7}).ID()]
-		var step charging.SettlementStep
-		require.NoError(t, chargingdb.DecodeSnapshot(record.SettlementPlan.Steps["0"], &step))
-		require.Equal(t, *account, *step.AccountRequest)
-		require.NotEmpty(t, step.AccountBinding)
-		require.Equal(t, int64(-40), step.Planned.Reserved)
-		require.True(t, step.AddGrantedUnits)
-		require.Len(t, step.Ratings, 3)
-		require.Equal(t, datatype.Unsigned32(80), step.Ratings[1].Response.ServiceRating.AllowedUnits)
-		require.Equal(t, datatype.Integer64(1),
-			step.Ratings[0].Response.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits)
 		require.Equal(t, datatype.Unsigned64(140), account.MultipleServicesCreditControl.RequestedServiceUnit.CCTotalOctets)
 		return &charging_datatype.AccountDebitResponse{
 			ResultCode: diam.Success,
@@ -461,93 +384,4 @@ func TestChargingRepeatedQuotaOwnerUsesPreviousActualGrant(t *testing.T) {
 	require.Equal(t, models.Chf_ConvCharging_FinalUnitAction_TERMINATE,
 		response.MultipleUnitInformation[0].FinalUnitIndication.FinalUnitAction)
 	require.Equal(t, int32(30000000), response.MultipleUnitInformation[0].VolumeQuotaThreshold)
-	record := p.journal.(*testJournal).records[(charging.Identity{Session: ref, Sequence: 7}).ID()]
-	require.Len(t, record.SettlementPlan.Steps, 2)
-	require.Len(t, record.SettlementPlan.Outcomes, 2)
-	var step charging.SettlementStep
-	require.NoError(t, chargingdb.DecodeSnapshot(record.SettlementPlan.Steps["1"], &step))
-	require.Equal(t, "upf-a", step.UPFID)
-	require.True(t, step.Before.Exhausted)
-	require.Equal(t, int64(20), step.Before.Reserved)
-	require.Equal(t, charging_datatype.REQ_SUBTYPE_DEBIT, step.Before.RatingType)
-}
-
-// Simulate MongoDB committing quota+marker while the acknowledgement is lost.
-type lostQuotaAnswerJournal struct {
-	charging.Journal
-}
-
-func (j *lostQuotaAnswerJournal) ApplyQuota(
-	ctx context.Context, record *charging.Record, index int,
-) (charging.QuotaState, error) {
-	if _, err := j.Journal.ApplyQuota(ctx, record, index); err != nil {
-		return charging.QuotaState{}, err
-	}
-	return charging.QuotaState{}, errors.New("quota acknowledgement lost after commit")
-}
-
-func TestMongoChargingRestoresQuotaAndDoesNotRepeatCommittedSettlement(t *testing.T) {
-	db := testutil.Mongo(t)
-	ctx := context.Background()
-	p, request, ref := chargingRequestSession(t)
-	p.serviceUsage = fixedQuotaRating(1)
-	useMongoQuotaAccount(t, p, db, request.SubscriberIdentifier, "1000")
-	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{
-		onlineQuotaUsage("upf-a", 0, true), onlineQuotaUsage("upf-b", 0, true),
-	}
-	_, problem := p.ChargingDataUpdate(request, ref)
-	require.Nil(t, problem)
-	ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
-	require.True(t, ok)
-	a := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-a"}
-	b := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-b"}
-	// Discard the quota cache, retaining the live CDR. Complete UE/CDR recovery
-	// belongs to a later stage; this verifies the durable quota boundary itself.
-	ue.Quotas = nil
-	p.journal = charging.NewJournal(db)
-	request.InvocationSequenceNumber++
-	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-b", 40, true)}
-	response, problem := p.ChargingDataUpdate(request, ref)
-	require.Nil(t, problem)
-	require.Equal(t, int32(60), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
-	require.Equal(t, int64(100), ue.Quotas[a].Reserved)
-	require.Equal(t, int64(60), ue.Quotas[b].Reserved)
-	requireQuotaBalance(t, db, request.SubscriberIdentifier, 800)
-	p.journal = &lostQuotaAnswerJournal{Journal: charging.NewJournal(db)}
-	calls := countAccountCalls(p)
-	request.InvocationSequenceNumber++
-	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 40, false)}
-	_, problem = p.ChargingDataUpdate(request, ref)
-	require.NotNil(t, problem)
-	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
-	require.Equal(t, int64(100), ue.Quotas[a].Reserved, "no live update after a lost durable acknowledgement")
-	requireQuotaBalance(t, db, request.SubscriberIdentifier, 860)
-	var record charging.Record
-	require.NoError(t, db.Collection("chf.chargingRequests").FindOne(ctx, bson.M{
-		"_id": (charging.Identity{Session: ref, Sequence: request.InvocationSequenceNumber}).ID(),
-	}).Decode(&record))
-	require.Equal(t, charging.Uncertain, record.State)
-	restarted := charging.NewJournal(db)
-	makeRecoveryReady(t, db, ref)
-	claimed, claimErr := restarted.ClaimRecovery(ctx)
-	require.NoError(t, claimErr)
-	require.NotNil(t, claimed)
-	record = *claimed
-	for range 2 {
-		state, err := restarted.ApplyQuota(ctx, &record, 0)
-		require.NoError(t, err)
-		require.Zero(t, state.Reserved)
-		require.True(t, state.Closed)
-	}
-	states, err := restarted.LoadQuotas(ctx, ref)
-	require.NoError(t, err)
-	require.Zero(t, states[a].Reserved)
-	require.Equal(t, int64(60), states[b].Reserved)
-	requireQuotaBalance(t, db, request.SubscriberIdentifier, 860)
-	_, problem = p.ChargingDataUpdate(request, ref)
-	require.NotNil(t, problem)
-	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
-	request.InvocationSequenceNumber++
-	require.NotNil(t, p.ChargingDataRelease(request, ref))
-	require.Equal(t, int32(1), calls.Load(), "unresolved CDR work still fences the resource")
 }
