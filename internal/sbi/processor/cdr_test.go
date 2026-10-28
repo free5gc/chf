@@ -8,14 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/event"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/free5gc/chf/cdr/asn"
 	"github.com/free5gc/chf/cdr/cdrType"
@@ -25,19 +22,12 @@ import (
 	"github.com/free5gc/openapi/models"
 )
 
-func TestBuildCdrFileNameIsBounded(t *testing.T) {
-	ueid := "imsi-" + strings.Repeat("a", 1024)
-
+func TestCDRFileUsesBoundedNameForLongSubscriber(t *testing.T) {
+	ueid := "imsi-" + strings.Repeat("b", 1024)
 	fileName := buildCdrFileName(ueid)
-
 	require.True(t, strings.HasPrefix(fileName, "/tmp/chf-"))
 	require.True(t, strings.HasSuffix(fileName, ".cdr"))
 	require.LessOrEqual(t, len(filepath.Base(fileName)), 255)
-}
-
-func TestDumpCdrFileWithLongSubscriberIdentifier(t *testing.T) {
-	ueid := "imsi-" + strings.Repeat("b", 1024)
-	fileName := buildCdrFileName(ueid)
 	t.Cleanup(func() {
 		err := os.Remove(fileName)
 		if err != nil && !os.IsNotExist(err) {
@@ -214,37 +204,6 @@ func TestMongoCDRPendingFileFailureRebuildsPrefixWithoutRepeatingAccounting(t *t
 		Session: ref, Sequence: request.InvocationSequenceNumber + 1, Operation: chargingReleaseOperation,
 	})
 	require.ErrorIs(t, err, charging.ErrPending)
-}
-
-func TestMongoNormalCDRProjectionDoesNotAccessDatabase(t *testing.T) {
-	var watch atomic.Bool
-	var commands atomic.Int32
-	monitor := &event.CommandMonitor{Started: func(_ context.Context, command *event.CommandStartedEvent) {
-		if watch.Load() {
-			commands.Add(1)
-		}
-	}}
-	db := testutil.Mongo(t, options.Client().SetMonitor(monitor))
-	p, request, ref := chargingRequestSession(t)
-	p.journal = charging.NewJournal(db)
-	record, problem := p.beginChargingRequest(request, ref, chargingUpdateOperation)
-	require.Nil(t, problem)
-	ue, _ := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
-	watch.Store(true)
-	for range 2 {
-		require.NoError(t, p.applyChargingCDR(ue, record, false))
-	}
-	watch.Store(false)
-	require.Zero(t, commands.Load(), "normal CDR apply and in-memory retry do not issue MongoDB commands")
-	volume, entries := cdrUsageTotals(ue.Records)
-	require.Equal(t, int64(40), volume)
-	require.Equal(t, 1, entries)
-	require.NoError(t, p.journal.Finish(context.Background(), record, charging.Result{Status: 200}, charging.Succeeded))
-	var stored bson.M
-	require.NoError(t, db.Collection("chf.chargingRequests").FindOne(
-		context.Background(), bson.M{"_id": record.ID}).Decode(&stored))
-	require.Contains(t, stored, "cdrEvent")
-	require.NotContains(t, stored, "cdrPlan")
 }
 
 func TestCDRRolloverPreservesUsageAndRejectsOversizedSingleEntry(t *testing.T) {

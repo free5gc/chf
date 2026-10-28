@@ -178,7 +178,10 @@ func TestMongoChargingRestoreRejectsInvalidResource(t *testing.T) {
 					request.InvocationSequenceNumber++
 				}
 				self := chf_context.GetSelf()
-				self.UePool.Delete(request.SubscriberIdentifier)
+				// Cover missing resources in a warm UE as well as cold subscriber lookup.
+				if invalid != "unknown reference" {
+					self.UePool.Delete(request.SubscriberIdentifier)
+				}
 				switch invalid {
 				case "unknown reference":
 					ref = "unknown-charging-data-ref"
@@ -191,7 +194,7 @@ func TestMongoChargingRestoreRejectsInvalidResource(t *testing.T) {
 					require.Equal(t, http.StatusNotFound, reply.Code, reply.Body.String())
 				}
 				require.Zero(t, calls.Load())
-				if invalid == "unknown reference" || invalid == "wrong subscriber" {
+				if invalid == "wrong subscriber" {
 					_, exists := self.ChfUeFindBySupi(request.SubscriberIdentifier)
 					require.False(t, exists, "unverified resources must not allocate a UE")
 				}

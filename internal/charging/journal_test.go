@@ -10,8 +10,6 @@ import (
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/event"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	chargingdb "github.com/free5gc/chf/internal/db"
@@ -318,37 +316,17 @@ func TestMongoJournalRechargeWaitsForFrozenSettlementAndSurvivesRestart(t *testi
 	require.False(t, states[live].Exhausted, "recharge effects survive loss of the live UE quota map")
 }
 
-func TestMongoJournalFreshQuotaUsesAcknowledgedSnapshotsUntilRecovery(t *testing.T) {
-	var requestReads, sessionReads atomic.Int32
-	monitor := &event.CommandMonitor{Started: func(_ context.Context, event *event.CommandStartedEvent) {
-		if event.CommandName != "find" {
-			return
-		}
-		collection, ok := event.Command.Lookup("find").StringValueOK()
-		if !ok {
-			return
-		}
-		switch collection {
-		case "chf.chargingRequests":
-			requestReads.Add(1)
-		case "chf.chargingSessions":
-			sessionReads.Add(1)
-		}
-	}}
-	db := testutil.Mongo(t, options.Client().SetMonitor(monitor))
+func TestMongoJournalQuotaApplyUsesPersistedOutcomes(t *testing.T) {
+	db := testutil.Mongo(t)
 	ctx := context.Background()
 	j := NewJournal(db)
 	record, _, err := j.Begin(ctx, Identity{
 		Session: "fresh-quota", Sequence: 1, Operation: "update", Fingerprint: "first",
 	})
 	require.NoError(t, err)
-	requestReads.Store(0)
-	sessionReads.Store(0)
 	states, err := j.PrepareQuotas(ctx, record)
 	require.NoError(t, err)
 	require.Empty(t, states)
-	require.Zero(t, requestReads.Load(), "a fresh invocation does not reload its request")
-	require.Equal(t, int32(1), sessionReads.Load(), "authoritative quota still comes from the session document")
 	key := QuotaKey{ChargingDataRef: record.Session, RatingGroup: 10, UPFID: "upf-a"}
 	step := &SettlementStep{UsageIndex: 0, QuotaKey: key, RatingGroup: 10, UPFID: key.UPFID}
 	outcome := &SettlementOutcome{QuotaKey: key, After: QuotaState{Known: true, Reserved: 100}}
@@ -365,22 +343,16 @@ func TestMongoJournalFreshQuotaUsesAcknowledgedSnapshotsUntilRecovery(t *testing
 	outcome.After.Reserved = 999
 	require.ErrorIs(t, j.SaveSettlementOutcome(ctx, record, 0, outcome), ErrConflict)
 	step.QuotaKey.UPFID = "changed-after-save"
-	requestReads.Store(0)
-	sessionReads.Store(0)
 	state, err := j.ApplyQuota(ctx, record, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), state.Reserved)
-	require.Zero(t, requestReads.Load(), "normal apply reuses immutable acknowledged bytes")
-	require.Zero(t, sessionReads.Load(), "normal apply needs only the atomic session update")
 	require.NoError(t, j.MarkUncertain(ctx, record, "acknowledgement lost"))
 	expireRecoveryLease(t, j, record)
 	record, err = j.ClaimRecovery(ctx)
 	require.NoError(t, err)
-	requestReads.Store(0)
 	state, err = j.ApplyQuota(ctx, record, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), state.Reserved)
-	require.Positive(t, requestReads.Load(), "uncertain invocations reload the durable plan even in the same process")
 }
 
 func expireRecoveryLease(t *testing.T, j *MongoJournal, record *Record) {

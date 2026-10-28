@@ -2,12 +2,15 @@ package processor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -16,6 +19,7 @@ import (
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
+	chargingdb "github.com/free5gc/chf/internal/db"
 	"github.com/free5gc/chf/internal/testutil"
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
@@ -363,4 +367,162 @@ func TestMongoRecoveryCompletesInterruptedValidationRejection(t *testing.T) {
 			require.Nil(t, session.Active)
 		})
 	}
+}
+
+// The real processor, reservation logic, CDR writer, request journal and atomic
+// account store run here. Only the Diameter network boundary and rating are stubbed.
+func TestMongoChargingLostResponseReplaysWithoutAnotherDebit(t *testing.T) {
+	for _, tc := range []struct {
+		name, operation string
+		reserved        int64
+		remaining       string
+		requesting      bool
+	}{
+		{"update debit", chargingUpdateOperation, 0, "60", false},
+		{"release debit", chargingReleaseOperation, 0, "60", false},
+		{"update refund", chargingUpdateOperation, 100, "160", false},
+		{"release refund", chargingReleaseOperation, 100, "160", false},
+		{"update reservation", chargingUpdateOperation, 0, "860", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation := tc.operation
+			db := testutil.Mongo(t)
+			p, request, ref := chargingRequestSession(t)
+			p.journal = charging.NewJournal(db)
+			initialBalance := "100"
+			if tc.requesting {
+				initialBalance = "1000"
+				request.MultipleUnitUsage[0].RequestedUnit = &models.Chf_ConvCharging_RequestedUnit{TotalVolume: 100}
+			}
+			ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
+			require.True(t, ok)
+			key := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-a"}
+			ue.Quotas[key] = charging.QuotaState{
+				Known: true, Reserved: tc.reserved, RatingType: charging_datatype.REQ_SUBTYPE_RESERVE,
+			}
+			quotaID, err := charging.Digest(key)
+			require.NoError(t, err)
+			_, err = db.Collection("chf.chargingSessions").InsertOne(context.Background(), bson.M{
+				"_id": ref, "active": nil, "quotas": bson.M{quotaID: bson.D{
+					{Key: "key", Value: key}, {Key: "state", Value: ue.Quotas[key]},
+				}},
+			})
+			require.NoError(t, err)
+			_, err = db.Collection("policyData.ues.chargingData").InsertOne(context.Background(), bson.M{
+				"ueId": request.SubscriberIdentifier, "ratingGroup": 10, "quota": initialBalance,
+			})
+			require.NoError(t, err)
+			accounts := charging.NewAccounts(db)
+			p.bindAccount = accounts.Bind
+			chf_context.GetSelf().AbmfCfg.OriginHost = testAccountOriginHost
+			calls := 0
+			p.accountDebit = func(_ *chf_context.ChfUe, account *charging_datatype.AccountDebitRequest) (
+				*charging_datatype.AccountDebitResponse, error,
+			) {
+				calls++
+				return accounts.Apply(context.Background(), account)
+			}
+			p.serviceUsage = func(_ *chf_context.ChfUe, _ *charging_datatype.ServiceUsageRequest) (
+				*charging_datatype.ServiceUsageResponse, error,
+			) {
+				return &charging_datatype.ServiceUsageResponse{ServiceRating: &charging_datatype.ServiceRating{
+					Price: 40, AllowedUnits: 100,
+					MonetaryTariff: &charging_datatype.MonetaryTariff{RateElement: &charging_datatype.RateElement{
+						UnitCost: &charging_datatype.UnitCost{ValueDigits: 1},
+					}},
+				}}, nil
+			}
+			first := chargingAPIResponse(t, p, request, ref, operation)
+			status := http.StatusOK
+			if operation == chargingReleaseOperation {
+				status = http.StatusNoContent
+			}
+			require.Equal(t, status, first.Code, first.Body.String())
+			require.Equal(t, 1, calls)
+			if tc.requesting {
+				var decoded models.Chf_ConvCharging_ChargingDataResponse
+				require.NoError(t, json.Unmarshal(first.Body.Bytes(), &decoded))
+				require.Equal(t, int32(100), decoded.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+				require.Equal(t, int64(100), ue.Quotas[key].Reserved)
+			}
+			_, err = db.Collection("policyData.ues.chargingData").DeleteMany(context.Background(), bson.M{})
+			require.NoError(t, err)
+			// Discard the first response and remove all live session information.
+			chf_context.GetSelf().UePool.Delete(request.SubscriberIdentifier)
+			p = &Processor{journal: charging.NewJournal(db)}
+			request.RetransmissionIndicator = true
+			replay := chargingAPIResponse(t, p, request, ref, operation)
+			require.Equal(t, status, replay.Code)
+			require.Equal(t, first.Body.String(), replay.Body.String())
+			var balance struct {
+				Quota string `bson:"quota"`
+			}
+			require.NoError(t, db.Collection("chf.accounts").FindOne(context.Background(),
+				bson.M{"ueId": request.SubscriberIdentifier, "ratingGroup": 10}).Decode(&balance))
+			require.Equal(t, tc.remaining, balance.Quota)
+		})
+	}
+}
+
+func TestMongoChargingAccountCommittedButCHFUnfinishedRemainsFenced(t *testing.T) {
+	db := testutil.Mongo(t)
+	p, request, ref := chargingRequestSession(t)
+	p.journal = charging.NewJournal(db)
+	chf_context.GetSelf().AbmfCfg.OriginHost = testAccountOriginHost
+	_, err := db.Collection("policyData.ues.chargingData").InsertOne(context.Background(), bson.M{
+		"ueId": request.SubscriberIdentifier, "ratingGroup": 10, "quota": "100",
+	})
+	require.NoError(t, err)
+	accounts := charging.NewAccounts(db)
+	p.bindAccount = accounts.Bind
+	var captured *charging_datatype.AccountDebitRequest
+	p.accountDebit = func(_ *chf_context.ChfUe, account *charging_datatype.AccountDebitRequest) (
+		*charging_datatype.AccountDebitResponse, error,
+	) {
+		copyRequest := *account
+		captured = &copyRequest
+		_, applyErr := accounts.Apply(context.Background(), account)
+		if applyErr != nil {
+			return nil, applyErr
+		}
+		return nil, errors.New("ABMF answer lost after committing debit")
+	}
+	p.serviceUsage = func(_ *chf_context.ChfUe, _ *charging_datatype.ServiceUsageRequest) (
+		*charging_datatype.ServiceUsageResponse, error,
+	) {
+		return &charging_datatype.ServiceUsageResponse{ServiceRating: &charging_datatype.ServiceRating{Price: 40}}, nil
+	}
+	_, problem := p.ChargingDataUpdate(request, ref)
+	require.NotNil(t, problem)
+	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
+	require.NotNil(t, captured)
+	var stored charging.Record
+	require.NoError(t, db.Collection("chf.chargingRequests").FindOne(context.Background(), bson.M{
+		"_id": (charging.Identity{Session: ref, Sequence: 7}).ID(),
+	}).Decode(&stored))
+	require.Equal(t, charging.Uncertain, stored.State)
+	var saved charging.SettlementStep
+	require.NoError(t, chargingdb.DecodeSnapshot(stored.SettlementPlan.Steps["0"], &saved))
+	require.Equal(t, *captured, *saved.AccountRequest)
+	require.Equal(t, datatype.Unsigned32(40), saved.Ratings[0].Response.ServiceRating.Price)
+	require.Empty(t, stored.SettlementPlan.Outcomes)
+	_, err = db.Collection("policyData.ues.chargingData").DeleteMany(context.Background(), bson.M{})
+	require.NoError(t, err)
+	// ABMF independently knows the operation succeeded, and can safely replay it.
+	replayed, err := charging.NewAccounts(db).Apply(context.Background(), saved.AccountRequest)
+	require.NoError(t, err)
+	require.Equal(t, datatype.Unsigned32(0), replayed.CcRequestNumber)
+	chf_context.GetSelf().UePool.Delete(request.SubscriberIdentifier)
+	p = &Processor{journal: charging.NewJournal(db)}
+	_, problem = p.ChargingDataUpdate(request, ref)
+	require.NotNil(t, problem)
+	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
+	request.InvocationSequenceNumber++
+	require.NotNil(t, p.ChargingDataRelease(request, ref))
+	var balance struct {
+		Quota string `bson:"quota"`
+	}
+	require.NoError(t, db.Collection("chf.accounts").FindOne(context.Background(),
+		bson.M{"ueId": request.SubscriberIdentifier, "ratingGroup": 10}).Decode(&balance))
+	require.Equal(t, "60", balance.Quota)
 }
