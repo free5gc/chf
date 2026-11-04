@@ -34,6 +34,8 @@ const (
 	ChfMetricsDefaultNamespace       = "free5gc"
 	ChfDefaultNrfUri                 = "https://127.0.0.10:8000"
 	CgfDefaultCdrFilePath            = "/tmp"
+	CgfDefaultFtpUser                = "admin"
+	CgfDefaultFtpPassword            = "free5gc"
 	ConvergedChargingApiVersion      = "v3"
 	OfflineOnlyChargingApiVersion    = "v1"
 	SpendingLimitControlApiVersion   = "v1"
@@ -137,6 +139,12 @@ func (c *Configuration) validate() (bool, error) {
 		}
 	}
 
+	if c.Cgf != nil {
+		if err := c.Cgf.validateFtpCredentials(); err != nil {
+			return false, err
+		}
+	}
+
 	result, err := govalidator.ValidateStruct(c)
 	return result, appendInvalid(err)
 }
@@ -164,6 +172,38 @@ type Cgf struct {
 	} `yaml:"passiveTransferPortRange,omitempty" valid:"optional"`
 	Tls         *Tls   `yaml:"tls,omitempty" valid:"optional"`
 	CdrFilePath string `yaml:"cdrFilePath,omitempty" valid:"optional"`
+	// FtpUser and FtpPassword are the account the CGF logs in to the billing
+	// server with, and the one its own FTP server accepts. Set both or neither.
+	FtpUser     string `yaml:"ftpUser,omitempty" valid:"optional"`
+	FtpPassword string `yaml:"ftpPassword,omitempty" valid:"optional"`
+}
+
+// validateFtpCredentials rejects a user without a password or the reverse: the
+// missing one would fall back to the published default.
+func (c *Cgf) validateFtpCredentials() error {
+	if (c.FtpUser == "") != (c.FtpPassword == "") {
+		return errors.New("cgf: set both ftpUser and ftpPassword, or neither")
+	}
+	return nil
+}
+
+// GetCgfFtpCredentials returns the CGF's FTP account, admin/free5gc unless
+// configured.
+func (c *Config) GetCgfFtpCredentials() (user, password string) {
+	c.RLock()
+	defer c.RUnlock()
+
+	user, password = CgfDefaultFtpUser, CgfDefaultFtpPassword
+	if c.Configuration == nil || c.Configuration.Cgf == nil {
+		return user, password
+	}
+	if c.Configuration.Cgf.FtpUser != "" {
+		user = c.Configuration.Cgf.FtpUser
+	}
+	if c.Configuration.Cgf.FtpPassword != "" {
+		password = c.Configuration.Cgf.FtpPassword
+	}
+	return user, password
 }
 
 // GetNfHeartBeatTimer returns the fallback heartbeat interval in seconds.
