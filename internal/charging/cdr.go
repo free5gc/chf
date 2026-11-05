@@ -15,8 +15,9 @@ type CDRState struct {
 
 // CDRProgress prevents a local retry from appending usage to the CDR twice.
 type CDRProgress struct {
-	EventID string
-	Closed  bool
+	Sequence int32
+	EventID  string
+	Closed   bool
 }
 
 func CDRIdentity(record *cdrType.CHFRecord) (string, error) {

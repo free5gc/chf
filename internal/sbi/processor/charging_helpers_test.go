@@ -57,6 +57,7 @@ func chargingRequestSession(t *testing.T) (*Processor, models.Chf_ConvCharging_C
 		}},
 	}
 	p := &Processor{}
+	t.Cleanup(p.requests.Stop)
 	cdr, err := p.OpenCDR(request, ue, ref, false)
 	require.NoError(t, err)
 	ue.Cdr[ref] = cdr
@@ -166,6 +167,7 @@ func useMongoQuotaAccount(
 	})
 	require.NoError(t, err)
 	accounts := charging.NewAccounts(db)
+	t.Cleanup(accounts.Stop)
 	p.accountDebit = func(_ *chf_context.ChfUe, request *charging_datatype.AccountDebitRequest) (
 		*charging_datatype.AccountDebitResponse, error,
 	) {

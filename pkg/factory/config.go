@@ -86,9 +86,12 @@ type Configuration struct {
 	ReserveQuotaRatio   int32          `yaml:"reserveQuotaRatio,omitempty" valid:"optional"`
 	VolumeThresholdRate float32        `yaml:"volumeThresholdRate,omitempty" valid:"optional"`
 	QuotaValidityTime   int32          `yaml:"quotaValidityTime,omitempty" valid:"optional"`
-	RfDiameter          *Diameter      `yaml:"rfDiameter,omitempty" valid:"required"`
-	AbmfDiameter        *Diameter      `yaml:"abmfDiameter,omitempty" valid:"required"`
-	Cgf                 *Cgf           `yaml:"cgf,omitempty" valid:"required"`
+	// Cover the consumer's complete retry budget, including timeouts and backoff.
+	// Omitted/zero uses 60s; for the current SMF the nominal budget is 34s.
+	ChargingRetryRetention time.Duration `yaml:"chargingRetryRetention,omitempty" valid:"optional"`
+	RfDiameter             *Diameter     `yaml:"rfDiameter,omitempty" valid:"required"`
+	AbmfDiameter           *Diameter     `yaml:"abmfDiameter,omitempty" valid:"required"`
+	Cgf                    *Cgf          `yaml:"cgf,omitempty" valid:"required"`
 	// NfHeartBeatTimer is the fallback heartbeat interval in seconds, from 1 to
 	// 3600 as the NRF accepts. The interval the NRF assigns always wins.
 	NfHeartBeatTimer int32 `yaml:"nfHeartBeatTimer,omitempty" valid:"optional,range(1|3600)"`

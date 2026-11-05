@@ -2,9 +2,12 @@ package processor
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -321,63 +324,140 @@ func (p *Processor) CloseCDR(record *cdrType.CHFRecord, partial bool) error {
 	return nil
 }
 
+// Replace current segments while streaming completed history from the existing
+// CDR output. History is billing output, not a source for restoring runtime state.
 func dumpCdrFile(ueid string, records []*cdrType.CHFRecord) error {
-	var cdrfile cdrFile.CDRFile
-	cdrfile.Hdr.LengthOfCdrRouteingFilter = 0
-	cdrfile.Hdr.LengthOfPrivateExtension = 0
-	cdrfile.Hdr.HeaderLength = uint32(52 + cdrfile.Hdr.LengthOfCdrRouteingFilter + cdrfile.Hdr.LengthOfPrivateExtension)
-	if cdrfile.Hdr.HighReleaseIdentifier == 7 {
-		cdrfile.Hdr.HeaderLength++
-	}
-	if cdrfile.Hdr.LowReleaseIdentifier == 7 {
-		cdrfile.Hdr.HeaderLength++
-	}
-	cdrfile.Hdr.NumberOfCdrsInFile = uint32(len(records))
-	cdrfile.Hdr.FileLength = cdrfile.Hdr.HeaderLength
-	logger.ChargingdataPostLog.Traceln("cdrfile.Hdr.NumberOfCdrsInFile:", uint32(len(records)))
-
+	pending := make(map[string][]byte, len(records))
+	var order []string
 	for _, record := range records {
-		cdrBytes, err := asn.BerMarshalWithParams(&record, "explicit,choice")
+		id, err := charging.CDRIdentity(record)
+		if err != nil {
+			return err
+		}
+		body, err := asn.BerMarshalWithParams(record, "explicit,choice")
 		if err != nil {
 			return fmt.Errorf("encode CDR: %w", err)
 		}
-
-		if len(cdrBytes) > math.MaxUint16 {
+		if len(body) > math.MaxUint16 {
 			return fmt.Errorf("CDR exceeds the record size limit")
 		}
-		var cdrHdr cdrFile.CdrHeader
-		cdrHdr.CdrLength = uint16(len(cdrBytes))
-		cdrHdr.DataRecordFormat = cdrFile.BasicEncodingRules
-		tmpCdr := cdrFile.CDR{
-			Hdr:     cdrHdr,
-			CdrByte: cdrBytes,
+		hdr := cdrFile.CdrHeader{CdrLength: uint16(len(body)), DataRecordFormat: cdrFile.BasicEncodingRules}
+		if _, exists := pending[id]; !exists {
+			order = append(order, id)
 		}
-		cdrfile.CdrList = append(cdrfile.CdrList, tmpCdr)
-
-		cdrfile.Hdr.FileLength += uint32(len(cdrBytes)) + 4
-		if cdrHdr.ReleaseIdentifier == 7 {
-			cdrfile.Hdr.FileLength++
-		}
+		pending[id] = append(hdr.Encoding(), body...)
 	}
-
 	name := buildCdrFileName(ueid)
 	temporary, err := os.CreateTemp(filepath.Dir(name), ".chf-cdr-*")
 	if err != nil {
 		return err
 	}
-	temporaryName := temporary.Name()
 	defer func() {
-		if removeErr := os.Remove(temporaryName); removeErr != nil && !os.IsNotExist(removeErr) {
+		if closeErr := temporary.Close(); closeErr != nil && !errors.Is(closeErr, os.ErrClosed) {
+			logger.ChargingdataPostLog.Warnf("Close temporary CDR: %v", closeErr)
+		}
+		if removeErr := os.Remove(temporary.Name()); removeErr != nil && !os.IsNotExist(removeErr) {
 			logger.ChargingdataPostLog.Warnf("Remove temporary CDR: %v", removeErr)
 		}
 	}()
+	header := (cdrFile.CdrFileHeader{HeaderLength: 52, FileLength: 52}).Encoding()
+	if _, err = temporary.Write(header); err != nil {
+		return err
+	}
+	var count uint32
+	size := uint64(len(header))
+	writeRecord := func(encoded []byte) error {
+		size += uint64(len(encoded))
+		if size > math.MaxUint32 || count == math.MaxUint32 {
+			return fmt.Errorf("CDR file size limit reached")
+		}
+		if _, writeErr := temporary.Write(encoded); writeErr != nil {
+			return writeErr
+		}
+		count++
+		return nil
+	}
+	if err = copyCDRHistory(name, pending, writeRecord); err != nil {
+		return err
+	}
+	for _, id := range order {
+		if encoded, exists := pending[id]; exists {
+			if err = writeRecord(encoded); err != nil {
+				return err
+			}
+		}
+	}
+	binary.BigEndian.PutUint32(header[0:4], uint32(size))
+	binary.BigEndian.PutUint32(header[18:22], count)
+	if _, err = temporary.WriteAt(header, 0); err != nil {
+		return err
+	}
 	if err = temporary.Close(); err != nil {
 		return err
 	}
-	if err = cdrfile.Encoding(temporaryName); err != nil {
-		return fmt.Errorf("failed to write CDR file: %w", err)
+	return os.Rename(temporary.Name(), name)
+}
+
+func copyCDRHistory(name string, pending map[string][]byte, writeRecord func([]byte) error) error {
+	previous, err := os.Open(name)
+	if os.IsNotExist(err) {
+		return nil
 	}
-	return os.Rename(temporaryName, name)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := previous.Close(); closeErr != nil {
+			logger.ChargingdataPostLog.Warnf("Close previous CDR: %v", closeErr)
+		}
+	}()
+	// All local files use this fixed header. Reject corrupt input without replacing
+	// it; only one bounded (uint16 length) CDR is decoded at any time.
+	header := make([]byte, 52)
+	if _, err = io.ReadFull(previous, header); err != nil {
+		return err
+	}
+	if binary.BigEndian.Uint32(header[4:8]) != uint32(len(header)) {
+		return fmt.Errorf("invalid local CDR file header")
+	}
+	count := binary.BigEndian.Uint32(header[18:22])
+	for range count {
+		recordHeader := make([]byte, 4, 5)
+		if _, err = io.ReadFull(previous, recordHeader); err != nil {
+			return err
+		}
+		if recordHeader[2]>>5 == 7 {
+			recordHeader = recordHeader[:5]
+			if _, err = io.ReadFull(previous, recordHeader[4:]); err != nil {
+				return err
+			}
+		}
+		body := make([]byte, int(binary.BigEndian.Uint16(recordHeader[:2])))
+		if _, err = io.ReadFull(previous, body); err != nil {
+			return err
+		}
+		var record cdrType.CHFRecord
+		if err = asn.UnmarshalWithParams(body, &record, "explicit,choice"); err != nil {
+			return fmt.Errorf("decode previous CDR: %w", err)
+		}
+		id, identityErr := charging.CDRIdentity(&record)
+		if identityErr != nil {
+			return identityErr
+		}
+		encoded := append(recordHeader, body...)
+		if replacement, exists := pending[id]; exists {
+			encoded = replacement
+			delete(pending, id)
+		}
+		if err = writeRecord(encoded); err != nil {
+			return err
+		}
+	}
+	var trailing [1]byte
+	if n, readErr := previous.Read(trailing[:]); n != 0 || readErr != io.EOF {
+		return fmt.Errorf("invalid trailing CDR data")
+	}
+	return nil
 }
 
 // Leave room for partial sequence/closing metadata added when the segment closes.
@@ -508,7 +588,7 @@ func (p *Processor) applyChargingCDR(ue *chf_context.ChfUe, record *charging.Rec
 	}
 	progress := ue.CDRProgress[record.Session]
 	if progress.EventID == record.ID {
-		return p.writeCDRs(ue.Supi, ue.Records)
+		return p.flushCDRs(ue)
 	}
 	var data models.Chf_ConvCharging_ChargingDataRequest
 	if err := json.Unmarshal(record.Request, &data); err != nil {
@@ -528,7 +608,10 @@ func (p *Processor) applyChargingCDR(ue *chf_context.ChfUe, record *charging.Rec
 	if err = installCDRChange(ue, record.Session, record.ID, change); err != nil {
 		return err
 	}
-	return p.writeCDRs(ue.Supi, ue.Records)
+	progress = ue.CDRProgress[record.Session]
+	progress.Sequence = record.Sequence
+	ue.CDRProgress[record.Session] = progress
+	return p.flushCDRs(ue)
 }
 
 func installCDRChange(ue *chf_context.ChfUe, ref, eventID string, change *cdrChange) error {
@@ -591,4 +674,17 @@ func (p *Processor) writeCDRs(subscriber string, records []*cdrType.CHFRecord) e
 		return p.cdrWriter(subscriber, records)
 	}
 	return dumpCdrFile(subscriber, records)
+}
+
+func (p *Processor) flushCDRs(ue *chf_context.ChfUe) error {
+	if err := p.writeCDRs(ue.Supi, ue.Records); err != nil {
+		return err
+	}
+	// Closed segments are already in the CDR output. Keep only the current
+	// segment of each live resource, never the subscriber's entire history.
+	ue.Records = nil
+	for _, current := range ue.Cdr {
+		ue.Records = append(ue.Records, current)
+	}
+	return nil
 }

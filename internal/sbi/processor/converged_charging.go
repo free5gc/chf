@@ -187,11 +187,28 @@ func (p *Processor) ChargingDataCreate(
 	}
 
 	ue.CULock.Lock()
+	for {
+		if current, ok := self.ChfUeFindBySupi(ueId); ok && current == ue {
+			break
+		}
+		ue.CULock.Unlock()
+		ue, err = self.NewCHFUe(ueId)
+		if err != nil {
+			return nil, "", chargingProblem(err)
+		}
+		ue.CULock.Lock()
+	}
 	defer ue.CULock.Unlock()
 	ue.NotifyUri = chargingData.NotifyUri
 
 	consumerId := chargingData.NfConsumerIdentification.NFName
 	chargingSessionId = ueId + "-" + consumerId + "-" + uuid.NewString()
+	created := false
+	defer func() {
+		if !created {
+			retireChargingResource(ue, chargingSessionId)
+		}
+	}()
 	cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("OpenCDR failed: %v", err)
@@ -227,7 +244,7 @@ func (p *Processor) ChargingDataCreate(
 	if err = mergeCDRRecords(ue, []*cdrType.CHFRecord{cdr}); err != nil {
 		return nil, "", chargingProblem(err)
 	}
-	if err = p.writeCDRs(ueId, ue.Records); err != nil {
+	if err = p.flushCDRs(ue); err != nil {
 		return nil, "", chargingProblem(err)
 	}
 
@@ -247,6 +264,10 @@ func (p *Processor) ChargingDataCreate(
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
+	created = true
+	if chargingData.OneTimeEvent {
+		retireChargingResource(ue, chargingSessionId)
+	}
 	return &responseBody, locationURI, nil
 }
 
@@ -284,6 +305,9 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, p.rejectChargingRequest(record, ownershipProblem)
 	}
 
+	if problem = p.validateChargingSequence(ue, record); problem != nil {
+		return nil, problem
+	}
 	applyPendingRecharges(ue, record)
 
 	// Online charging: Rate, Account, Reservation
@@ -311,6 +335,12 @@ func (p *Processor) ChargingDataUpdate(
 		return nil, p.failChargingRequest(record, chargingProblem(encodeErr))
 	}
 	p.requests.Finish(record, charging.Result{Status: http.StatusOK, Body: body}, charging.Succeeded)
+	for key, state := range ue.Quotas {
+		if state.Closed {
+			delete(ue.Quotas, key)
+			delete(ue.PendingRecharges, key)
+		}
+	}
 	return &responseBody, nil
 }
 
@@ -342,6 +372,9 @@ func (p *Processor) ChargingDataRelease(
 	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
 		return p.rejectChargingRequest(record, ownershipProblem)
 	}
+	if problem = p.validateChargingSequence(ue, record); problem != nil {
+		return problem
+	}
 	applyPendingRecharges(ue, record)
 	if _, _, err := p.sessionChargingReservation(chargingData, chargingSessionId, record); err != nil {
 		return p.failChargingRequest(record, chargingProblem(err))
@@ -351,7 +384,11 @@ func (p *Processor) ChargingDataRelease(
 		return p.failChargingRequest(record, chargingProblem(err))
 	}
 
+	if err := cgf.SendCDR(chargingData.SubscriberIdentifier); err != nil {
+		logger.ChargingdataPostLog.Errorf("Send final CDR (local output retained): %v", err)
+	}
 	p.requests.Finish(record, charging.Result{Status: http.StatusNoContent}, charging.Succeeded)
+	retireChargingResource(ue, chargingSessionId)
 	return nil
 }
 
@@ -557,7 +594,9 @@ func (p *Processor) sessionChargingReservation(
 		if identityErr != nil {
 			return nil, false, identityErr
 		}
-		ccr.SessionId = datatype.UTF8String("chf;" + accountID)
+		// The immutable ID carries its issue time so an expired ABMF operation
+		// cannot become a new debit by changing EventTimestamp after cache eviction.
+		ccr.SessionId = datatype.UTF8String(fmt.Sprintf("chf;%d;%s", time.Time(ccr.EventTimestamp).Unix(), accountID))
 		ccr.CcRequestNumber = 0
 
 		sur := &charging_datatype.ServiceUsageRequest{

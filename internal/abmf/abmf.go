@@ -8,6 +8,7 @@ import (
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
+	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/fiorix/go-diameter/diam/sm/smpeer"
 
 	charging_code "github.com/free5gc/chf/ccs_diameter/code"
@@ -21,13 +22,18 @@ func SendAccountDebitRequest(
 	ue *chf_context.ChfUe,
 	ccr *charging_datatype.AccountDebitRequest,
 ) (*charging_datatype.AccountDebitResponse, error) {
-	ue.AbmfMux.Handle("CCA", HandleCCA(ue.AcctChan))
+	answers := make(chan *diam.Message, 1)
+	client := *ue.AbmfClient
+	client.Handler = sm.New(ue.AbmfMux.Settings())
+	client.Handler.Handle("CCA", HandleCCA(answers))
 	abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
 	addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)
-	conn, err := ue.AbmfClient.DialNetworkTLS(abmfDiameter.Protocol, addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key)
+	conn, err := client.DialNetworkTLS(abmfDiameter.Protocol, addr, abmfDiameter.Tls.Pem, abmfDiameter.Tls.Key)
 	if err != nil {
 		return nil, err
 	}
+
+	defer conn.Close()
 
 	meta, ok := smpeer.FromContext(conn.Context())
 	if !ok {
@@ -53,7 +59,7 @@ func SendAccountDebitRequest(
 	}
 
 	select {
-	case m := <-ue.AcctChan:
+	case m := <-answers:
 		return decodeAccountAnswer(ccr, m)
 
 	case <-time.After(5 * time.Second):
@@ -65,7 +71,10 @@ func HandleCCA(abmfChan chan *diam.Message) diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
 		logger.AcctLog.Tracef("Received CCA from %s", c.RemoteAddr())
 
-		abmfChan <- m
+		select {
+		case abmfChan <- m:
+		default:
+		}
 	}
 }
 

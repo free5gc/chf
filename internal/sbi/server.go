@@ -129,6 +129,7 @@ func (s *Server) Stop() {
 			logger.SBILog.Errorf("Could not close SBI server: %#v", err)
 		}
 	}
+	s.Processor().Stop()
 }
 
 func (s *Server) startServer(wg *sync.WaitGroup) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,15 +25,18 @@ type accountResult struct {
 	fingerprint string
 	body        []byte
 	err         error
+	expires     time.Time
+	timer       *time.Timer
 }
 type Accounts struct {
 	mu       sync.Mutex
+	closed   bool
 	policies *mongo.Collection
-	results  map[string]accountResult
+	results  map[string]*accountResult
 }
 
 func NewAccounts(db *mongo.Database) *Accounts {
-	return &Accounts{policies: db.Collection("policyData.ues.chargingData"), results: make(map[string]accountResult)}
+	return &Accounts{policies: db.Collection("policyData.ues.chargingData"), results: make(map[string]*accountResult)}
 }
 
 func accountIdentity(request *charging_datatype.AccountDebitRequest) (string, string, string, error) {
@@ -132,6 +136,24 @@ func (a *Accounts) Apply(
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.closed {
+		return nil, ErrStopped
+	}
+	now := time.Now()
+	// CHF freezes this ID before sending a debit. Its issue time cannot be
+	// refreshed by a late retransmission with a different EventTimestamp.
+	parts := strings.SplitN(string(request.SessionId), ";", 3)
+	if len(parts) != 3 || parts[0] != "chf" || parts[2] == "" {
+		return nil, ErrExpired
+	}
+	issued, issueTimeErr := strconv.ParseInt(parts[1], 10, 64)
+	if issueTimeErr != nil {
+		return nil, ErrExpired
+	}
+	stamp := time.Unix(issued, 0)
+	if now.Sub(stamp) >= AccountReplayWindow || stamp.After(now.Add(time.Minute)) {
+		return nil, ErrExpired
+	}
 	if previous, ok := a.results[id]; ok {
 		if previous.fingerprint != fingerprint {
 			return nil, ErrConflict
@@ -144,6 +166,9 @@ func (a *Accounts) Apply(
 			return nil, err
 		}
 		return &response, nil
+	}
+	if len(a.results) >= MaxAccountResults {
+		return nil, ErrCapacity
 	}
 	filter := bson.M{"ueId": subscriber, "ratingGroup": request.MultipleServicesCreditControl.RatingGroup}
 	for attempt := 0; attempt < 32; attempt++ {
@@ -169,15 +194,49 @@ func (a *Accounts) Apply(
 		if updateErr != nil {
 			// A lost database reply does not prove the debit failed. Keep this operation
 			// blocked in memory instead of issuing a second debit with the same identity.
-			a.results[id] = accountResult{
-				fingerprint: fingerprint, err: fmt.Errorf("account write outcome unknown: %w", updateErr),
-			}
+			a.cacheResult(id, &accountResult{
+				fingerprint: fingerprint, expires: stamp.Add(AccountReplayWindow),
+				err: fmt.Errorf("account write outcome unknown: %w", updateErr),
+			})
 			return nil, a.results[id].err
 		}
 		if result.MatchedCount == 1 {
-			a.results[id] = accountResult{fingerprint: fingerprint, body: body}
+			a.cacheResult(id, &accountResult{
+				fingerprint: fingerprint, body: body, expires: stamp.Add(AccountReplayWindow),
+			})
 			return response, nil
 		}
 	}
 	return nil, fmt.Errorf("account balance changed too often; retry the same operation")
+}
+
+// cacheResult is called with mu held. Replays keep the original issue-time deadline.
+func (a *Accounts) cacheResult(id string, result *accountResult) {
+	if previous := a.results[id]; previous != nil && previous.timer != nil {
+		previous.timer.Stop()
+	}
+	a.results[id] = result
+	result.timer = time.AfterFunc(time.Until(result.expires), func() { a.expire(id, result) })
+}
+
+func (a *Accounts) expire(id string, expected *accountResult) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	// A callback already dispatched before cancellation must not remove a replacement.
+	if !a.closed && a.results[id] == expected {
+		delete(a.results, id)
+	}
+}
+
+// Stop cancels cached-result timers and prevents further account operations.
+func (a *Accounts) Stop() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.closed = true
+	for _, result := range a.results {
+		if result.timer != nil {
+			result.timer.Stop()
+		}
+	}
+	a.results = nil
 }

@@ -2,7 +2,6 @@
 package cgf
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -202,14 +201,21 @@ func SendCDR(supi string) error {
 	defer cgf.connMutex.Unlock()
 
 	fileName := buildCdrFileName(supi)
-	cdrByte, err := os.ReadFile("/tmp/" + fileName)
+	cdrFile, err := os.Open("/tmp/" + fileName)
 	if err != nil {
 		return err
 	}
 
-	cdrReader := bytes.NewReader(cdrByte)
-	stor_err := cgf.conn.Stor(fileName, cdrReader)
-	if stor_err != nil {
+	defer func() {
+		if closeErr := cdrFile.Close(); closeErr != nil {
+			logger.CgfLog.Warnf("Close CDR upload: %v", closeErr)
+		}
+	}()
+	info, err := cdrFile.Stat()
+	if err != nil {
+		return err
+	}
+	if err = cgf.conn.Stor(fileName, cdrFile); err != nil {
 		return err
 	}
 
@@ -225,10 +231,10 @@ func SendCDR(supi string) error {
 		if entry.Name == fileName {
 			fileUploaded = true
 			logger.CgfLog.Debugln("File found in remote")
-			if entry.Size == uint64(len(cdrByte)) {
+			if entry.Size == uint64(info.Size()) {
 				logger.CgfLog.Debugln("File size matches")
 			} else {
-				logger.CgfLog.Warningf("File size does not match: local[%v], remote[%v]", len(cdrByte), entry.Size)
+				logger.CgfLog.Warningf("File size does not match: local[%v], remote[%v]", info.Size(), entry.Size)
 			}
 			break
 		}

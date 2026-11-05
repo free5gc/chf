@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"math"
+	"strconv"
 	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
@@ -49,8 +52,10 @@ func TestAccountArithmeticAndInvalidRequests(t *testing.T) {
 
 func accountRequest() *charging_datatype.AccountDebitRequest {
 	return &charging_datatype.AccountDebitRequest{
-		SessionId: "chf;session-a;7;0", OriginHost: "chf", CcRequestNumber: 0,
-		CcRequestType: charging_datatype.UPDATE_REQUEST, RequestedAction: charging_datatype.DIRECT_DEBITING,
+		SessionId:  datatype.UTF8String("chf;" + strconv.FormatInt(time.Now().Unix(), 10) + ";session-a"),
+		OriginHost: "chf", CcRequestNumber: 0,
+		EventTimestamp: datatype.Time(time.Now().UTC().Truncate(time.Second)),
+		CcRequestType:  charging_datatype.UPDATE_REQUEST, RequestedAction: charging_datatype.DIRECT_DEBITING,
 		SubscriptionId: &charging_datatype.SubscriptionId{
 			SubscriptionIdType: charging_datatype.END_USER_IMSI,
 			SubscriptionIdData: "208930000001226",
@@ -129,6 +134,7 @@ func TestMongoAccountReplayIsLocalAndConcurrentDuplicatesDebitOnce(t *testing.T)
 	db := testutil.Mongo(t)
 	seedPolicyAccount(t, db, "100")
 	accounts := NewAccounts(db)
+	t.Cleanup(accounts.Stop)
 	request := accountRequest()
 	var wg sync.WaitGroup
 	for range 16 {
@@ -154,6 +160,7 @@ func TestMongoAccountUsesWebconsoleBalanceChangesAndRefunds(t *testing.T) {
 	ctx := context.Background()
 	seedPolicyAccount(t, db, "40")
 	accounts := NewAccounts(db)
+	t.Cleanup(accounts.Stop)
 	first := accountRequest()
 	_, err := accounts.Apply(ctx, first)
 	require.NoError(t, err)
@@ -179,4 +186,107 @@ func TestMongoAccountUsesWebconsoleBalanceChangesAndRefunds(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.Equal(t, "100", policyBalance(t, db))
+	// An old immutable identity is rejected even if its event timestamp is refreshed.
+	expired := *next
+	expired.SessionId = datatype.UTF8String("chf;" +
+		strconv.FormatInt(time.Now().Add(-AccountReplayWindow).Unix(), 10) + ";session-a")
+	_, err = accounts.Apply(ctx, &expired)
+	require.ErrorIs(t, err, ErrExpired)
+	require.Equal(t, "100", policyBalance(t, db), "expired refunds cannot increase the balance twice")
+	fresh := accountRequest()
+	fresh.CcRequestNumber = 3
+	_, err = accounts.Apply(ctx, fresh)
+	require.NoError(t, err)
+	require.Equal(t, "60", policyBalance(t, db), "new operations still read the original policy balance")
+}
+
+func TestAccountCacheExpiresWithoutAllowingOldDebits(t *testing.T) {
+	for _, outcome := range []string{"success", "unknown write"} {
+		t.Run(outcome, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				request := accountRequest()
+				_, id, fingerprint, err := accountIdentity(request)
+				require.NoError(t, err)
+				response, _, err := calculateAccountResponse(request, 100)
+				require.NoError(t, err)
+				body, err := EncodeSnapshot(response)
+				require.NoError(t, err)
+				issued := time.Now()
+				accounts := &Accounts{results: make(map[string]*accountResult)}
+				defer accounts.Stop()
+				result := &accountResult{fingerprint: fingerprint, body: body, expires: issued.Add(AccountReplayWindow)}
+				if outcome == "unknown write" {
+					result.err = ErrPending
+				}
+				// Time spent executing the debit does not extend its retry identity.
+				time.Sleep(time.Minute)
+				accounts.mu.Lock()
+				accounts.cacheResult(id, result)
+				accounts.mu.Unlock()
+				time.Sleep(AccountReplayWindow/2 - time.Minute)
+				replayed, err := accounts.Apply(context.Background(), request)
+				if result.err != nil {
+					require.ErrorIs(t, err, ErrPending, "unknown writes cannot be performed again")
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, datatype.Integer64(60), replayed.RemainingBalance.UnitValue.ValueDigits)
+				}
+				// No requests or sweeps are needed; replay does not reset the deadline.
+				time.Sleep(AccountReplayWindow / 2)
+				synctest.Wait()
+				accounts.mu.Lock()
+				empty := len(accounts.results) == 0
+				accounts.mu.Unlock()
+				require.True(t, empty, "idle result must expire at its original deadline")
+				_, err = accounts.Apply(context.Background(), request)
+				require.ErrorIs(t, err, ErrExpired, "an expired debit must not execute again")
+				request.EventTimestamp = datatype.Time(time.Now())
+				_, err = accounts.Apply(context.Background(), request)
+				require.ErrorIs(t, err, ErrExpired, "refreshing EventTimestamp cannot reopen an old identity")
+			})
+		})
+	}
+}
+
+func TestAccountCacheCapacityPreservesUnexpiredResults(t *testing.T) {
+	accounts := &Accounts{results: make(map[string]*accountResult)}
+	defer accounts.Stop()
+	for sequence := range MaxAccountResults {
+		accounts.results[strconv.Itoa(sequence)] = &accountResult{expires: time.Now().Add(AccountReplayWindow)}
+	}
+	_, err := accounts.Apply(context.Background(), accountRequest())
+	require.ErrorIs(t, err, ErrCapacity, "capacity must not evict unexpired debit outcomes")
+}
+
+func TestAccountCacheReplacementAndShutdownCancelTimers(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		accounts := &Accounts{results: make(map[string]*accountResult)}
+		defer accounts.Stop()
+		first := &accountResult{expires: time.Now().Add(time.Minute)}
+		accounts.mu.Lock()
+		accounts.cacheResult("operation", first)
+		accounts.mu.Unlock()
+		time.Sleep(30 * time.Second)
+		replacement := &accountResult{expires: time.Now().Add(AccountReplayWindow)}
+		accounts.mu.Lock()
+		accounts.cacheResult("operation", replacement)
+		accounts.mu.Unlock()
+		// A callback dispatched before cancellation cannot remove the replacement.
+		accounts.expire("operation", first)
+		time.Sleep(30 * time.Second)
+		synctest.Wait()
+		accounts.mu.Lock()
+		current := accounts.results["operation"]
+		accounts.mu.Unlock()
+		require.Same(t, replacement, current)
+		require.False(t, first.timer.Stop(), "replacement must cancel the old timer")
+		accounts.Stop()
+		require.False(t, replacement.timer.Stop(), "shutdown must cancel pending timers")
+		accounts.expire("operation", replacement)
+		time.Sleep(AccountReplayWindow)
+		synctest.Wait()
+		require.Empty(t, accounts.results)
+		_, err := accounts.Apply(context.Background(), accountRequest())
+		require.ErrorIs(t, err, ErrStopped, "shutdown must reject operations before touching MongoDB")
+	})
 }

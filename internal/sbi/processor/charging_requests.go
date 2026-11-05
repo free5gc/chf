@@ -11,6 +11,7 @@ import (
 	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/openapi/models"
 )
@@ -73,7 +74,7 @@ func (p *Processor) beginChargingRequest(
 	}
 	record, err := p.requests.Begin(identity)
 	if err != nil {
-		if errors.Is(err, charging.ErrConflict) {
+		if errors.Is(err, charging.ErrConflict) || errors.Is(err, charging.ErrExpired) {
 			return nil, &models.ProblemDetails{Status: http.StatusConflict, Cause: "CHARGING_FAILED", Detail: err.Error()}
 		}
 		return nil, chargingProblem(err)
@@ -110,7 +111,8 @@ func (p *Processor) failChargingRequest(
 	if detail == "" {
 		detail = http.StatusText(int(problem.Status))
 	}
-	p.requests.Fail(record)
+	record.Failure = detail
+	p.requests.Fail(record, p.expireChargingRequest)
 	return chargingProblem(fmt.Errorf("charging operation awaiting the same invocation retry: %s", detail))
 }
 
@@ -243,4 +245,82 @@ func applyPendingRecharges(ue *chf_context.ChfUe, record *charging.Record) {
 		}
 		delete(ue.PendingRecharges, key)
 	}
+}
+
+// The resource watermark outlives the bounded response cache. Eviction must
+// never turn a previously applied invocation into another debit.
+func (p *Processor) validateChargingSequence(ue *chf_context.ChfUe, record *charging.Record) *models.ProblemDetails {
+	progress := ue.CDRProgress[record.Session]
+	if !record.Retry && progress.EventID != "" && record.Sequence <= progress.Sequence {
+		return p.rejectChargingRequest(record, &models.ProblemDetails{
+			Status: http.StatusConflict, Cause: "CHARGING_FAILED", Detail: charging.ErrExpired.Error(),
+		})
+	}
+	return nil
+}
+
+// Call with CULock held. The response replay cache owns no UE/CDR pointers.
+func retireChargingResource(ue *chf_context.ChfUe, ref string) {
+	delete(ue.Cdr, ref)
+	delete(ue.CDRProgress, ref)
+	for key := range ue.Quotas {
+		if key.ChargingDataRef == ref {
+			delete(ue.Quotas, key)
+		}
+	}
+	for key := range ue.PendingRecharges {
+		if key.ChargingDataRef == ref {
+			delete(ue.PendingRecharges, key)
+		}
+	}
+	kept := ue.Records[:0]
+	for _, current := range ue.Records {
+		if string(current.ChargingFunctionRecord.ChargingSessionIdentifier.Value) != ref {
+			kept = append(kept, current)
+		}
+	}
+	clear(ue.Records[len(kept):])
+	ue.Records = kept
+	self := chf_context.GetSelf()
+	if len(ue.Cdr) == 0 && self.UePool.CompareAndDelete(ue.Supi, ue) {
+		if self.RatingSessionIdGenerator != nil {
+			self.RatingSessionIdGenerator.FreeID(int64(ue.RateSessionId))
+		}
+		if self.AccountSessionIdGenerator != nil {
+			self.AccountSessionIdGenerator.FreeID(int64(ue.AcctSessionId))
+		}
+	}
+}
+
+func (p *Processor) expireChargingRequest(record charging.Record) {
+	// The original usage remains readable for manual reconciliation; do not
+	// describe an unknown account result as either a debit or a refund.
+	plan, err := json.Marshal(record.SettlementPlan)
+	if err != nil {
+		logger.ChargingdataPostLog.Errorf("Encode abandoned settlement ref=%s: %v", record.Session, err)
+	}
+	logger.ChargingdataPostLog.Errorf(
+		"Abandon uncertain charging operation ref=%s sequence=%d operation=%s reason=%s request=%s plan=%s",
+		record.Session, record.Sequence, record.Operation, record.Failure, record.Request, plan)
+
+	var data models.Chf_ConvCharging_ChargingDataRequest
+	if err = json.Unmarshal(record.Request, &data); err == nil {
+		if ue, ok := chf_context.GetSelf().ChfUeFindBySupi(data.SubscriberIdentifier); ok {
+			ue.CULock.Lock()
+			if current := ue.Cdr[record.Session]; current != nil {
+				if err = p.CloseCDR(current, false); err == nil {
+					current.ChargingFunctionRecord.CauseForRecClosing.Value = 4 // abnormal release; settlement is not confirmed
+					err = p.flushCDRs(ue)
+				}
+				if err != nil {
+					logger.ChargingdataPostLog.Errorf("Write abandoned CDR ref=%s: %v", record.Session, err)
+				}
+				retireChargingResource(ue, record.Session)
+			}
+			ue.CULock.Unlock()
+		}
+	}
+	// Remove the fence only AFTER the resource is gone. Late retries then fail
+	// resource validation instead of repeating an ambiguous account operation.
+	p.requests.Retire(record.Session)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/free5gc/chf/cdr/asn"
+	"github.com/free5gc/chf/cdr/cdrFile"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
@@ -103,4 +104,55 @@ func TestCDRRolloverPreservesUsageAndRejectsOversizedSingleEntry(t *testing.T) {
 	after, err := os.ReadFile(buildCdrFileName(ue.Supi))
 	require.NoError(t, err)
 	require.Equal(t, before, after, "a failed replacement preserves the previous output")
+}
+
+func TestCDRHistorySurvivesCompactionReleaseAndNewResource(t *testing.T) {
+	p, request, ref := chargingRequestSession(t)
+	ue, _ := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
+	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{
+		onlineQuotaUsage(strings.Repeat("u", 12000), 1, false),
+	}
+	for range 24 {
+		request.InvocationSequenceNumber++
+		_, problem := p.ChargingDataUpdate(request, ref)
+		require.Nil(t, problem)
+		require.Len(t, ue.Records, 1, "completed CDR segments must leave memory")
+		require.LessOrEqual(t, len(ue.Records[0].ChargingFunctionRecord.ListOfMultipleUnitUsage), 5)
+	}
+	request.InvocationSequenceNumber++
+	require.Nil(t, p.ChargingDataRelease(request, ref))
+	require.Empty(t, ue.Records)
+	require.Empty(t, ue.Cdr)
+	// Start another resource after UE removal. Writing it must not overwrite
+	// the old resource's closed history in the subscriber's CDR output.
+	nextUE := &chf_context.ChfUe{Supi: ue.Supi, Cdr: make(map[string]*cdrType.CHFRecord)}
+	nextRef := ref + "-new"
+	nextCDR, err := p.OpenCDR(request, nextUE, nextRef, false)
+	require.NoError(t, err)
+	require.NoError(t, dumpCdrFile(ue.Supi, []*cdrType.CHFRecord{nextCDR}))
+	// Retrying an identical write must replace its segment, not append a duplicate.
+	require.NoError(t, dumpCdrFile(ue.Supi, []*cdrType.CHFRecord{nextCDR}))
+	var file cdrFile.CDRFile
+	file.Decoding(buildCdrFileName(ue.Supi))
+	var records []*cdrType.CHFRecord
+	ids := make(map[string]bool)
+	for _, encoded := range file.CdrList {
+		var record cdrType.CHFRecord
+		require.NoError(t, asn.UnmarshalWithParams(encoded.CdrByte, &record, "explicit,choice"))
+		id, identityErr := charging.CDRIdentity(&record)
+		require.NoError(t, identityErr)
+		require.False(t, ids[id], "no duplicate resource/segment")
+		ids[id] = true
+		records = append(records, &record)
+	}
+	require.Greater(t, len(records), 2, "the test must exercise CDR rollover")
+	volume, entries := cdrUsageTotals(records)
+	require.Equal(t, int64(25), volume)
+	require.Equal(t, 25, entries)
+	// A truncated previous file must be preserved on failure, never silently reset.
+	require.NoError(t, os.WriteFile(buildCdrFileName(ue.Supi), []byte("truncated"), 0o600))
+	require.Error(t, dumpCdrFile(ue.Supi, []*cdrType.CHFRecord{nextCDR}))
+	remaining, err := os.ReadFile(buildCdrFileName(ue.Supi))
+	require.NoError(t, err)
+	require.Equal(t, "truncated", string(remaining))
 }

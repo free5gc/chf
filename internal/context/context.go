@@ -78,7 +78,11 @@ func (context *CHFContext) NewCHFUe(supi string) (*ChfUe, error) {
 		ue.init()
 
 		ue.Supi = supi
-		actual, _ := context.UePool.LoadOrStore(supi, &ue)
+		actual, loaded := context.UePool.LoadOrStore(supi, &ue)
+		if loaded {
+			context.RatingSessionIdGenerator.FreeID(int64(ue.RateSessionId))
+			context.AccountSessionIdGenerator.FreeID(int64(ue.AcctSessionId))
+		}
 		return actual.(*ChfUe), nil
 	} else {
 		return nil, fmt.Errorf(" add Ue context fail ")

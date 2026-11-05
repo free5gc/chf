@@ -73,6 +73,7 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) {
 			wg.Done()
 		}()
 		<-ctx.Done()
+		accounts.Stop()
 	}()
 	abmfDiameter := factory.ChfConfig.Configuration.AbmfDiameter
 	addr := abmfDiameter.HostIPv4 + ":" + strconv.Itoa(abmfDiameter.Port)

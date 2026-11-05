@@ -74,9 +74,7 @@ func TestMongoChargingUPFFinalDoesNotChangeOtherReservation(t *testing.T) {
 				require.True(t, ok)
 				a := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-a"}
 				b := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-b"}
-				require.Zero(t, ue.Quotas[a].Reserved)
-				require.True(t, ue.Quotas[a].Closed)
-				require.Equal(t, charging_datatype.REQ_SUBTYPE_DEBIT, ue.Quotas[a].RatingType)
+				require.NotContains(t, ue.Quotas, a)
 				require.Equal(t, int64(100), ue.Quotas[b].Reserved)
 				require.False(t, ue.Quotas[b].Closed)
 				require.Equal(t, charging_datatype.REQ_SUBTYPE_RESERVE, ue.Quotas[b].RatingType)
@@ -164,7 +162,7 @@ func TestChargingResourcesDoNotShareQuotaOrTariff(t *testing.T) {
 	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 40, false)}
 	problem = p.ChargingDataRelease(request, ref)
 	require.Nil(t, problem)
-	require.True(t, ue.Quotas[a].Closed)
+	require.NotContains(t, ue.Quotas, a)
 	require.Equal(t, int64(200), ue.Quotas[b].Reserved)
 	require.False(t, ue.Quotas[b].Closed)
 	require.Equal(t, uint32(2), ue.Quotas[b].UnitCost)
@@ -227,7 +225,7 @@ func TestChargingExhaustionRechargeAndNewQuotaCycle(t *testing.T) {
 	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 100, false)}
 	_, problem = p.ChargingDataUpdate(request, ref)
 	require.Nil(t, problem)
-	require.True(t, ue.Quotas[key].Closed)
+	require.NotContains(t, ue.Quotas, key)
 	active, err = p.rechargeQuotas(ue, 10)
 	require.NoError(t, err)
 	require.False(t, active, "recharge must not reopen completed quotas")

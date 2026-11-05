@@ -1,6 +1,8 @@
 package processor
 
 import (
+	"fmt"
+
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
 	"github.com/free5gc/chf/internal/charging"
@@ -34,6 +36,21 @@ type HandlerResponse struct {
 	Body    interface{}
 }
 
+// Stop cancels invocation timers and waits for resource cleanup already running.
+func (p *Processor) Stop() {
+	p.requests.Stop()
+}
+
 func NewProcessor(chf ProcessorChf) (*Processor, error) {
-	return &Processor{ProcessorChf: chf}, nil
+	retention := chf.Config().Configuration.ChargingRetryRetention
+	if retention == 0 {
+		retention = charging.UncertainTimeout
+	}
+	// Keep CHF's retention below the ABMF replay lifetime.
+	if retention <= 0 || retention >= charging.AccountReplayWindow {
+		return nil, fmt.Errorf("chargingRetryRetention must be positive and less than %s", charging.AccountReplayWindow)
+	}
+	p := &Processor{ProcessorChf: chf}
+	p.requests.RetryRetention = retention
+	return p, nil
 }
