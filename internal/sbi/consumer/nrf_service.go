@@ -284,5 +284,5 @@ func (s *nnrfService) buildNfProfile(
 		// 	},
 		// },
 	}
-	return
+	return profile, err
 }
