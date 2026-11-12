@@ -104,7 +104,7 @@ func (s *nnrfService) SendSearchNFInstances(
 		return nil, errors.Errorf("SendSearchNFInstances: nrf not found")
 	}
 
-	ctx, _, err := s.consumer.Context().GetTokenCtx(models.Nrf_NFMgmt_ServiceName_NNRF_DISC, models.Nrf_NFMgmt_NFType_NRF)
+	ctx, _, err := s.consumer.Context().GetTokenCtxForNRF(models.Nrf_NFMgmt_ServiceName_NNRF_DISC)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (s *nnrfService) SendDeregisterNFInstance() (*models.ProblemDetails, error)
 	logger.ConsumerLog.Infof("Send Deregister NFInstance")
 
 	chfContext := s.consumer.Context()
-	ctx, pd, err := chfContext.GetTokenCtx(models.Nrf_NFMgmt_ServiceName_NNRF_NFM, models.Nrf_NFMgmt_NFType_NRF)
+	ctx, pd, err := chfContext.GetTokenCtxForNRF(models.Nrf_NFMgmt_ServiceName_NNRF_NFM)
 	if err != nil {
 		return pd, err
 	}
@@ -172,8 +172,7 @@ func (s *nnrfService) RegisterNFInstance(ctx context.Context, applyOAuth2 bool) 
 			if res.Nrf_NFMgmt_NFProfile != nil {
 				nf = *res.Nrf_NFMgmt_NFProfile
 			}
-			s.processRegisterResponse(chfContext, nf, applyOAuth2)
-			return nil
+			return s.processRegisterResponse(chfContext, nf, applyOAuth2)
 		}
 		logger.ConsumerLog.Errorf("CHF register to NRF Error[%v]", err)
 		select {
@@ -190,7 +189,7 @@ func (s *nnrfService) processRegisterResponse(
 	chfContext *chf_context.CHFContext,
 	nf models.Nrf_NFMgmt_NFProfile,
 	applyOAuth2 bool,
-) {
+) error {
 	s.heartbeatTimer = nf.HeartBeatTimer
 
 	oauth2 := false
@@ -201,13 +200,11 @@ func (s *nnrfService) processRegisterResponse(
 		}
 	}
 	if applyOAuth2 {
-		chfContext.OAuth2Required = oauth2
-		if oauth2 && chfContext.NrfCertPem == "" {
-			logger.CfgLog.Error("OAuth2 enable but no nrfCertPem provided in config.")
-		}
+		return chfContext.SetOAuth2Required(oauth2)
 	} else if oauth2 != chfContext.OAuth2Required {
 		logger.ConsumerLog.Warnf("NRF OAuth2 setting changed to %v, restart CHF to apply it", oauth2)
 	}
+	return nil
 }
 
 // SendUpdateNFInstance sends an NFUpdate PATCH to the NRF, honoring ctx. The
@@ -217,10 +214,7 @@ func (s *nnrfService) SendUpdateNFInstance(ctx context.Context, patchItems []mod
 	nf models.Nrf_NFMgmt_NFProfile, problemDetails *models.ProblemDetails, err error,
 ) {
 	chfContext := s.consumer.Context()
-	tokCtx, pd, err := chfContext.GetTokenCtx(
-		models.Nrf_NFMgmt_ServiceName_NNRF_NFM,
-		models.Nrf_NFMgmt_NFType_NRF,
-	)
+	tokCtx, pd, err := chfContext.GetTokenCtxForNRF(models.Nrf_NFMgmt_ServiceName_NNRF_NFM)
 	if err != nil {
 		return nf, pd, err
 	}
