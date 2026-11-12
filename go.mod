@@ -21,7 +21,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-replace github.com/free5gc/openapi => github.com/carlhus/openapi v0.0.0-20260810150356-d8cc967ad99b
+replace github.com/free5gc/openapi => github.com/ki225/openapi v0.0.0-20261023075527-6c3ba053ced3
 
 require (
 	github.com/h2non/gock v1.2.0
@@ -30,7 +30,6 @@ require (
 	github.com/urfave/cli/v2 v2.27.7
 	go.uber.org/mock v0.4.0
 	golang.org/x/exp v0.0.0-20231127185646-65229373498e
-	golang.org/x/net v0.55.0
 )
 
 require (
@@ -111,6 +110,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
