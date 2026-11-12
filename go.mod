@@ -24,6 +24,7 @@ require (
 replace github.com/free5gc/openapi => github.com/ki225/openapi v0.0.0-20261023075527-6c3ba053ced3
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/h2non/gock v1.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.21.0
@@ -61,7 +62,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
