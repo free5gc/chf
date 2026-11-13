@@ -66,7 +66,9 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) {
 
 	// Create the state machine (mux) and set its message handlers.
 	mux := sm.New(settings)
-	mux.Handle("SUR", handleSUR())
+	mux.Handle("SUR", handleSUR(func(filter bson.M) (map[string]interface{}, error) {
+		return mongoapi.RestfulAPIGetOne(chargingDatasColl, filter)
+	}))
 	mux.HandleFunc("ALL", handleALL) // Catch all.
 
 	// Print error reports.
@@ -136,7 +138,9 @@ func buildTaffif(unitCostStr string) *charging_datatype.MonetaryTariff {
 	}
 }
 
-func handleSUR() diam.HandlerFunc {
+// handleSUR answers a Service Usage Request with the tariff that getChargingData
+// returns for the subscriber and rating group.
+func handleSUR(getChargingData func(filter bson.M) (map[string]interface{}, error)) diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
 		var sur charging_datatype.ServiceUsageRequest
 		var monetaryCost datatype.Unsigned32
@@ -158,15 +162,21 @@ func handleSUR() diam.HandlerFunc {
 		// // Retrieve tarrif information from database
 
 		filter := bson.M{"ueId": subscriberId, "ratingGroup": rg}
-		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDatasColl, filter)
+		chargingInterface, err := getChargingData(filter)
 		if err != nil {
 			logger.ChargingdataPostLog.Errorf("Get tarrif error: %+v", err)
 		}
-		if chargingInterface == nil {
-			logger.ChargingdataPostLog.Warningf(
-				"No ChargingData found for UE:[%+v] for RG:[%+v]", subscriberId, rg)
+		unitCostStr, hasUnitCost := chargingInterface["unitCost"].(string)
+		if !hasUnitCost {
+			if chargingInterface == nil {
+				logger.ChargingdataPostLog.Warningf(
+					"No ChargingData found for UE:[%+v] for RG:[%+v]", subscriberId, rg)
+			} else {
+				logger.ChargingdataPostLog.Warningf(
+					"ChargingData for UE:[%+v] RG:[%+v] has no unitCost", subscriberId, rg)
+			}
 			// Must respond SUA to avoid client-side timeout waiting for answer.
-			// When charging data is missing, return 0 quota/cost.
+			// When charging data or its unitCost is missing, return 0 quota/cost.
 			sua := charging_datatype.ServiceUsageResponse{
 				SessionId:      sur.SessionId,
 				EventTimestamp: datatype.Time(time.Now()),
@@ -188,7 +198,6 @@ func handleSUR() diam.HandlerFunc {
 			}
 			return
 		}
-		unitCostStr := chargingInterface["unitCost"].(string)
 		monetaryTariff := buildTaffif(unitCostStr)
 		unitCost := datatype.Unsigned32(monetaryTariff.RateElement.UnitCost.ValueDigits) *
 			datatype.Unsigned32(math.Pow10(int(monetaryTariff.RateElement.UnitCost.Exponent)))
