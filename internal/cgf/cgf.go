@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"sync"
@@ -294,24 +293,5 @@ func (f *Cgf) Terminate() {
 		}
 	}
 
-	var cdrFilePath string
-	if factory.ChfConfig.Configuration.Cgf.CdrFilePath == "" {
-		cdrFilePath = factory.CgfDefaultCdrFilePath
-	} else {
-		cdrFilePath = factory.ChfConfig.Configuration.Cgf.CdrFilePath
-	}
-	files, err := filepath.Glob(cdrFilePath + "/*.cdr")
-	if err != nil {
-		logger.CgfLog.Warnln("no CDR file")
-	}
-
-	for _, file := range files {
-		if _, errStat := os.Stat(file); errStat == nil {
-			logger.CgfLog.Infof("Remove CDR file: %s", file)
-			if errRemove := os.Remove(file); errRemove != nil {
-				logger.CgfLog.Warnf("Failed to remove CDR file: %s\n", file)
-			}
-		}
-	}
 	logger.CgfLog.Infoln("CGF terminated")
 }
