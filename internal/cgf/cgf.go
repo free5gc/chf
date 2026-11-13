@@ -63,6 +63,20 @@ func buildCdrFileName(supi string) string {
 	return "chf-" + hex.EncodeToString(sum[:]) + ".cdr"
 }
 
+// ftpAccess is the CGF's FTP account: its own server accepts it, and Login
+// uses it towards the billing server.
+func ftpAccess() Access {
+	user, password := factory.ChfConfig.GetCgfFtpCredentials()
+	return Access{
+		User: user,
+		Pass: password,
+		Fs:   "os",
+		Params: map[string]string{
+			"basePath": "/tmp",
+		},
+	}
+}
+
 func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 	// Arguments vars
 	cgf = new(Cgf)
@@ -80,17 +94,8 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 	}
 
 	cgf.ftpConfig = FtpConfig{
-		Version: 1,
-		Accesses: []Access{
-			{
-				User: "admin",
-				Pass: "free5gc",
-				Fs:   "os",
-				Params: map[string]string{
-					"basePath": "/tmp",
-				},
-			},
-		},
+		Version:  1,
+		Accesses: []Access{ftpAccess()},
 		Passive_transfer_port_range: PortRange{
 			Start: startPort,
 			End:   endPort,
