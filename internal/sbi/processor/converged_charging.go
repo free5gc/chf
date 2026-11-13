@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -68,14 +69,7 @@ func (p *Processor) SendChargingNotification(
 		RequestBody: &notifyRequest,
 	}
 
-	ctx, pd, err := chf_context.GetSelf().GetTokenCtx(
-		models.Nrf_NFMgmt_ServiceName("nsmf-callback"), models.Nrf_NFMgmt_NFType_SMF)
-	if err != nil {
-		logger.NotifyEventLog.Warnf("SendChargingNotification get token failed: %+v", pd)
-		return
-	}
-
-	_, err = client.DefaultApi.NullChargingNotification(ctx, notifyUri, chargingNotifyRequest)
+	_, err := client.DefaultApi.NullChargingNotification(context.Background(), notifyUri, chargingNotifyRequest)
 	if err != nil {
 		logger.NotifyEventLog.Warnf("Charging Notification Failed[%s]", err.Error())
 		return
