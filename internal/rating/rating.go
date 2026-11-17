@@ -8,6 +8,7 @@ import (
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/dict"
+	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/fiorix/go-diameter/diam/sm/smpeer"
 
 	charging_code "github.com/free5gc/chf/ccs_diameter/code"
@@ -20,13 +21,18 @@ import (
 func SendServiceUsageRequest(
 	ue *chf_context.ChfUe, sur *charging_datatype.ServiceUsageRequest,
 ) (*charging_datatype.ServiceUsageResponse, error) {
-	ue.RatingMux.Handle("SUA", HandleSUA(ue.RatingChan))
+	answers := make(chan *diam.Message, 1)
+	client := *ue.RatingClient
+	client.Handler = sm.New(ue.RatingMux.Settings())
+	client.Handler.Handle("SUA", HandleSUA(answers))
 	rfDiameter := factory.ChfConfig.Configuration.RfDiameter
 	addr := rfDiameter.HostIPv4 + ":" + strconv.Itoa(rfDiameter.Port)
-	conn, err := ue.RatingClient.DialNetworkTLS(rfDiameter.Protocol, addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key)
+	conn, err := client.DialNetworkTLS(rfDiameter.Protocol, addr, rfDiameter.Tls.Pem, rfDiameter.Tls.Key)
 	if err != nil {
 		return nil, err
 	}
+
+	defer conn.Close()
 
 	meta, ok := smpeer.FromContext(conn.Context())
 	if !ok {
@@ -49,7 +55,7 @@ func SendServiceUsageRequest(
 	}
 
 	select {
-	case m := <-ue.RatingChan:
+	case m := <-answers:
 		var sua charging_datatype.ServiceUsageResponse
 		if errMarshal := m.Unmarshal(&sua); errMarshal != nil {
 			return nil, fmt.Errorf("failed to parse message from %v", errMarshal)
@@ -64,6 +70,9 @@ func HandleSUA(rgChan chan *diam.Message) diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
 		logger.RatingLog.Tracef("Received SUA from %s", c.RemoteAddr())
 
-		rgChan <- m
+		select {
+		case rgChan <- m:
+		default:
+		}
 	}
 }
