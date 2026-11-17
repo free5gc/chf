@@ -2,6 +2,7 @@ package charging
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -16,6 +17,10 @@ import (
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 )
+
+// ErrNoBalance means the subscriber has no balance for the rating group. The
+// ABMF answers it with DIAMETER_CREDIT_LIMIT_REACHED.
+var ErrNoBalance = errors.New("no balance for the subscriber and rating group")
 
 type account struct {
 	ID    any    `bson:"_id"`
@@ -174,6 +179,9 @@ func (a *Accounts) Apply(
 	for attempt := 0; attempt < 32; attempt++ {
 		var balance account
 		if err = a.policies.FindOne(ctx, filter).Decode(&balance); err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				return nil, ErrNoBalance
+			}
 			return nil, err
 		}
 		quota, parseErr := strconv.ParseInt(balance.Quota, 10, 64)

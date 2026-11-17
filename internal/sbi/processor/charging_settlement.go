@@ -1,12 +1,14 @@
 package processor
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
+	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/openapi/models"
 )
 
@@ -20,6 +22,18 @@ func (p *Processor) executeSettlementStep(ue *chf_context.ChfUe, step *charging.
 	if step.AccountRequest != nil {
 		var err error
 		answer, err = p.sendAccountDebit(ue, step.AccountRequest)
+		if errors.Is(err, charging.ErrNoBalance) {
+			// TS 32.291 table 6.1.6.3.14-1: the end user's account could not
+			// cover the requested service. Grant nothing for this rating group.
+			logger.ChargingdataPostLog.Warnf("No balance for UE[%s] rating group %d: answering %s",
+				ue.Supi, info.RatingGroup, models.Chf_ConvCharging_ResultCode_QUOTA_LIMIT_REACHED)
+			info = models.Chf_ConvCharging_MultipleUnitInformation{
+				ResultCode:  models.Chf_ConvCharging_ResultCode_QUOTA_LIMIT_REACHED,
+				RatingGroup: info.RatingGroup,
+				UPFID:       info.UPFID,
+			}
+			return &charging.SettlementOutcome{QuotaKey: step.QuotaKey, After: after, UnitInformation: info}, nil
+		}
 		if err != nil {
 			return nil, fmt.Errorf("account operation: %w", err)
 		}

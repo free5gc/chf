@@ -18,6 +18,7 @@ package abmf
 import (
 	"bytes"
 	"context"
+	"errors"
 	_ "net/http/pprof"
 	"strconv"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm"
 
+	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
 	"github.com/free5gc/chf/internal/charging"
@@ -114,10 +116,13 @@ func handleCCR(accounts *charging.Accounts) diam.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		response, err := accounts.Apply(ctx, &request)
-		resultCode := uint32(diam.Success)
-		if err != nil {
+		resultCode := accountResultCode(err)
+		if errors.Is(err, charging.ErrNoBalance) {
+			logger.AcctLog.Infof("Account operation denied: %v", err)
+		} else if err != nil {
 			logger.AcctLog.Errorf("Account operation failed: %v", err)
-			resultCode = diam.UnableToComply
+		}
+		if err != nil {
 			response = &charging_datatype.AccountDebitResponse{
 				SessionId: request.SessionId, CcRequestNumber: request.CcRequestNumber,
 				CcRequestType: request.CcRequestType, ResultCode: datatype.Unsigned32(resultCode),
@@ -132,6 +137,18 @@ func handleCCR(accounts *charging.Accounts) diam.HandlerFunc {
 		if _, err = answer.WriteTo(c); err != nil {
 			logger.AcctLog.Errorf("Write CCA: %v", err)
 		}
+	}
+}
+
+// accountResultCode is the CCA Result-Code for the outcome of an account operation.
+func accountResultCode(err error) uint32 {
+	switch {
+	case err == nil:
+		return diam.Success
+	case errors.Is(err, charging.ErrNoBalance):
+		return charging_code.DiameterCreditLimitReached
+	default:
+		return diam.UnableToComply
 	}
 }
 

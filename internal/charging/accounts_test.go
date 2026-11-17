@@ -155,6 +155,30 @@ func TestMongoAccountReplayIsLocalAndConcurrentDuplicatesDebitOnce(t *testing.T)
 	require.Equal(t, []string{"policyData.ues.chargingData"}, names, "no account copy or replay collection is created")
 }
 
+func TestMongoAccountWithoutBalanceIsDenied(t *testing.T) {
+	db := testutil.Mongo(t)
+	seedPolicyAccount(t, db, "100")
+	accounts := NewAccounts(db)
+	t.Cleanup(accounts.Stop)
+	request := accountRequest()
+	request.MultipleServicesCreditControl.RatingGroup = 20
+	_, err := accounts.Apply(context.Background(), request)
+	require.ErrorIs(t, err, ErrNoBalance)
+	require.Equal(t, "100", policyBalance(t, db), "rating group 10 is untouched")
+	count, err := db.Collection("policyData.ues.chargingData").CountDocuments(context.Background(), bson.M{})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count, "no balance is created for rating group 20")
+
+	// A failed lookup is not a missing balance.
+	request = accountRequest()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = accounts.Apply(ctx, request)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNoBalance)
+	require.Equal(t, "100", policyBalance(t, db))
+}
+
 func TestMongoAccountUsesWebconsoleBalanceChangesAndRefunds(t *testing.T) {
 	db := testutil.Mongo(t)
 	ctx := context.Background()

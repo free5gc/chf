@@ -8,6 +8,10 @@ const (
 	ABMF_CreditControl  = 272
 )
 
+// DiameterCreditLimitReached is DIAMETER_CREDIT_LIMIT_REACHED (RFC 4006 clause
+// 9.1): the end user's account could not cover the requested service.
+const DiameterCreditLimitReached = 4012
+
 const (
 	BeginTime = iota + 7000
 	ActualTime

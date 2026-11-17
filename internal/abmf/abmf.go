@@ -13,6 +13,7 @@ import (
 
 	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
@@ -82,14 +83,18 @@ func HandleCCA(abmfChan chan *diam.Message) diam.HandlerFunc {
 func validateAccountAnswer(
 	request *charging_datatype.AccountDebitRequest, response *charging_datatype.AccountDebitResponse,
 ) error {
-	if response.ResultCode != diam.Success {
-		return fmt.Errorf("ABMF rejected account operation: result=%d", response.ResultCode)
-	}
 	if response.SessionId != request.SessionId || response.CcRequestNumber != request.CcRequestNumber ||
 		response.CcRequestType != request.CcRequestType {
-		return fmt.Errorf("ABMF answer does not match account request")
+		return fmt.Errorf("ABMF answer does not match account request: result=%d", response.ResultCode)
 	}
-	return nil
+	switch response.ResultCode {
+	case diam.Success:
+		return nil
+	case charging_code.DiameterCreditLimitReached:
+		return charging.ErrNoBalance
+	default:
+		return fmt.Errorf("ABMF rejected account operation: result=%d", response.ResultCode)
+	}
 }
 
 func decodeAccountAnswer(
