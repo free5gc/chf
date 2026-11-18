@@ -394,10 +394,10 @@ func (cdfFile CDRFile) Encoding(fileName string) error {
 	return nil
 }
 
-func (cdfFile *CDRFile) Decoding(fileName string) {
+func (cdfFile *CDRFile) Decoding(fileName string) error {
 	data, err := os.ReadFile(fileName)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// fileLength := binary.BigEndian.Uint32(data[0:4])
@@ -499,7 +499,7 @@ func (cdfFile *CDRFile) Decoding(fileName string) {
 		tail++
 	}
 	if cdfFile.Hdr.LowReleaseIdentifier == 7 {
-		cdfFile.Hdr.LowReleaseIdentifierExtension = data[n+1]
+		cdfFile.Hdr.LowReleaseIdentifierExtension = data[tail]
 		tail++
 	}
 
@@ -539,6 +539,7 @@ func (cdfFile *CDRFile) Decoding(fileName string) {
 	}
 	// fmt.Println("[Decode]cdrfile:\n", cdfFile)
 	// fmt.Printf("%#v\n", cdfFile)
+	return nil
 }
 
 // func main() {

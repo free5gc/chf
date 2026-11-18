@@ -7,6 +7,10 @@ import (
 
 // parse and return tag and length, also the length of two parts
 func parseTagAndLength(bytes []byte) (r tagAndLen, off int, e error) {
+	if len(bytes) == 0 {
+		e = fmt.Errorf("truncated tag: empty input")
+		return r, off, e
+	}
 	off++
 	r.class = int(bytes[0] >> 6)
 	r.constructed = (bytes[0] & 0x20) != 0
@@ -34,35 +38,60 @@ func parseTagAndLength(bytes []byte) (r tagAndLen, off int, e error) {
 	if bytes[off] <= 127 {
 		r.len = int64(bytes[off])
 		off++
+	} else if bytes[off] == 0x80 {
+		// Indefinite-length form (X.690 8.1.3.6); CDR encoders emit only
+		// definite lengths.
+		e = fmt.Errorf("indefinite-length encoding is not supported")
+		return r, off, e
 	} else {
-		len := int(bytes[off] & 0x7f)
-		// fmt.Println("len", len)
-		if len > 3 {
+		numOctets := int(bytes[off] & 0x7f)
+		if numOctets > 3 {
 			e = fmt.Errorf("length is too large")
 			return r, off, e
 		}
 		off++
+		if off+numOctets > len(bytes) {
+			e = fmt.Errorf("truncated long-form length: need %d bytes, have %d", off+numOctets, len(bytes))
+			return r, off, e
+		}
 		var val int64
-		val, e = parseInt64(bytes[off : off+len])
+		val, e = parseInt64(bytes[off : off+numOctets])
 		if e != nil {
 			return r, off, e
 		}
-		// fmt.Println("bytes[off : off+len]", bytes[off : off+len], "val", val)
 
 		r.len = int64(val)
-		off += len
+		off += numOctets
 	}
 
 	return r, off, e
 }
 
 func parseBitString(bytes []byte) (r BitString, e error) {
-	r.BitLength = uint64((len(bytes)-1)*8 - int(bytes[0]))
+	// A BIT STRING value is at least one octet: the leading "unused bits" count.
+	if len(bytes) == 0 {
+		return r, fmt.Errorf("bit string: missing initial octet")
+	}
+	// The initial octet counts unused bits in the final octet: 0..7 (X.690
+	// 8.6.2.2), and 0 when there are no content octets (8.6.2.3).
+	unused := int(bytes[0])
+	if unused > 7 {
+		return r, fmt.Errorf("bit string: invalid unused bits count %d (must be 0..7)", unused)
+	}
+	if len(bytes) == 1 && unused != 0 {
+		return r, fmt.Errorf("bit string: %d unused bits without content octets", unused)
+	}
+	r.BitLength = uint64((len(bytes)-1)*8 - unused)
 	r.Bytes = bytes[1:]
 	return
 }
 
 func parseInt64(bytes []byte) (r int64, e error) {
+	// A BER INTEGER/ENUMERATED has at least one content octet (X.690 8.3.1).
+	if len(bytes) == 0 {
+		e = fmt.Errorf("integer: empty value")
+		return r, e
+	}
 	if len(bytes) > 8 {
 		e = fmt.Errorf("out of range of int64")
 		return r, e
@@ -78,6 +107,16 @@ func parseInt64(bytes []byte) (r int64, e error) {
 
 func parseBool(b byte) (bool, error) {
 	return b != 0, nil
+}
+
+// fieldMatchesTag reports whether a struct field with params can hold the
+// element whose header is tal. A field without a tag number is encoded with
+// its universal tag.
+func fieldMatchesTag(params fieldParameters, tal tagAndLen) bool {
+	if params.tagNumber == nil {
+		return tal.class == ClassUniversal
+	}
+	return *params.tagNumber == tal.tagNumber
 }
 
 // ParseField is the main parsing function. Given a byte slice containing type value,
@@ -118,6 +157,9 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		v.Set(reflect.ValueOf(val))
 		return nil
 	case EnumeratedType:
+		if talOff >= len(bytes) {
+			return fmt.Errorf("enumerated: empty value")
+		}
 		val, parse_err := parseInt64(bytes[talOff:])
 		if parse_err != nil {
 			return parse_err
@@ -126,12 +168,16 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 		v.Set(reflect.ValueOf(Enumerated(val)))
 		return nil
 	case NullType:
-		val := true
-		v.Set(reflect.ValueOf(val))
+		// A NULL-typed value, not a bare bool: reflect.Set panics on the type
+		// mismatch otherwise.
+		v.Set(reflect.ValueOf(NULL(true)))
 		return nil
 	}
 	switch val := v; val.Kind() {
 	case reflect.Bool:
+		if talOff >= len(bytes) {
+			return fmt.Errorf("bool: empty value")
+		}
 		if parsedBool, parse_err := parseBool(bytes[talOff]); parse_err != nil {
 			return parse_err
 		} else {
@@ -179,14 +225,17 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 				offset := 0
 				// embed choice type
 				if params.tagNumber != nil {
-					tal, talOff, err = parseTagAndLength(bytes[talOff:])
-					if err != nil {
-						return err
+					// The alternative is the TLV inside the explicit tag: select
+					// it by the inner tag and parse from the inner header on.
+					inner, innerHdrLen, parse_err := parseTagAndLength(bytes[talOff:])
+					if parse_err != nil {
+						return parse_err
 					}
-					if int64(talOff)+tal.len > int64(len(bytes)) {
+					if int64(talOff)+int64(innerHdrLen)+inner.len > int64(len(bytes)) {
 						return fmt.Errorf("type value out of range")
 					}
 					offset += talOff
+					tal = inner
 				}
 
 				for i := 1; i < structType.NumField(); i++ {
@@ -235,7 +284,7 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 					if params.openType {
 						return fmt.Errorf("openType is not implemented")
 					}
-					if *structParams[current].tagNumber == talNow.tagNumber {
+					if fieldMatchesTag(structParams[current], talNow) {
 						if err = ParseField(val.Field(current), bytes[offset:next], structParams[current]); err != nil {
 							return err
 						}
@@ -296,8 +345,14 @@ func ParseField(v reflect.Value, bytes []byte, params fieldParameters) error {
 
 		sliceLen := len(valArray)
 		newSlice := reflect.MakeSlice(sliceType, sliceLen, sliceLen)
+		// The encoder clears the tag parameter for slice elements (the
+		// context-specific tag belongs to the slice itself, ber_marshal.go);
+		// mirror that here, otherwise CHOICE elements are parsed as embedded
+		// (tagged) choices and fail.
+		elemParams := params
+		elemParams.tagNumber = nil
 		for i := 0; i < sliceLen; i++ {
-			errParse := ParseField(newSlice.Index(i), valArray[i], params)
+			errParse := ParseField(newSlice.Index(i), valArray[i], elemParams)
 			if errParse != nil {
 				return errParse
 			}

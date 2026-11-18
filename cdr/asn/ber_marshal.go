@@ -163,8 +163,9 @@ func (b bitStringEncoder) Len() int {
 }
 
 func (b bitStringEncoder) Encode(dst []byte) {
-	// x.690 8.6
-	dst[0] = byte(8 - b.BitLength%8)
+	// x.690 8.6.2.2: the initial octet is the number of unused bits in the
+	// final octet, 0..7; 0 for an octet-aligned bit string.
+	dst[0] = byte((8 - b.BitLength%8) % 8)
 	copy(dst[1:], b.Bytes)
 }
 

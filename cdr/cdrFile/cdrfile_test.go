@@ -123,7 +123,7 @@ func TestCdrFile(t *testing.T) {
 			fileName := "encoding" + strconv.Itoa(i) + ".txt"
 			require.NoError(t, tc.in.Encoding(fileName))
 			newCdrFile := CDRFile{}
-			newCdrFile.Decoding(fileName)
+			require.NoError(t, newCdrFile.Decoding(fileName))
 			e := os.Remove(fileName)
 			if e != nil {
 				fmt.Println(e)
@@ -133,4 +133,55 @@ func TestCdrFile(t *testing.T) {
 			// require.True(t, reflect.DeepEqual(tc.in, newCdrFile))
 		})
 	}
+}
+
+// TestDecodingOnlyLowRelease7: with only the Low Release Identifier set to 7,
+// its extension octet directly follows the private extension; Decoding read
+// it one octet too far and then parsed the CDRs from the right offset, so the
+// extension was wrong while everything else looked fine.
+func TestDecodingOnlyLowRelease7(t *testing.T) {
+	t.Parallel()
+
+	src := CDRFile{
+		Hdr: CdrFileHeader{
+			FileLength:                            60,
+			HeaderLength:                          53, // 52 + 1 for the low release extension
+			HighReleaseIdentifier:                 2,
+			LowReleaseIdentifier:                  7,
+			LowReleaseIdentifierExtension:         5,
+			NumberOfCdrsInFile:                    1,
+			FileOpeningTimestamp:                  CdrHdrTimeStamp{1, 1, 0, 0, 0, 0, 0},
+			TimestampWhenLastCdrWasAppendedToFIle: CdrHdrTimeStamp{1, 1, 0, 0, 0, 0, 0},
+		},
+		CdrList: []CDR{{
+			Hdr: CdrHeader{
+				CdrLength:        3,
+				DataRecordFormat: BasicEncodingRules,
+			},
+			CdrByte: []byte("abc"),
+		}},
+	}
+
+	fileName := t.TempDir() + "/only_low_release7.cdr"
+	require.NoError(t, src.Encoding(fileName))
+
+	var result CDRFile
+	require.NoError(t, result.Decoding(fileName))
+	require.Equal(t, uint8(5), result.Hdr.LowReleaseIdentifierExtension)
+	require.Equal(t, uint8(0), result.Hdr.HighReleaseIdentifierExtension)
+	require.Len(t, result.CdrList, 1)
+	require.Equal(t, []byte("abc"), result.CdrList[0].CdrByte)
+}
+
+// TestDecodingFileReadError: a file that cannot be read is an error, not a
+// panic.
+func TestDecodingFileReadError(t *testing.T) {
+	t.Parallel()
+
+	var cdrFile CDRFile
+	var err error
+	require.NotPanics(t, func() {
+		err = cdrFile.Decoding(t.TempDir() + "/missing.cdr")
+	})
+	require.Error(t, err)
 }
