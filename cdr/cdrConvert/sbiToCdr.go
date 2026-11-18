@@ -36,7 +36,8 @@ func MultiUnitUsageToCdr(
 }
 
 // TODO
-// Only convert Local Sequence Number, Uplink, Downlink, Total Volumn, Service Specific Units currently.
+// Only convert Local Sequence Number, Uplink, Downlink, Total Volumn, Service Specific Units
+// and Trigger Timestamp currently.
 func UsedUnitContainerToCdr(
 	usedUnitContainerList []models.Chf_ConvCharging_UsedUnitContainer,
 ) []cdrType.UsedUnitContainer {
@@ -58,6 +59,10 @@ func UsedUnitContainerToCdr(
 				Value: int64(usedUnitContainer.TotalVolume),
 			},
 			ServiceSpecificUnits: &serviceSpecificUnits,
+		}
+		if usedUnitContainer.TriggerTimestamp != nil {
+			triggerTimeStamp := TimeStampToCdr(usedUnitContainer.TriggerTimestamp)
+			cdrUsedUnitContainer.TriggerTimeStamp = &triggerTimeStamp
 		}
 		cdrUsedUnitContainerList = append(cdrUsedUnitContainerList, cdrUsedUnitContainer)
 	}
