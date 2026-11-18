@@ -69,3 +69,62 @@ func TestNfHeartBeatTimerRange(t *testing.T) {
 		})
 	}
 }
+
+func TestGetCgfFtpCredentials(t *testing.T) {
+	tests := []struct {
+		name         string
+		cfg          *Config
+		wantUser     string
+		wantPassword string
+	}{
+		{
+			name:         "no cgf section",
+			cfg:          &Config{Configuration: &Configuration{}},
+			wantUser:     "admin",
+			wantPassword: "free5gc",
+		},
+		{
+			name:         "credentials absent",
+			cfg:          &Config{Configuration: &Configuration{Cgf: &Cgf{}}},
+			wantUser:     "admin",
+			wantPassword: "free5gc",
+		},
+		{
+			name: "credentials set",
+			cfg: &Config{Configuration: &Configuration{Cgf: &Cgf{
+				FtpUser: "billing", FtpPassword: "s3cret",
+			}}},
+			wantUser:     "billing",
+			wantPassword: "s3cret",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user, password := tt.cfg.GetCgfFtpCredentials()
+			if user != tt.wantUser || password != tt.wantPassword {
+				t.Errorf("GetCgfFtpCredentials() = %q, %q, want %q, %q",
+					user, password, tt.wantUser, tt.wantPassword)
+			}
+		})
+	}
+}
+
+func TestValidateFtpCredentials(t *testing.T) {
+	tests := []struct {
+		name    string
+		cgf     Cgf
+		wantErr bool
+	}{
+		{name: "neither", cgf: Cgf{}},
+		{name: "both", cgf: Cgf{FtpUser: "billing", FtpPassword: "s3cret"}},
+		{name: "user only", cgf: Cgf{FtpUser: "billing"}, wantErr: true},
+		{name: "password only", cgf: Cgf{FtpPassword: "s3cret"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.cgf.validateFtpCredentials(); (err != nil) != tt.wantErr {
+				t.Errorf("validateFtpCredentials() = %v, want error %v", err, tt.wantErr)
+			}
+		})
+	}
+}
