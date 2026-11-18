@@ -26,6 +26,7 @@ require (
 	github.com/h2non/gock v1.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.21.0
+	github.com/spf13/afero v1.9.3
 	github.com/urfave/cli/v2 v2.27.7
 	go.uber.org/mock v0.4.0
 	golang.org/x/exp v0.0.0-20231127185646-65229373498e
@@ -88,7 +89,6 @@ require (
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/spf13/afero v1.9.3 // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

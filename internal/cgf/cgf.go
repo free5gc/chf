@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -143,30 +144,77 @@ func OpenServer(ctx context.Context, wg *sync.WaitGroup) *Cgf {
 	return cgf
 }
 
+// ftpIOTimeout bounds every read and write on the connections to the billing
+// server, so a peer that stops answering cannot hold SendCDR.
+var ftpIOTimeout = 10 * time.Second
+
+// deadlineConn sets a fresh deadline before each read and write.
+type deadlineConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *deadlineConn) Read(b []byte) (int, error) {
+	if err := c.Conn.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(b)
+}
+
+func (c *deadlineConn) Write(b []byte) (int, error) {
+	if err := c.Conn.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Write(b)
+}
+
+// dialFTP is used for both the control and the data connections.
+func dialFTP(network, address string) (net.Conn, error) {
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(context.Background(), network, address)
+	if err != nil {
+		return nil, err
+	}
+	return &deadlineConn{Conn: conn, timeout: ftpIOTimeout}, nil
+}
+
 func Login() error {
 	cgf.connMutex.Lock()
 	defer cgf.connMutex.Unlock()
 
+	return login()
+}
+
+// login reuses a live connection or logs in again. The caller holds connMutex.
+func login() error {
 	if cgf.conn != nil {
 		ping_err := cgf.conn.NoOp()
 		if ping_err == nil {
-			logger.CgfLog.Infof("FTP already login.")
+			logger.CgfLog.Debugf("FTP already login.")
 			return nil
 		}
+		// Close the dead connection before replacing it.
+		if err := cgf.conn.Quit(); err != nil {
+			logger.CgfLog.Debugf("Close stale FTP connection: %+v", err)
+		}
+		cgf.conn = nil
 	}
 
 	// FTP server is for CDR transfer
 	var c *ftp.ServerConn
 
-	c, err := ftp.Dial(cgf.addr, ftp.DialWithTimeout(2*time.Second))
+	c, err := ftp.Dial(cgf.addr, ftp.DialWithDialFunc(dialFTP))
 	if err != nil {
-		return err
+		return fmt.Errorf("connect to billing server %s: %w", cgf.addr, err)
 	}
 
 	err = c.Login(cgf.ftpConfig.Accesses[0].User, cgf.ftpConfig.Accesses[0].Pass)
 	if err != nil {
 		logger.CgfLog.Warnf("Login FTP server fail")
-		return err
+		if errQuit := c.Quit(); errQuit != nil {
+			logger.CgfLog.Debugf("Close FTP connection after failed login: %+v", errQuit)
+		}
+		return fmt.Errorf("log in to billing server %s: %w", cgf.addr, err)
 	}
 
 	logger.CgfLog.Info("Login FTP server succeed")
@@ -181,25 +229,12 @@ func SendCDR(supi string) error {
 		return nil
 	}
 
-	if cgf.conn == nil {
-		err := Login()
-		if err != nil {
-			return err
-		}
-		logger.CgfLog.Infof("FTP Re-Login Success")
-	}
-
-	ping_err := cgf.conn.NoOp()
-	if ping_err != nil {
-		logger.CgfLog.Infof("Faile to ping FTP server, relogin...")
-		err := Login()
-		if err != nil {
-			return err
-		}
-		logger.CgfLog.Infof("FTP Re-Login Success")
-	}
 	cgf.connMutex.Lock()
 	defer cgf.connMutex.Unlock()
+
+	if err := login(); err != nil {
+		return err
+	}
 
 	fileName := buildCdrFileName(supi)
 	cdrByte, err := os.ReadFile("/tmp/" + fileName)
@@ -208,9 +243,8 @@ func SendCDR(supi string) error {
 	}
 
 	cdrReader := bytes.NewReader(cdrByte)
-	stor_err := cgf.conn.Stor(fileName, cdrReader)
-	if stor_err != nil {
-		return err
+	if err = cgf.conn.Stor(fileName, cdrReader); err != nil {
+		return fmt.Errorf("sendCDR: upload of %s failed: %w", fileName, err)
 	}
 
 	// check file exist and verify size
@@ -235,7 +269,7 @@ func SendCDR(supi string) error {
 	}
 	if !fileUploaded {
 		logger.CgfLog.Warningln("File upload failed.")
-		return fmt.Errorf("sendCDR failed: %+v", err)
+		return fmt.Errorf("sendCDR: %s not found on the server after upload", fileName)
 	}
 	logger.CgfLog.Infof("SendCDR success: %+v", supi)
 	return nil
@@ -287,12 +321,14 @@ func (f *Cgf) Terminate() {
 		logger.CgfLog.Error("Problem stopping server", "Err", err)
 	}
 
+	f.connMutex.Lock()
 	if f.conn != nil {
 		// close ftp connection if exist
 		if err := f.conn.Quit(); err != nil {
 			logger.CgfLog.Errorf("Problem stopping connection: %+v", err)
 		}
 	}
+	f.connMutex.Unlock()
 
 	var cdrFilePath string
 	if factory.ChfConfig.Configuration.Cgf.CdrFilePath == "" {
