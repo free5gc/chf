@@ -88,9 +88,11 @@ func TimeStampToCdr(t *time.Time) cdrType.TimeStamp {
 		ts[6] = byte('+')
 	} else {
 		ts[6] = byte('-')
+		tz = -tz
 	}
+	// Shhmm: the offset's hours and minutes, BCD, after the sign.
 	ts[7] = (byte(tz/3600/10) << 4) | (byte(tz / 3600 % 10))
-	ts[8] = (byte(tz%3600/10) << 4) | (byte(tz % 3600 % 10))
+	ts[8] = (byte(tz%3600/60/10) << 4) | (byte(tz % 3600 / 60 % 10))
 	cdrTimeStamp := cdrType.TimeStamp{
 		Value: ts,
 	}
