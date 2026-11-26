@@ -331,7 +331,8 @@ func TestChargingRatingFailureBeforeReservationDoesNotDebit(t *testing.T) {
 	}
 	_, problem := p.ChargingDataUpdate(request, ref)
 	require.NotNil(t, problem)
-	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
+	require.Equal(t, int32(http.StatusInternalServerError), problem.Status)
+	require.Equal(t, "SYSTEM_FAILURE", problem.Cause)
 	require.Zero(t, calls.Load())
 	ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
 	require.True(t, ok)

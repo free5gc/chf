@@ -13,6 +13,7 @@ import (
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/internal/rating"
+	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
 )
 
@@ -22,7 +23,25 @@ const (
 )
 
 func chargingProblem(err error) *models.ProblemDetails {
-	return &models.ProblemDetails{Status: http.StatusServiceUnavailable, Cause: "CHARGING_FAILED", Detail: err.Error()}
+	if errors.Is(err, charging.ErrPending) || errors.Is(err, charging.ErrCapacity) ||
+		errors.Is(err, charging.ErrStopped) {
+		return &models.ProblemDetails{
+			Title: http.StatusText(http.StatusServiceUnavailable), Status: http.StatusServiceUnavailable,
+			Detail: err.Error(),
+		}
+	}
+	return openapi.ProblemDetailsSystemFailure(err.Error())
+}
+
+func invalidChargingSequence(err error) *models.ProblemDetails {
+	return &models.ProblemDetails{
+		Status: http.StatusBadRequest,
+		Cause:  "MANDATORY_IE_INCORRECT",
+		Detail: err.Error(),
+		InvalidParams: []models.InvalidParam{
+			{Param: "/invocationSequenceNumber", Reason: err.Error()},
+		},
+	}
 }
 
 func missingChargingSession(ref string) *models.ProblemDetails {
@@ -75,7 +94,7 @@ func (p *Processor) beginChargingRequest(
 	record, err := p.requests.Begin(identity)
 	if err != nil {
 		if errors.Is(err, charging.ErrConflict) || errors.Is(err, charging.ErrExpired) {
-			return nil, &models.ProblemDetails{Status: http.StatusConflict, Cause: "CHARGING_FAILED", Detail: err.Error()}
+			return nil, invalidChargingSequence(err)
 		}
 		return nil, chargingProblem(err)
 	}
@@ -248,9 +267,7 @@ func applyPendingRecharges(ue *chf_context.ChfUe, record *charging.Record) {
 func (p *Processor) validateChargingSequence(ue *chf_context.ChfUe, record *charging.Record) *models.ProblemDetails {
 	progress := ue.CDRProgress[record.Session]
 	if !record.Retry && progress.EventID != "" && record.Sequence <= progress.Sequence {
-		return p.rejectChargingRequest(record, &models.ProblemDetails{
-			Status: http.StatusConflict, Cause: "CHARGING_FAILED", Detail: charging.ErrExpired.Error(),
-		})
+		return p.rejectChargingRequest(record, invalidChargingSequence(charging.ErrExpired))
 	}
 	return nil
 }

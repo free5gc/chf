@@ -65,7 +65,10 @@ func TestChargingRequestRejectsChangedContentAndOperation(t *testing.T) {
 				_, problem = p.ChargingDataUpdate(request, ref)
 			}
 			require.NotNil(t, problem)
-			require.Equal(t, int32(http.StatusConflict), problem.Status)
+			require.Equal(t, int32(http.StatusBadRequest), problem.Status)
+			require.Equal(t, "MANDATORY_IE_INCORRECT", problem.Cause)
+			require.Len(t, problem.InvalidParams, 1)
+			require.Equal(t, "/invocationSequenceNumber", problem.InvalidParams[0].Param)
 			require.Equal(t, int32(1), calls.Load())
 		})
 	}
@@ -101,6 +104,7 @@ func TestChargingRequestInProgressBlocksConcurrentOperations(t *testing.T) {
 	_, problem := p.ChargingDataUpdate(request, ref)
 	require.NotNil(t, problem)
 	require.Equal(t, int32(http.StatusServiceUnavailable), problem.Status)
+	require.Empty(t, problem.Cause)
 	request.InvocationSequenceNumber++
 	require.NotNil(t, p.ChargingDataRelease(request, ref))
 	require.Equal(t, int32(1), calls.Load())
@@ -124,7 +128,8 @@ func TestChargingRetryUsesOriginalSettlementAndWritesUsageOnce(t *testing.T) {
 				return nil
 			}
 			first := chargingAPIResponse(t, p, request, ref, operation)
-			require.Equal(t, http.StatusServiceUnavailable, first.Code)
+			require.Equal(t, http.StatusInternalServerError, first.Code)
+			require.Contains(t, first.Body.String(), "SYSTEM_FAILURE")
 			require.Equal(t, int32(1), calls.Load())
 			// A new sequence cannot bypass the pending operation.
 			next := request
@@ -186,7 +191,9 @@ func TestMongoChargingRetryAfterLostAccountReplyDoesNotDebitTwice(t *testing.T) 
 				}
 				return response, nil
 			}
-			require.Equal(t, http.StatusServiceUnavailable, chargingAPIResponse(t, p, request, ref, operation).Code)
+			failure := chargingAPIResponse(t, p, request, ref, operation)
+			require.Equal(t, http.StatusInternalServerError, failure.Code)
+			require.Contains(t, failure.Body.String(), "SYSTEM_FAILURE")
 			requireQuotaBalance(t, db, request.SubscriberIdentifier, 60)
 			request.RetransmissionIndicator = true
 			status := http.StatusOK
@@ -295,7 +302,10 @@ func TestChargingExpiredResponseCannotDebitOldSequenceAgain(t *testing.T) {
 		require.Equal(t, request.InvocationSequenceNumber, ue.CDRProgress[ref].Sequence)
 		_, problem = p.ChargingDataUpdate(request, ref)
 		require.NotNil(t, problem)
-		require.Equal(t, int32(http.StatusConflict), problem.Status)
+		require.Equal(t, int32(http.StatusBadRequest), problem.Status)
+		require.Equal(t, "MANDATORY_IE_INCORRECT", problem.Cause)
+		require.Len(t, problem.InvalidParams, 1)
+		require.Equal(t, "/invocationSequenceNumber", problem.InvalidParams[0].Param)
 		require.Equal(t, int32(1), calls.Load())
 		request.InvocationSequenceNumber++
 		_, problem = p.ChargingDataUpdate(request, ref)
