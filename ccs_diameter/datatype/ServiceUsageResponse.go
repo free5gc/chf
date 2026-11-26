@@ -5,6 +5,7 @@ import (
 )
 
 type ServiceUsageResponse struct {
+	ResultCode          diam_datatype.Unsigned32       `avp:"Result-Code"`
 	SessionId           diam_datatype.UTF8String       `avp:"Session-Id"`
 	OriginHost          diam_datatype.DiameterIdentity `avp:"Origin-Host"`
 	OriginRealm         diam_datatype.DiameterIdentity `avp:"Origin-Realm"`

@@ -24,6 +24,7 @@ const (
 		</request>
 		<answer>
 			<rule avp="Session-Id" required="true" max="1"/>
+			<rule avp="Result-Code" required="true" max="1"/>
 			<rule avp="Origin-Host" required="true" max="1"/>
 			<rule avp="Origin-Realm" required="true" max="1"/>
 			<rule avp="Vendor-Specific-Application-Id" required="false" max="1"/>

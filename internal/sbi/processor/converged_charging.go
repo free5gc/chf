@@ -13,17 +13,15 @@ import (
 
 	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"golang.org/x/exp/constraints"
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
-	"github.com/free5gc/chf/cdr/asn"
-	"github.com/free5gc/chf/cdr/cdrConvert"
 	"github.com/free5gc/chf/cdr/cdrType"
-	"github.com/free5gc/chf/internal/abmf"
 	"github.com/free5gc/chf/internal/cgf"
+	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
-	"github.com/free5gc/chf/internal/rating"
 	"github.com/free5gc/chf/internal/util"
 	Nchf_ConvergedCharging "github.com/free5gc/openapi/chf/ConvCharging"
 	"github.com/free5gc/openapi/models"
@@ -42,12 +40,6 @@ func min[T constraints.Ordered](a, b T) T {
 // types as Unsigned32.
 const maxReUnits = math.MaxUint32
 
-// The Diameter requests to the rating and account functions; tests replace them.
-var (
-	sendServiceUsageRequest = rating.SendServiceUsageRequest
-	sendAccountDebitRequest = abmf.SendAccountDebitRequest
-)
-
 // monetaryUnits returns units × unitCost, saturated at math.MaxInt64, the
 // largest balance the account function holds.
 func monetaryUnits(units uint64, unitCost uint32) uint64 {
@@ -64,26 +56,27 @@ func monetaryUnits(units uint64, unitCost uint32) uint64 {
 // math.MaxInt64. It first reads the current unit cost with a debit request for
 // zero units, which needs no division in the rating function, and fails
 // instead of assuming a unit cost when the rating function does not answer.
-func priceConsumedUnits(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.ServiceUsageRequest,
-	consumedUnits uint64,
-) (uint64, error) {
+func (p *Processor) priceConsumedUnits(
+	ue *chf_context.ChfUe, rg int32, sur *charging_datatype.ServiceUsageRequest, consumedUnits uint64,
+	ratings *[]charging.RatingExchange,
+) (uint64, uint32, error) {
 	chunk := uint64(maxReUnits)
+	var cost uint32
 	if consumedUnits > 0 {
 		sur.ServiceRating = &charging_datatype.ServiceRating{
 			ServiceIdentifier: datatype.Unsigned32(rg),
 			RequestSubType:    charging_datatype.REQ_SUBTYPE_DEBIT,
 		}
-		serviceUsageRsp, err := sendServiceUsageRequest(ue, sur)
+		response, err := p.captureServiceUsage(ue, sur, ratings)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		if sr := serviceUsageRsp.ServiceRating; sr == nil || sr.MonetaryTariff == nil ||
-			sr.MonetaryTariff.RateElement == nil || sr.MonetaryTariff.RateElement.UnitCost == nil {
-			return 0, fmt.Errorf("rating answer for rating group %d has no unit cost", rg)
+		cost, err = unitCostOf(response)
+		if err != nil {
+			return 0, 0, err
 		}
-		ue.UnitCost[rg] = unitCostOf(serviceUsageRsp)
-		if ue.UnitCost[rg] > 1 {
-			chunk /= uint64(ue.UnitCost[rg])
+		if cost > 1 {
+			chunk /= uint64(cost)
 		}
 	}
 	var price uint64
@@ -94,14 +87,17 @@ func priceConsumedUnits(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.
 			ConsumedUnits:     datatype.Unsigned32(units),
 			RequestSubType:    charging_datatype.REQ_SUBTYPE_DEBIT,
 		}
-		serviceUsageRsp, err := sendServiceUsageRequest(ue, sur)
+		response, err := p.captureServiceUsage(ue, sur, ratings)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		price = min(price+uint64(serviceUsageRsp.ServiceRating.Price), math.MaxInt64)
+		if response.ServiceRating == nil {
+			return 0, 0, fmt.Errorf("rating response is missing service rating")
+		}
+		price = min(price+uint64(response.ServiceRating.Price), math.MaxInt64)
 		consumedUnits -= units
-		if consumedUnits == 0 {
-			return price, nil
+		if consumedUnits == 0 || price == math.MaxInt64 {
+			return price, cost, nil
 		}
 	}
 }
@@ -116,8 +112,17 @@ func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 		return
 	}
 
-	// If it is previosly set to debit mode due to quota exhausted, need to reverse to the reserve mode
-	ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
+	ue.CULock.Lock()
+	active, rechargeErr := p.rechargeQuotas(ue, rg)
+	notifyURI := ue.NotifyUri
+	ue.CULock.Unlock()
+	if rechargeErr != nil {
+		logger.NotifyEventLog.Errorf("Queue quota recharge: %v", rechargeErr)
+		return
+	}
+	if !active {
+		return
+	}
 	reauthorizationDetails = append(reauthorizationDetails, models.Chf_ConvCharging_ReauthorizationDetails{
 		RatingGroup: rg,
 	})
@@ -127,7 +132,7 @@ func (p *Processor) NotifyRecharge(ueId string, rg int32) {
 		ReauthorizationDetails: reauthorizationDetails,
 	}
 
-	p.SendChargingNotification(ue.NotifyUri, notifyRequest)
+	p.SendChargingNotification(notifyURI, notifyRequest)
 }
 
 func (p *Processor) SendChargingNotification(
@@ -233,7 +238,7 @@ func (p *Processor) ChargingDataCreate(
 	// Open CDR
 	// ChargingDataRef(charging session id):
 	// A unique identifier for a charging data resource in a PLMN
-	// TODO determine charging session id(string type) supi+consumerid+localseq?
+	// Use a unique identity for each charging resource.
 	ue, err := self.NewCHFUe(ueId)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("New CHFUe error %s", err)
@@ -244,13 +249,28 @@ func (p *Processor) ChargingDataCreate(
 	}
 
 	ue.CULock.Lock()
+	for {
+		if current, ok := self.ChfUeFindBySupi(ueId); ok && current == ue {
+			break
+		}
+		ue.CULock.Unlock()
+		ue, err = self.NewCHFUe(ueId)
+		if err != nil {
+			return nil, "", chargingProblem(err)
+		}
+		ue.CULock.Lock()
+	}
 	defer ue.CULock.Unlock()
 	ue.NotifyUri = chargingData.NotifyUri
 
 	consumerId := chargingData.NfConsumerIdentification.NFName
-	if !chargingData.OneTimeEvent {
-		chargingSessionId = ueId + consumerId + strconv.Itoa(int(self.LocalRecordSequenceNumber))
-	}
+	chargingSessionId = ueId + "-" + consumerId + "-" + uuid.NewString()
+	created := false
+	defer func() {
+		if !created {
+			retireChargingResource(ue, chargingSessionId)
+		}
+	}()
 	cdr, err := p.OpenCDR(chargingData, ue, chargingSessionId, false)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("OpenCDR failed: %v", err)
@@ -268,9 +288,6 @@ func (p *Processor) ChargingDataCreate(
 		return nil, "", problemDetails
 	}
 
-	ue.Cdr[chargingSessionId] = cdr
-	ue.Records = append(ue.Records, ue.Cdr[chargingSessionId])
-
 	if chargingData.OneTimeEvent {
 		err = p.CloseCDR(cdr, false)
 		if err != nil {
@@ -279,6 +296,18 @@ func (p *Processor) ChargingDataCreate(
 			}
 			return nil, "", problemDetails
 		}
+	}
+
+	ue.Cdr[chargingSessionId] = cdr
+	if ue.CDRProgress == nil {
+		ue.CDRProgress = make(map[string]charging.CDRProgress)
+	}
+	ue.CDRProgress[chargingSessionId] = charging.CDRProgress{Closed: chargingData.OneTimeEvent}
+	if err = mergeCDRRecords(ue, []*cdrType.CHFRecord{cdr}); err != nil {
+		return nil, "", chargingProblem(err)
+	}
+	if err = p.flushCDRs(ue); err != nil {
+		return nil, "", chargingProblem(err)
 	}
 
 	// CDR Transfer
@@ -297,130 +326,64 @@ func (p *Processor) ChargingDataCreate(
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
+	created = true
+	if chargingData.OneTimeEvent {
+		retireChargingResource(ue, chargingSessionId)
+	}
 	return &responseBody, locationURI, nil
 }
 
 func (p *Processor) ChargingDataUpdate(
 	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
 ) (*models.Chf_ConvCharging_ChargingDataResponse, *models.ProblemDetails) {
-	self := chf_context.GetSelf()
-	ueId := chargingData.SubscriberIdentifier
-	ue, ok := self.ChfUeFindBySupi(ueId)
-	if !ok {
-		logger.ChargingdataPostLog.Errorf("CHFUe[%s] not found", ueId)
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
+	record, problem := p.beginChargingRequest(chargingData, chargingSessionId, chargingUpdateOperation)
+	if problem != nil {
+		return nil, problem
+	}
+	// Only a replay needs decoding; a fresh request returns the response built below.
+	if record.State == charging.Succeeded {
+		var response models.Chf_ConvCharging_ChargingDataResponse
+		if err := json.Unmarshal(record.Result.Body, &response); err != nil {
+			return nil, chargingProblem(err)
 		}
-		return nil, problemDetails
+		return &response, nil
+	}
+
+	ue, problem := p.findChargingUE(chargingData.SubscriberIdentifier, record)
+	if problem != nil {
+		return nil, problem
 	}
 
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
-	cdr, ok := ue.Cdr[chargingSessionId]
-	if !ok || cdr == nil {
-		detail := fmt.Sprintf("ChargingDataRef[%s] not found", chargingSessionId)
-		logger.ChargingdataPostLog.Warnln(detail)
-		problemDetails := &models.ProblemDetails{
-			Title:  "Context Not Found",
-			Status: http.StatusNotFound,
-			Detail: detail,
-			Cause:  "CONTEXT_NOT_FOUND",
-		}
-		return nil, problemDetails
+	if ue.Cdr[chargingSessionId] == nil {
+		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
 	}
+	if ue.CDRProgress[chargingSessionId].Closed && ue.CDRProgress[chargingSessionId].EventID != record.ID {
+		return nil, p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	}
+	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
+		return nil, p.rejectChargingRequest(record, ownershipProblem)
+	}
+
+	if problem = p.validateChargingSequence(ue, record); problem != nil {
+		return nil, problem
+	}
+	applyPendingRecharges(ue, record)
 
 	// Online charging: Rate, Account, Reservation
-	responseBody, partialRecord := p.BuildConvergedChargingDataUpdateResopone(chargingData)
-
-	cdrBytes, errCdrBer := asn.BerMarshalWithParams(&cdr, "explicit,choice")
-	if errCdrBer != nil {
-		logger.ChargingdataPostLog.Error(errCdrBer)
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-			Detail: errCdrBer.Error(),
-		}
-		return nil, problemDetails
+	responseBody, partialRecord, reservationErr := p.BuildConvergedChargingDataUpdateResopone(
+		chargingData, chargingSessionId, record)
+	if reservationErr != nil {
+		return nil, p.failChargingRequest(record, reservationErr)
 	}
 
-	var chgDataBytes []byte
-	var errChgDataBer error
-	if len(chargingData.MultipleUnitUsage) != 0 {
-		cdrMultiUnitUsage := cdrConvert.MultiUnitUsageToCdr(chargingData.MultipleUnitUsage)
-		chgDataBytes, errChgDataBer = asn.BerMarshalWithParams(&cdrMultiUnitUsage, "explicit,choice")
-		if errChgDataBer != nil {
-			logger.ChargingdataPostLog.Error(errChgDataBer)
-			problemDetails := &models.ProblemDetails{
-				Status: http.StatusBadRequest,
-				Detail: errChgDataBer.Error(),
-			}
-			return nil, problemDetails
-		}
+	if err := p.applyChargingCDR(ue, record, partialRecord); err != nil {
+		return nil, p.failChargingRequest(record, err)
 	}
 
-	if len(cdrBytes)+len(chgDataBytes) > math.MaxUint16 {
-		var newRecord *cdrType.CHFRecord
-		cdrJson, err := json.Marshal(cdr)
-		if err != nil {
-			logger.ChargingdataPostLog.Error(err)
-		}
-		err = json.Unmarshal(cdrJson, &newRecord)
-		if err != nil {
-			logger.ChargingdataPostLog.Error(err)
-		}
-
-		newRecord.ChargingFunctionRecord.ListOfMultipleUnitUsage = []cdrType.MultipleUnitUsage{}
-		cdr = newRecord
-		ue.Cdr[chargingSessionId] = cdr
-		ue.Records = append(ue.Records, cdr)
-	}
-
-	err := p.UpdateCDR(cdr, chargingData)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return nil, problemDetails
-	}
-
-	if partialRecord {
-		ueId = chargingData.SubscriberIdentifier
-
-		close_err := p.CloseCDR(cdr, partialRecord)
-		if close_err != nil {
-			logger.ChargingdataPostLog.Error("CloseCDR error:", close_err)
-		}
-		err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
-		if err != nil {
-			problemDetails := &models.ProblemDetails{
-				Status: http.StatusBadRequest,
-			}
-			return nil, problemDetails
-		}
-
-		reopenedCdr, oper_err := p.OpenCDR(chargingData, ue, chargingSessionId, partialRecord)
-		if oper_err != nil {
-			logger.ChargingdataPostLog.Error("OpenCDR error:", oper_err)
-			problemDetails := &models.ProblemDetails{
-				Status: http.StatusBadRequest,
-				Detail: oper_err.Error(),
-			}
-			return nil, problemDetails
-		}
-		ue.Cdr[chargingSessionId] = reopenedCdr
-		logger.ChargingdataPostLog.Tracef(
-			"CDR Record Sequence Number after Reopen %+v", *cdr.ChargingFunctionRecord.RecordSequenceNumber)
-	}
-
-	err = dumpCdrFile(ueId, ue.Records)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return nil, problemDetails
-	}
-
-	err = cgf.SendCDR(chargingData.SubscriberIdentifier)
+	err := cgf.SendCDR(chargingData.SubscriberIdentifier)
 	if err != nil {
 		logger.ChargingdataPostLog.Errorf("Charging gateway fail to send CDR to billing domain %v", err)
 	}
@@ -429,120 +392,130 @@ func (p *Processor) ChargingDataUpdate(
 	responseBody.InvocationTimeStamp = &timeStamp
 	responseBody.InvocationSequenceNumber = chargingData.InvocationSequenceNumber
 
+	body, encodeErr := json.Marshal(responseBody)
+	if encodeErr != nil {
+		return nil, p.failChargingRequest(record, encodeErr)
+	}
+	p.requests.Finish(record, charging.Result{Status: http.StatusOK, Body: body}, charging.Succeeded)
+	for key, state := range ue.Quotas {
+		if state.Closed {
+			delete(ue.Quotas, key)
+			delete(ue.PendingRecharges, key)
+		}
+	}
 	return &responseBody, nil
 }
 
 func (p *Processor) ChargingDataRelease(
 	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
 ) *models.ProblemDetails {
-	self := chf_context.GetSelf()
-	ueId := chargingData.SubscriberIdentifier
-	ue, ok := self.ChfUeFindBySupi(ueId)
-	if !ok {
-		logger.ChargingdataPostLog.Errorf("Do not find CHFUe[%s] error", ueId)
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return problemDetails
+	record, problem := p.beginChargingRequest(chargingData, chargingSessionId, chargingReleaseOperation)
+	if problem != nil {
+		return problem
+	}
+	if record.State == charging.Succeeded {
+		return nil
+	}
+
+	ue, problem := p.findChargingUE(chargingData.SubscriberIdentifier, record)
+	if problem != nil {
+		return problem
 	}
 
 	ue.CULock.Lock()
 	defer ue.CULock.Unlock()
 
-	sessionChargingReservation(chargingData)
-
-	cdr := ue.Cdr[chargingSessionId]
-
-	err := p.UpdateCDR(cdr, chargingData)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-			Cause:  err.Error(),
-		}
-		return problemDetails
+	if ue.Cdr[chargingSessionId] == nil {
+		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	}
+	if ue.CDRProgress[chargingSessionId].Closed && ue.CDRProgress[chargingSessionId].EventID != record.ID {
+		return p.rejectChargingRequest(record, missingChargingSession(chargingSessionId))
+	}
+	if ownershipProblem := validateQuotaOwners(ue, chargingData, chargingSessionId); ownershipProblem != nil {
+		return p.rejectChargingRequest(record, ownershipProblem)
+	}
+	if problem = p.validateChargingSequence(ue, record); problem != nil {
+		return problem
+	}
+	applyPendingRecharges(ue, record)
+	if _, _, err := p.sessionChargingReservation(chargingData, chargingSessionId, record); err != nil {
+		return p.failChargingRequest(record, err)
 	}
 
-	err = p.CloseCDR(cdr, false)
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return problemDetails
+	if err := p.applyChargingCDR(ue, record, false); err != nil {
+		return p.failChargingRequest(record, err)
 	}
 
-	err = dumpCdrFile(ueId, []*cdrType.CHFRecord{cdr})
-	if err != nil {
-		problemDetails := &models.ProblemDetails{
-			Status: http.StatusBadRequest,
-		}
-		return problemDetails
+	if err := cgf.SendCDR(chargingData.SubscriberIdentifier); err != nil {
+		logger.ChargingdataPostLog.Errorf("Send final CDR (local output retained): %v", err)
 	}
-
+	p.requests.Finish(record, charging.Result{Status: http.StatusNoContent}, charging.Succeeded)
+	retireChargingResource(ue, chargingSessionId)
 	return nil
 }
 
 func (p *Processor) BuildOnlineChargingDataCreateResopone(
-	ue *chf_context.ChfUe, chargingData models.Chf_ConvCharging_ChargingDataRequest,
-) models.Chf_ConvCharging_ChargingDataResponse {
+	ue *chf_context.ChfUe, chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string,
+) (models.Chf_ConvCharging_ChargingDataResponse, error) {
 	logger.ChargingdataPostLog.Info("In Build Online Charging Data Create Resopone")
 	ue.NotifyUri = chargingData.NotifyUri
 
-	multipleUnitInformation, _ := sessionChargingReservation(chargingData)
+	multipleUnitInformation, _, err := p.sessionChargingReservation(chargingData, chargingSessionId, nil)
 
 	responseBody := models.Chf_ConvCharging_ChargingDataResponse{
 		MultipleUnitInformation: multipleUnitInformation,
 	}
 
-	return responseBody
+	return responseBody, err
 }
 
 func (p *Processor) BuildConvergedChargingDataUpdateResopone(
-	chargingData models.Chf_ConvCharging_ChargingDataRequest,
-) (models.Chf_ConvCharging_ChargingDataResponse, bool) {
-	var partialRecord bool
-
+	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string, record *charging.Record,
+) (models.Chf_ConvCharging_ChargingDataResponse, bool, error) {
 	logger.ChargingdataPostLog.Info("In BuildConvergedChargingDataUpdateResopone")
 
-	multipleUnitInformation, partialRecord := sessionChargingReservation(chargingData)
+	multipleUnitInformation, partialRecord, err := p.sessionChargingReservation(chargingData, chargingSessionId, record)
 
 	responseBody := models.Chf_ConvCharging_ChargingDataResponse{
 		MultipleUnitInformation: multipleUnitInformation,
 	}
 
-	return responseBody, partialRecord
+	return responseBody, partialRecord, err
 }
 
-func getUnitCost(ue *chf_context.ChfUe, rg int32, sur *charging_datatype.ServiceUsageRequest) uint32 {
+func (p *Processor) getUnitCost(
+	ue *chf_context.ChfUe, rg int32, sur *charging_datatype.ServiceUsageRequest,
+	ratings *[]charging.RatingExchange,
+) (uint32, error) {
 	if sur == nil {
-		logger.ChargingdataPostLog.Errorln("ServiceUsageRequest is nil, set unitCost to 1")
-		return 1
+		return 0, fmt.Errorf("service usage request is nil")
 	}
-
 	sur.ServiceRating = &charging_datatype.ServiceRating{
 		ServiceIdentifier: datatype.Unsigned32(rg),
-		MonetaryQuota:     datatype.Unsigned32(0), // dummy
+		MonetaryQuota:     0,
 		RequestSubType:    charging_datatype.REQ_SUBTYPE_RESERVE,
 	}
-
-	serviceUsageRsp, err := sendServiceUsageRequest(ue, sur)
+	response, err := p.captureServiceUsage(ue, sur, ratings)
 	if err != nil {
-		logger.ChargingdataPostLog.Errorf("err: %+v", err)
-		logger.ChargingdataPostLog.Errorln("cannot get unitCost by SendServiceUsageRequest, set unitCost to 1")
-		return 1
+		return 0, err
 	}
-
-	return unitCostOf(serviceUsageRsp)
+	return unitCostOf(response)
 }
 
-func unitCostOf(serviceUsageRsp *charging_datatype.ServiceUsageResponse) uint32 {
-	return uint32(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.ValueDigits) *
-		uint32(math.Pow10(int(serviceUsageRsp.ServiceRating.MonetaryTariff.RateElement.UnitCost.Exponent)))
+func unitCostOf(response *charging_datatype.ServiceUsageResponse) (uint32, error) {
+	if response == nil || response.ServiceRating == nil || response.ServiceRating.MonetaryTariff == nil ||
+		response.ServiceRating.MonetaryTariff.RateElement == nil ||
+		response.ServiceRating.MonetaryTariff.RateElement.UnitCost == nil {
+		return 0, fmt.Errorf("rating response is missing unit cost")
+	}
+	cost := response.ServiceRating.MonetaryTariff.RateElement.UnitCost
+	return uint32(cost.ValueDigits) * uint32(math.Pow10(int(cost.Exponent))), nil
 }
 
 // 32.296 6.2.2.3.1: Service usage request method with reservation
-func sessionChargingReservation(
-	chargingData models.Chf_ConvCharging_ChargingDataRequest,
-) ([]models.Chf_ConvCharging_MultipleUnitInformation, bool) {
+func (p *Processor) sessionChargingReservation(
+	chargingData models.Chf_ConvCharging_ChargingDataRequest, chargingSessionId string, record *charging.Record,
+) ([]models.Chf_ConvCharging_MultipleUnitInformation, bool, error) {
 	var multipleUnitInformation []models.Chf_ConvCharging_MultipleUnitInformation
 	var partialRecord bool
 	var subscriberIdentifier *charging_datatype.SubscriptionId
@@ -553,7 +526,7 @@ func sessionChargingReservation(
 	ue, ok := self.ChfUeFindBySupi(supi)
 	if !ok {
 		logger.ChargingdataPostLog.Warnf("Do not find UE[%s]", supi)
-		return nil, false
+		return nil, false, fmt.Errorf("charging UE %s not found", supi)
 	}
 
 	supiType := strings.Split(supi, "-")[0]
@@ -581,16 +554,34 @@ func sessionChargingReservation(
 	}
 
 	for unitUsageNum, unitUsage := range chargingData.MultipleUnitUsage {
+		if record != nil && record.SettlementPlan != nil &&
+			len(record.SettlementPlan.Steps[strconv.Itoa(unitUsageNum)]) != 0 {
+			info, partial, resumeErr := p.resumeSettlementEntry(ue, record, unitUsageNum)
+			if resumeErr != nil {
+				return nil, false, resumeErr
+			}
+			multipleUnitInformation = append(multipleUnitInformation, info)
+			partialRecord = partial
+			continue
+		}
 		var totalUsedUnit uint64
 		var finalUnitIndication models.Chf_ConvCharging_FinalUnitIndication
 		creditControl := false
-		finalSeen := false
 
 		rg := unitUsage.RatingGroup
-		if !ue.FindRatingGroup(rg) {
-			ue.RatingGroups = append(ue.RatingGroups, rg)
-			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
+		key := charging.QuotaKey{ChargingDataRef: chargingSessionId, RatingGroup: rg, UPFID: unitUsage.UPFID}
+		before, known := ue.Quotas[key]
+		before.Known = known
+		reservedQuota, ratingType, unitCost := before.Reserved, before.RatingType, before.UnitCost
+		exhausted, closed := before.Exhausted, before.Closed
+		if !before.Known {
+			ratingType = charging_datatype.REQ_SUBTYPE_RESERVE
 		}
+		var ratings []charging.RatingExchange
+		var accountRequest *charging_datatype.AccountDebitRequest
+		var addGrantedUnits bool
+		thresholdIndex := -1
+		var previousThreshold uint64
 
 		unitInformation := models.Chf_ConvCharging_MultipleUnitInformation{
 			UPFID:               unitUsage.UPFID,
@@ -624,13 +615,11 @@ func sessionChargingReservation(
 					case t.TriggerType == models.Chf_ConvCharging_TriggerType_MAX_NUMBER_OF_CHANGES_IN_CHARGING_CONDITIONS:
 					case t.TriggerType == models.Chf_ConvCharging_TriggerType_MANAGEMENT_INTERVENTION:
 					case t.TriggerType == models.Chf_ConvCharging_TriggerType_FINAL:
-						finalSeen = true
-						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
 						partialRecord = false
 					}
 				}
 				// calculate total used unit
-				totalUsedUnit += usedUnit.TotalVolume
+				totalUsedUnit += min(usedUnit.TotalVolume, math.MaxUint64-totalUsedUnit)
 			case models.Chf_ConvCharging_QuotaManagementIndicator_QUOTA_MANAGEMENT_SUSPENDED:
 				logger.ChargingdataPostLog.Errorf("Current do not support QUOTA MANAGEMENT SUSPENDED")
 			}
@@ -639,37 +628,53 @@ func sessionChargingReservation(
 			logger.ChargingdataPostLog.Infof("Credit Control are not required for rating group: %d", rg)
 			continue
 		}
-		// TS 32.290 Table 7.1: ONLINE usage without Requested Unit is the last
-		// request for this rating group, even without an explicit FINAL trigger.
-		// Settle its usage and return unused reservations without granting new quota.
+		// In the independent-UPF model, omitting RequestedUnit ends this owner's
+		// quota cycle. Other UPFs using the same RG keep their own reservations.
 		if unitUsage.RequestedUnit == nil {
-			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
+			ratingType = charging_datatype.REQ_SUBTYPE_DEBIT
+			closed = true
 			partialRecord = false
-		} else if finalSeen && unitUsage.RequestedUnit.TotalVolume > 0 {
-			// A FINAL usage container can accompany a credit request for live services.
-			ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
+		} else if unitUsage.RequestedUnit.TotalVolume > 0 {
+			// An explicit credit request starts/reuses this UPF's quota cycle.
+			// Only a genuine ABMF final grant blocks further credit until recharge.
+			if closed {
+				exhausted = false
+			}
+			closed = false
+			if !exhausted {
+				ratingType = charging_datatype.REQ_SUBTYPE_RESERVE
+			}
 		}
 
 		ccr := &charging_datatype.AccountDebitRequest{
-			SessionId:       datatype.UTF8String(strconv.Itoa(int(ue.AcctSessionId))),
-			OriginHost:      datatype.DiameterIdentity(self.AbmfCfg.OriginHost),
-			OriginRealm:     datatype.DiameterIdentity(self.AbmfCfg.OriginRealm),
-			EventTimestamp:  datatype.Time(time.Now()),
-			SubscriptionId:  subscriberIdentifier,
-			UserName:        datatype.OctetString(self.Name),
-			CcRequestNumber: datatype.Unsigned32(ue.AcctRequestNum[rg]),
+			CcRequestType:  charging_datatype.UPDATE_REQUEST,
+			OriginHost:     datatype.DiameterIdentity(self.AbmfCfg.OriginHost),
+			OriginRealm:    datatype.DiameterIdentity(self.AbmfCfg.OriginRealm),
+			EventTimestamp: datatype.Time(time.Now().UTC()),
+			SubscriptionId: subscriberIdentifier,
+			UserName:       datatype.OctetString(self.Name),
 		}
+
+		accountID, identityErr := charging.Digest(
+			[]any{chargingSessionId, chargingData.InvocationSequenceNumber, unitUsageNum})
+		if identityErr != nil {
+			return nil, false, identityErr
+		}
+		// The immutable ID carries its issue time so an expired ABMF operation
+		// cannot become a new debit by changing EventTimestamp after cache eviction.
+		ccr.SessionId = datatype.UTF8String(fmt.Sprintf("chf;%d;%s", time.Time(ccr.EventTimestamp).Unix(), accountID))
+		ccr.CcRequestNumber = 0
 
 		sur := &charging_datatype.ServiceUsageRequest{
 			SessionId:      datatype.UTF8String(strconv.Itoa(int(ue.RateSessionId))),
 			OriginHost:     datatype.DiameterIdentity(self.RatingCfg.OriginHost),
 			OriginRealm:    datatype.DiameterIdentity(self.RatingCfg.OriginRealm),
-			ActualTime:     datatype.Time(time.Now()),
+			ActualTime:     datatype.Time(time.Now().UTC()),
 			SubscriptionId: subscriberIdentifier,
 			UserName:       datatype.OctetString(self.Name),
 		}
 
-		switch ue.RatingType[rg] {
+		switch ratingType {
 		case charging_datatype.REQ_SUBTYPE_RESERVE:
 			// If there is no requested unit, nothing to reserve / grant.
 			if unitUsage.RequestedUnit == nil || unitUsage.RequestedUnit.TotalVolume <= 0 {
@@ -678,22 +683,23 @@ func sessionChargingReservation(
 			}
 			var requestedQuota uint64
 
-			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
+			cost, costErr := p.getUnitCost(ue, rg, sur, &ratings)
+			if costErr != nil {
+				return nil, false, costErr
+			}
+			unitCost = cost
 
 			var requestedTotalVolume uint64
 			if unitUsage.RequestedUnit != nil {
 				requestedTotalVolume = unitUsage.RequestedUnit.TotalVolume
 			}
 
-			usedQuota := monetaryUnits(totalUsedUnit, ue.UnitCost[rg])
-			// A reservation is rated in one MonetaryQuota AVP, so it is capped at
-			// maxReUnits; a larger request is granted less and asks again.
-			requestedQuota = min(monetaryUnits(requestedTotalVolume, ue.UnitCost[rg]), maxReUnits)
-			ue.ReservedQuota[rg] -= int64(usedQuota)
-			NeedReserveQuota := ue.ReservedQuota[rg] <= 0
+			usedQuota := monetaryUnits(totalUsedUnit, unitCost)
+			requestedQuota = min(monetaryUnits(requestedTotalVolume, unitCost), maxReUnits)
+			reservedQuota = max(reservedQuota, int64(usedQuota)-math.MaxInt64) - int64(usedQuota)
 
-			if NeedReserveQuota {
-				reserveQuota := min(-uint64(ue.ReservedQuota[rg])+requestedQuota, math.MaxInt64)
+			if reservedQuota <= 0 {
+				reserveQuota := min(uint64(-reservedQuota)+requestedQuota, math.MaxInt64)
 				ccr.CcRequestType = charging_datatype.UPDATE_REQUEST
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
 				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
@@ -703,25 +709,8 @@ func sessionChargingReservation(
 					},
 				}
 
-				acctDebitRsp, err := sendAccountDebitRequest(ue, ccr)
-				if err != nil {
-					logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
-					continue
-				}
-
-				ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
-
-				// Deduct the reserved quota from the account
-				if acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication != nil {
-					switch acctDebitRsp.MultipleServicesCreditControl.FinalUnitIndication.FinalUnitAction {
-					case charging_datatype.TERMINATE:
-						logger.ChargingdataPostLog.Tracef("Last granted quota")
-						finalUnitIndication = models.Chf_ConvCharging_FinalUnitIndication{
-							FinalUnitAction: models.Chf_ConvCharging_FinalUnitAction_TERMINATE,
-						}
-						ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_DEBIT
-					}
-				}
+				accountRequest = ccr
+				addGrantedUnits = true
 			}
 
 			sur.ServiceRating = &charging_datatype.ServiceRating{
@@ -731,17 +720,25 @@ func sessionChargingReservation(
 			}
 
 			// Retrieve and save the tarrif for pricing the next usage
-			serviceUsageRsp, err := sendServiceUsageRequest(ue, sur)
+			serviceUsageRsp, err := p.captureServiceUsage(ue, sur, &ratings)
 			if err != nil {
-				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
-				continue
+				return nil, false, fmt.Errorf("rating operation: %w", err)
 			}
 
-			ue.UnitCost[rg] = getUnitCost(ue, rg, sur)
+			cost, costErr = p.getUnitCost(ue, rg, sur, &ratings)
+			if costErr != nil {
+				return nil, false, costErr
+			}
+			unitCost = cost
 
+			if serviceUsageRsp == nil || serviceUsageRsp.ServiceRating == nil {
+				return nil, false, fmt.Errorf("rating response is missing service rating")
+			}
 			grantedUnit := min(uint64(serviceUsageRsp.ServiceRating.AllowedUnits), requestedTotalVolume)
 
-			if ue.RatingType[rg] == charging_datatype.REQ_SUBTYPE_RESERVE {
+			if ratingType == charging_datatype.REQ_SUBTYPE_RESERVE {
+				thresholdIndex = len(unitInformation.Triggers)
+				previousThreshold = unitInformation.VolumeQuotaThreshold
 				unitInformation.Triggers = append(unitInformation.Triggers,
 					models.Chf_ConvCharging_Trigger{
 						TriggerType:     models.Chf_ConvCharging_TriggerType_QUOTA_THRESHOLD,
@@ -802,18 +799,18 @@ func sessionChargingReservation(
 		case charging_datatype.REQ_SUBTYPE_DEBIT:
 			logger.ChargingdataPostLog.Info("Debit mode, will not grant unit")
 			// retrieved tarrif for final pricing
-			price, err := priceConsumedUnits(ue, rg, sur, totalUsedUnit)
+			price, cost, err := p.priceConsumedUnits(ue, rg, sur, totalUsedUnit, &ratings)
 			if err != nil {
-				logger.ChargingdataPostLog.Errorf("SendServiceUsageRequest err: %+v", err)
-				continue
+				return nil, false, fmt.Errorf("rating operation: %w", err)
+			}
+			if totalUsedUnit > 0 {
+				unitCost = cost
 			}
 			logger.ChargingdataPostLog.Tracef(
-				"price %+v, ue.ReservedQuota[rg]: %+v", price, ue.ReservedQuota[rg])
+				"price %+v, reservedQuota: %+v", price, reservedQuota)
 
-			if int64(price) < ue.ReservedQuota[rg] {
-				// The final consumed quota is smaller than the reserved quota
-				// Therefore, return the extra reserved quota back to the user account
-				reservedRemained := ue.ReservedQuota[rg] - int64(price)
+			if int64(price) < reservedQuota {
+				reservedRemained := reservedQuota - int64(price)
 				ccr.RequestedAction = charging_datatype.REFUND_ACCOUNT
 				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
 					RatingGroup: datatype.Unsigned32(rg),
@@ -821,15 +818,15 @@ func sessionChargingReservation(
 						CCTotalOctets: datatype.Unsigned64(reservedRemained),
 					},
 				}
-				// Typically, the reserved quota will be exhausted for the flow (or PDU session)
-				// However, for the case the flow quota  and PDU session's quota is both last granted quota
-				// and the PDU session's quota is larger than the flow's quota
-				// PDU session's quota should be refund and set to reserved mode in order to reserve the quota for other flow
-				ue.RatingType[rg] = charging_datatype.REQ_SUBTYPE_RESERVE
 			} else {
 				// The final consumed quota exceed the reserved quota
 				// Deduct the extra consumed quota from the user account
-				extraConsumed := int64(price) - ue.ReservedQuota[rg]
+				extraConsumed := uint64(price)
+				if reservedQuota < 0 {
+					extraConsumed = min(extraConsumed+uint64(-(reservedQuota+1))+1, math.MaxInt64)
+				} else {
+					extraConsumed -= uint64(reservedQuota)
+				}
 				ccr.RequestedAction = charging_datatype.DIRECT_DEBITING
 				ccr.CcRequestType = charging_datatype.TERMINATION_REQUEST
 				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
@@ -840,12 +837,8 @@ func sessionChargingReservation(
 				}
 			}
 
-			_, err = sendAccountDebitRequest(ue, ccr)
-			if err != nil {
-				logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
-				continue
-			}
-			ue.ReservedQuota[rg] = 0
+			accountRequest = ccr
+			reservedQuota = 0
 
 			unitInformation.Triggers = append(unitInformation.Triggers,
 				models.Chf_ConvCharging_Trigger{
@@ -859,10 +852,56 @@ func sessionChargingReservation(
 				UplinkVolume:   0,
 			}
 		}
-		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
+		step := &charging.SettlementStep{
+			UsageIndex: unitUsageNum, QuotaKey: key, RatingGroup: rg, UPFID: unitUsage.UPFID,
+			Before: before, Planned: charging.QuotaState{
+				Known: true, Reserved: reservedQuota, RatingType: ratingType, UnitCost: unitCost,
+				Exhausted: exhausted, Closed: closed,
+			},
+			Ratings: ratings, AccountRequest: accountRequest, AddGrantedUnits: addGrantedUnits,
+			UnitInformation: unitInformation, PartialRecord: partialRecord,
+			ThresholdRate: ue.VolumeThresholdRate, AdjustThreshold: thresholdIndex >= 0,
+		}
+		if addGrantedUnits {
+			// Freeze both response branches before ABMF can return a final grant.
+			finalInformation := unitInformation
+			finalInformation.FinalUnitIndication = &models.Chf_ConvCharging_FinalUnitIndication{
+				FinalUnitAction: models.Chf_ConvCharging_FinalUnitAction_TERMINATE,
+			}
+			finalInformation.Triggers = append([]models.Chf_ConvCharging_Trigger(nil), unitInformation.Triggers...)
+			if thresholdIndex >= 0 {
+				finalInformation.Triggers = append(finalInformation.Triggers[:thresholdIndex],
+					finalInformation.Triggers[thresholdIndex+1:]...)
+				finalInformation.VolumeQuotaThreshold = previousThreshold
+			}
+			step.FinalUnitInformation = &finalInformation
+		}
+		if err := p.saveSettlementStep(record, step); err != nil {
+			return nil, false, err
+		}
+		outcome, executeErr := p.executeSettlementStep(ue, step)
+		if executeErr != nil {
+			return nil, false, executeErr
+		}
+		unitInformation = outcome.UnitInformation
 
-		ue.AcctRequestNum[rg]++
+		if err := p.saveSettlementOutcome(record, unitUsageNum, outcome); err != nil {
+			return nil, false, err
+		}
+		if ue.Quotas == nil {
+			ue.Quotas = make(map[charging.QuotaKey]charging.QuotaState)
+		}
+		after := outcome.After
+		if record != nil {
+			var applyErr error
+			after, applyErr = p.applyQuota(record, unitUsageNum)
+			if applyErr != nil {
+				return nil, false, applyErr
+			}
+		}
+		ue.Quotas[key] = after
+		multipleUnitInformation = append(multipleUnitInformation, unitInformation)
 	}
 
-	return multipleUnitInformation, partialRecord
+	return multipleUnitInformation, partialRecord, nil
 }

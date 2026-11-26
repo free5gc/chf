@@ -11,6 +11,7 @@ import (
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	"github.com/free5gc/chf/cdr/cdrType"
+	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/openapi/models"
 )
@@ -18,6 +19,7 @@ import (
 const (
 	volumeTestSupi = "imsi-208930000000960"
 	volumeTestRG   = int32(10)
+	volumeTestRef  = "volume-test"
 	gib            = uint64(1) << 30
 )
 
@@ -92,22 +94,16 @@ func setupVolumeTest(t *testing.T, unitCost uint32, balance int64) (*volumeTestF
 	t.Helper()
 	f := &volumeTestFunctions{t: t, unitCost: unitCost, balance: balance}
 
-	prevRate, prevDebit := sendServiceUsageRequest, sendAccountDebitRequest
-	sendServiceUsageRequest, sendAccountDebitRequest = f.rate, f.debit
 	self := chf_context.GetSelf()
 	prevRatingCfg, prevAbmfCfg := self.RatingCfg, self.AbmfCfg
 	self.RatingCfg, self.AbmfCfg = &sm.Settings{}, &sm.Settings{}
 	ue := &chf_context.ChfUe{
-		Supi:           volumeTestSupi,
-		ReservedQuota:  map[int32]int64{},
-		UnitCost:       map[int32]uint32{},
-		AcctRequestNum: map[int32]uint32{},
-		RatingType:     map[int32]charging_datatype.RequestSubType{},
-		Cdr:            map[string]*cdrType.CHFRecord{},
+		Supi:   volumeTestSupi,
+		Quotas: map[charging.QuotaKey]charging.QuotaState{},
+		Cdr:    map[string]*cdrType.CHFRecord{},
 	}
 	self.UePool.Store(volumeTestSupi, ue)
 	t.Cleanup(func() {
-		sendServiceUsageRequest, sendAccountDebitRequest = prevRate, prevDebit
 		self.RatingCfg, self.AbmfCfg = prevRatingCfg, prevAbmfCfg
 		self.UePool.Delete(volumeTestSupi)
 	})
@@ -141,7 +137,8 @@ func TestMonetaryUnitsSaturates(t *testing.T) {
 func TestLastUsageAboveThePriceRangeIsDebitedExactly(t *testing.T) {
 	f, _ := setupVolumeTest(t, 3, 10_000_000_000)
 
-	sessionChargingReservation(onlineUsage(3*gib/2, nil))
+	_, err := f.reserve(onlineUsage(3*gib/2, nil))
+	require.NoError(t, err)
 
 	require.Equal(t, []uint64{0, math.MaxUint32 / 3, 3*gib/2 - math.MaxUint32/3}, f.consumedUnits)
 	require.Equal(t, int64(10_000_000_000-9*gib/2), f.balance)
@@ -150,7 +147,8 @@ func TestLastUsageAboveThePriceRangeIsDebitedExactly(t *testing.T) {
 func TestLastUsageAboveTwoGiBIsDebitedExactly(t *testing.T) {
 	f, _ := setupVolumeTest(t, 1, int64(10*gib))
 
-	sessionChargingReservation(onlineUsage(3*gib, nil))
+	_, err := f.reserve(onlineUsage(3*gib, nil))
+	require.NoError(t, err)
 
 	require.Equal(t, []uint64{0, 3 * gib}, f.consumedUnits)
 	require.Equal(t, int64(7*gib), f.balance)
@@ -159,7 +157,8 @@ func TestLastUsageAboveTwoGiBIsDebitedExactly(t *testing.T) {
 func TestLastUsageAboveFourGiBIsDebitedExactly(t *testing.T) {
 	f, _ := setupVolumeTest(t, 1, int64(10*gib))
 
-	sessionChargingReservation(onlineUsage(5*gib, nil))
+	_, err := f.reserve(onlineUsage(5*gib, nil))
+	require.NoError(t, err)
 
 	require.Equal(t, []uint64{0, math.MaxUint32, 5*gib - math.MaxUint32}, f.consumedUnits)
 	require.Equal(t, int64(5*gib), f.balance)
@@ -169,11 +168,13 @@ func TestLastUsageAboveFourGiBIsDebitedExactly(t *testing.T) {
 // from an earlier reservation.
 func TestLastUsageIsSplitByTheCurrentUnitCost(t *testing.T) {
 	f, ue := setupVolumeTest(t, 3, 10_000_000_000)
-	ue.UnitCost[volumeTestRG] = 1
+	key := charging.QuotaKey{ChargingDataRef: volumeTestRef, RatingGroup: volumeTestRG}
+	ue.Quotas[key] = charging.QuotaState{UnitCost: 1}
 
-	sessionChargingReservation(onlineUsage(3*gib/2, nil))
+	_, err := f.reserve(onlineUsage(3*gib/2, nil))
+	require.NoError(t, err)
 
-	require.Equal(t, uint32(3), ue.UnitCost[volumeTestRG])
+	require.Equal(t, uint32(3), ue.Quotas[key].UnitCost)
 	require.Equal(t, int64(10_000_000_000-9*gib/2), f.balance)
 }
 
@@ -183,7 +184,8 @@ func TestLastUsageIsNotDebitedWithoutARating(t *testing.T) {
 	f, _ := setupVolumeTest(t, 3, 10_000_000_000)
 	f.ratingErr = errors.New("rating function unreachable")
 
-	sessionChargingReservation(onlineUsage(3*gib/2, nil))
+	_, err := f.reserve(onlineUsage(3*gib/2, nil))
+	require.ErrorContains(t, err, "rating function unreachable")
 
 	require.Empty(t, f.debits)
 	require.Equal(t, int64(10_000_000_000), f.balance)
@@ -193,7 +195,8 @@ func TestLastUsageIsNotDebitedWithoutAUnitCost(t *testing.T) {
 	f, _ := setupVolumeTest(t, 3, 10_000_000_000)
 	f.noTariff = true
 
-	sessionChargingReservation(onlineUsage(3*gib/2, nil))
+	_, err := f.reserve(onlineUsage(3*gib/2, nil))
+	require.ErrorContains(t, err, "missing unit cost")
 
 	require.Empty(t, f.debits)
 	require.Equal(t, int64(10_000_000_000), f.balance)
@@ -203,11 +206,11 @@ func TestLastUsageIsNotDebitedWithoutAUnitCost(t *testing.T) {
 // reservation debits all of it: 1.5 GiB at a unit cost of 3 plus 1000 units
 // requested at 3.
 func TestUsageAboveThePriceRangeIsReservedExactly(t *testing.T) {
-	f, ue := setupVolumeTest(t, 3, 10_000_000_000)
-	ue.RatingType[volumeTestRG] = charging_datatype.REQ_SUBTYPE_RESERVE
+	f, _ := setupVolumeTest(t, 3, 10_000_000_000)
 
-	info, _ := sessionChargingReservation(onlineUsage(3*gib/2,
+	info, err := f.reserve(onlineUsage(3*gib/2,
 		&models.Chf_ConvCharging_RequestedUnit{TotalVolume: 1000}))
+	require.NoError(t, err)
 
 	require.Len(t, f.debits, 1)
 	require.Equal(t, datatype.Unsigned64(9*gib/2+3000), f.debits[0].RequestedServiceUnit.CCTotalOctets)
@@ -216,11 +219,11 @@ func TestUsageAboveThePriceRangeIsReservedExactly(t *testing.T) {
 }
 
 func TestGrantAboveTwoGiBIsNotNarrowed(t *testing.T) {
-	_, ue := setupVolumeTest(t, 1, int64(10*gib))
-	ue.RatingType[volumeTestRG] = charging_datatype.REQ_SUBTYPE_RESERVE
+	f, _ := setupVolumeTest(t, 1, int64(10*gib))
 
-	info, _ := sessionChargingReservation(onlineUsage(0,
+	info, err := f.reserve(onlineUsage(0,
 		&models.Chf_ConvCharging_RequestedUnit{TotalVolume: 3 * gib}))
+	require.NoError(t, err)
 
 	require.Len(t, info, 1)
 	require.Equal(t, 3*gib, info[0].GrantedUnit.TotalVolume)
@@ -231,14 +234,22 @@ func TestGrantAboveTwoGiBIsNotNarrowed(t *testing.T) {
 // A reservation whose price does not fit the Unsigned32 MonetaryQuota is
 // capped there, and the grant shrinks with it.
 func TestReservationAboveThePriceRangeIsCapped(t *testing.T) {
-	f, ue := setupVolumeTest(t, 3, 10_000_000_000)
-	ue.RatingType[volumeTestRG] = charging_datatype.REQ_SUBTYPE_RESERVE
+	f, _ := setupVolumeTest(t, 3, 10_000_000_000)
 
-	info, _ := sessionChargingReservation(onlineUsage(0,
+	info, err := f.reserve(onlineUsage(0,
 		&models.Chf_ConvCharging_RequestedUnit{TotalVolume: 2 * gib}))
+	require.NoError(t, err)
 
 	require.Len(t, f.debits, 1)
 	require.Equal(t, datatype.Unsigned64(math.MaxUint32), f.debits[0].RequestedServiceUnit.CCTotalOctets)
 	require.Len(t, info, 1)
 	require.Equal(t, uint64(math.MaxUint32/3), info[0].GrantedUnit.TotalVolume)
+}
+
+func (f *volumeTestFunctions) reserve(
+	request models.Chf_ConvCharging_ChargingDataRequest,
+) ([]models.Chf_ConvCharging_MultipleUnitInformation, error) {
+	p := &Processor{accountDebit: f.debit, serviceUsage: f.rate}
+	info, _, err := p.sessionChargingReservation(request, volumeTestRef, nil)
+	return info, err
 }

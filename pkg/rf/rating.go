@@ -32,6 +32,7 @@ import (
 	"github.com/fiorix/go-diameter/diam/sm"
 	"go.mongodb.org/mongo-driver/bson"
 
+	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
 	"github.com/free5gc/chf/internal/logger"
@@ -157,47 +158,25 @@ func handleSUR() diam.HandlerFunc {
 		// // Retrieve tarrif information from database
 
 		filter := bson.M{"ueId": subscriberId, "ratingGroup": rg}
+		sua := charging_datatype.ServiceUsageResponse{
+			SessionId: sur.SessionId, EventTimestamp: datatype.Time(time.Now()),
+		}
 		chargingInterface, err := mongoapi.RestfulAPIGetOne(chargingDatasColl, filter)
 		if err != nil {
-			logger.ChargingdataPostLog.Errorf("Get tarrif error: %+v", err)
-		}
-		if chargingInterface == nil {
-			logger.ChargingdataPostLog.Warningf(
-				"No ChargingData found for UE:[%+v] for RG:[%+v]", subscriberId, rg)
-			// Must respond SUA to avoid client-side timeout waiting for answer.
-			// When charging data is missing, return 0 quota/cost.
-			sua := charging_datatype.ServiceUsageResponse{
-				SessionId:      sur.SessionId,
-				EventTimestamp: datatype.Time(time.Now()),
-				ServiceRating: &charging_datatype.ServiceRating{
-					MonetaryTariff: buildTaffif("1"),
-					AllowedUnits:   datatype.Unsigned32(0),
-					Price:          datatype.Unsigned32(0),
-				},
-			}
-
-			a := m.Answer(diam.UnableToComply)
-			if errMarshal := a.Marshal(&sua); errMarshal != nil {
-				logger.RatingLog.Errorf("Marshal SUA Err (missing charging data): %+v:", errMarshal)
-			}
-			_, errWrite := a.WriteTo(c)
-			if errWrite != nil {
-				logger.RatingLog.Errorf("Failed to write error SUA to %s: %s\n%s\n",
-					c.RemoteAddr(), errWrite, a)
-			}
+			logger.ChargingdataPostLog.Errorf("Get tariff error: %+v", err)
+			sendServiceUsageAnswer(c, m, diam.UnableToComply, &sua)
 			return
 		}
-		unitCostStr := chargingInterface["unitCost"].(string)
+		unitCostStr, ok := chargingInterface["unitCost"].(string)
+		if !ok || unitCostStr == "" {
+			logger.ChargingdataPostLog.Warnf("Missing tariff for UE %s rating group %d", subscriberId, rg)
+			sendServiceUsageAnswer(c, m, charging_code.DiameterUserUnknown, &sua)
+			return
+		}
 		monetaryTariff := buildTaffif(unitCostStr)
 		unitCost := datatype.Unsigned32(monetaryTariff.RateElement.UnitCost.ValueDigits) *
 			datatype.Unsigned32(math.Pow10(int(monetaryTariff.RateElement.UnitCost.Exponent)))
-		sua := charging_datatype.ServiceUsageResponse{
-			SessionId:      sur.SessionId,
-			EventTimestamp: datatype.Time(time.Now()),
-			ServiceRating: &charging_datatype.ServiceRating{
-				MonetaryTariff: monetaryTariff,
-			},
-		}
+		sua.ServiceRating = &charging_datatype.ServiceRating{MonetaryTariff: monetaryTariff}
 
 		switch sr.RequestSubType {
 		// price for the consumed units
@@ -217,18 +196,21 @@ func handleSUR() diam.HandlerFunc {
 			sua.ServiceRating.Price = datatype.Unsigned32(0)
 		}
 
-		a := m.Answer(diam.Success)
-		err = a.Marshal(&sua)
-		if err != nil {
-			logger.RatingLog.Errorf("Marshal SUA Err: %+v:", err)
-		}
+		sendServiceUsageAnswer(c, m, diam.Success, &sua)
+	}
+}
 
-		_, err = a.WriteTo(c)
-		if err != nil {
-			logger.RatingLog.Errorf("Failed to write message to %s: %s\n%s\n",
-				c.RemoteAddr(), err, a)
-			return
-		}
+func sendServiceUsageAnswer(
+	c diam.Conn, m *diam.Message, result uint32, response *charging_datatype.ServiceUsageResponse,
+) {
+	response.ResultCode = datatype.Unsigned32(result)
+	answer := m.Answer(result)
+	if err := answer.Marshal(response); err != nil {
+		logger.RatingLog.Errorf("Marshal SUA: %v", err)
+		return
+	}
+	if _, err := answer.WriteTo(c); err != nil {
+		logger.RatingLog.Errorf("Write SUA to %s: %v", c.RemoteAddr(), err)
 	}
 }
 
