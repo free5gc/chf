@@ -8,6 +8,9 @@ const (
 	ABMF_CreditControl  = 272
 )
 
+// DiameterUserUnknown identifies missing subscriber data in the charging backend.
+const DiameterUserUnknown = 5030
+
 const (
 	BeginTime = iota + 7000
 	ActualTime

@@ -2,6 +2,7 @@ package charging
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -16,6 +17,9 @@ import (
 
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 )
+
+// ErrChargingDataNotFound identifies a missing subscriber rating or balance record.
+var ErrChargingDataNotFound = errors.New("charging data not found")
 
 type account struct {
 	ID    any    `bson:"_id"`
@@ -174,6 +178,10 @@ func (a *Accounts) Apply(
 	for attempt := 0; attempt < 32; attempt++ {
 		var balance account
 		if err = a.policies.FindOne(ctx, filter).Decode(&balance); err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				return nil, fmt.Errorf("%w: no account for subscriber %s rating group %d",
+					ErrChargingDataNotFound, subscriber, request.MultipleServicesCreditControl.RatingGroup)
+			}
 			return nil, err
 		}
 		quota, parseErr := strconv.ParseInt(balance.Quota, 10, 64)

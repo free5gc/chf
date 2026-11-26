@@ -376,11 +376,11 @@ func (p *Processor) ChargingDataUpdate(
 	responseBody, partialRecord, reservationErr := p.BuildConvergedChargingDataUpdateResopone(
 		chargingData, chargingSessionId, record)
 	if reservationErr != nil {
-		return nil, p.failChargingRequest(record, chargingProblem(reservationErr))
+		return nil, p.failChargingRequest(record, reservationErr)
 	}
 
 	if err := p.applyChargingCDR(ue, record, partialRecord); err != nil {
-		return nil, p.failChargingRequest(record, chargingProblem(err))
+		return nil, p.failChargingRequest(record, err)
 	}
 
 	err := cgf.SendCDR(chargingData.SubscriberIdentifier)
@@ -394,7 +394,7 @@ func (p *Processor) ChargingDataUpdate(
 
 	body, encodeErr := json.Marshal(responseBody)
 	if encodeErr != nil {
-		return nil, p.failChargingRequest(record, chargingProblem(encodeErr))
+		return nil, p.failChargingRequest(record, encodeErr)
 	}
 	p.requests.Finish(record, charging.Result{Status: http.StatusOK, Body: body}, charging.Succeeded)
 	for key, state := range ue.Quotas {
@@ -439,11 +439,11 @@ func (p *Processor) ChargingDataRelease(
 	}
 	applyPendingRecharges(ue, record)
 	if _, _, err := p.sessionChargingReservation(chargingData, chargingSessionId, record); err != nil {
-		return p.failChargingRequest(record, chargingProblem(err))
+		return p.failChargingRequest(record, err)
 	}
 
 	if err := p.applyChargingCDR(ue, record, false); err != nil {
-		return p.failChargingRequest(record, chargingProblem(err))
+		return p.failChargingRequest(record, err)
 	}
 
 	if err := cgf.SendCDR(chargingData.SubscriberIdentifier); err != nil {

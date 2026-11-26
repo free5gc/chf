@@ -101,19 +101,15 @@ func (p *Processor) rejectChargingRequest(
 	return problem
 }
 
-func (p *Processor) failChargingRequest(
-	record *charging.Record, problem *models.ProblemDetails,
-) *models.ProblemDetails {
-	detail := problem.Detail
-	if detail == "" {
-		detail = problem.Cause
-	}
-	if detail == "" {
-		detail = http.StatusText(int(problem.Status))
-	}
-	record.Failure = detail
+func (p *Processor) failChargingRequest(record *charging.Record, err error) *models.ProblemDetails {
+	record.Failure = err.Error()
 	p.requests.Fail(record, p.expireChargingRequest)
-	return chargingProblem(fmt.Errorf("charging operation awaiting the same invocation retry: %s", detail))
+	if errors.Is(err, charging.ErrChargingDataNotFound) {
+		return &models.ProblemDetails{
+			Status: http.StatusBadRequest, Cause: "CHARGING_FAILED", Detail: record.Failure,
+		}
+	}
+	return chargingProblem(fmt.Errorf("charging operation awaiting the same invocation retry: %w", err))
 }
 
 func (p *Processor) captureServiceUsage(

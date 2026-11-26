@@ -13,6 +13,7 @@ import (
 
 	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
+	"github.com/free5gc/chf/internal/charging"
 	chf_context "github.com/free5gc/chf/internal/context"
 	"github.com/free5gc/chf/internal/logger"
 	"github.com/free5gc/chf/pkg/factory"
@@ -56,13 +57,30 @@ func SendServiceUsageRequest(
 
 	select {
 	case m := <-answers:
-		var sua charging_datatype.ServiceUsageResponse
-		if errMarshal := m.Unmarshal(&sua); errMarshal != nil {
-			return nil, fmt.Errorf("failed to parse message from %v", errMarshal)
-		}
-		return &sua, nil
+		return decodeServiceUsageAnswer(sur, m)
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout: no rate answer received")
+	}
+}
+
+func decodeServiceUsageAnswer(
+	request *charging_datatype.ServiceUsageRequest, message *diam.Message,
+) (*charging_datatype.ServiceUsageResponse, error) {
+	var response charging_datatype.ServiceUsageResponse
+	if err := message.Unmarshal(&response); err != nil {
+		return nil, fmt.Errorf("decode rating answer: %w", err)
+	}
+	if response.SessionId != request.SessionId {
+		return nil, fmt.Errorf("rating answer does not match service usage request")
+	}
+	switch response.ResultCode {
+	case diam.Success:
+		return &response, nil
+	case charging_code.DiameterUserUnknown:
+		return nil, fmt.Errorf("%w: no tariff for rating group %d",
+			charging.ErrChargingDataNotFound, request.ServiceRating.ServiceIdentifier)
+	default:
+		return nil, fmt.Errorf("rating function rejected service usage: result=%d", response.ResultCode)
 	}
 }
 

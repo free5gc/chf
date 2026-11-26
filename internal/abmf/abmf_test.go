@@ -11,15 +11,17 @@ import (
 	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
+	"github.com/free5gc/chf/internal/charging"
 )
 
 func TestAccountWireAnswerRejectsFailureAndStaleResponse(t *testing.T) {
 	require.NoError(t, dict.Default.Load(bytes.NewReader([]byte(charging_dict.AbmfDictionary))))
 	request := &charging_datatype.AccountDebitRequest{
 		SessionId: "operation-7", CcRequestNumber: 7,
-		CcRequestType: charging_datatype.UPDATE_REQUEST,
+		CcRequestType:                 charging_datatype.UPDATE_REQUEST,
+		MultipleServicesCreditControl: &charging_datatype.MultipleServicesCreditControl{RatingGroup: 10},
 	}
-	for _, kind := range []string{"success", "failure", "session", "sequence", "type"} {
+	for _, kind := range []string{"success", "failure", "missing account", "session", "sequence", "type"} {
 		t.Run(kind, func(t *testing.T) {
 			response := &charging_datatype.AccountDebitResponse{
 				SessionId: request.SessionId, CcRequestNumber: 7,
@@ -31,6 +33,9 @@ func TestAccountWireAnswerRejectsFailureAndStaleResponse(t *testing.T) {
 				response.ResultCode = diam.UnableToComply
 			}
 			switch kind {
+			case "missing account":
+				code = charging_code.DiameterUserUnknown
+				response.ResultCode = charging_code.DiameterUserUnknown
 			case "session":
 				response.SessionId = "old-operation"
 			case "sequence":
@@ -46,6 +51,11 @@ func TestAccountWireAnswerRejectsFailureAndStaleResponse(t *testing.T) {
 				require.Equal(t, request.SessionId, decoded.SessionId)
 			} else {
 				require.Error(t, err)
+				if kind == "missing account" {
+					require.ErrorIs(t, err, charging.ErrChargingDataNotFound)
+				} else {
+					require.NotErrorIs(t, err, charging.ErrChargingDataNotFound)
+				}
 				require.Nil(t, decoded)
 			}
 		})

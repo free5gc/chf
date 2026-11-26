@@ -18,6 +18,7 @@ package abmf
 import (
 	"bytes"
 	"context"
+	"errors"
 	_ "net/http/pprof"
 	"strconv"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"github.com/fiorix/go-diameter/diam/dict"
 	"github.com/fiorix/go-diameter/diam/sm"
 
+	charging_code "github.com/free5gc/chf/ccs_diameter/code"
 	charging_datatype "github.com/free5gc/chf/ccs_diameter/datatype"
 	charging_dict "github.com/free5gc/chf/ccs_diameter/dict"
 	"github.com/free5gc/chf/internal/charging"
@@ -118,6 +120,9 @@ func handleCCR(accounts *charging.Accounts) diam.HandlerFunc {
 		if err != nil {
 			logger.AcctLog.Errorf("Account operation failed: %v", err)
 			resultCode = diam.UnableToComply
+			if errors.Is(err, charging.ErrChargingDataNotFound) {
+				resultCode = charging_code.DiameterUserUnknown
+			}
 			response = &charging_datatype.AccountDebitResponse{
 				SessionId: request.SessionId, CcRequestNumber: request.CcRequestNumber,
 				CcRequestType: request.CcRequestType, ResultCode: datatype.Unsigned32(resultCode),

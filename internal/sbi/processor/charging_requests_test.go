@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.uber.org/mock/gomock"
 	"gopkg.in/yaml.v2"
 
@@ -429,4 +430,45 @@ func TestChargingRetryRetentionConfiguration(t *testing.T) {
 			require.Equal(t, tc.want, p.requests.RetryRetention)
 		})
 	}
+}
+
+func TestMongoChargingReleaseRejectsMissingAccount(t *testing.T) {
+	db := testutil.Mongo(t)
+	p, request, ref := chargingRequestSession(t)
+	useMongoQuotaAccount(t, p, db, request.SubscriberIdentifier, "100")
+	collection := db.Collection("policyData.ues.chargingData")
+	filter := bson.M{"ueId": request.SubscriberIdentifier, "ratingGroup": 10}
+	removed, err := collection.DeleteOne(t.Context(), filter)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, removed.DeletedCount)
+
+	response := chargingAPIResponse(t, p, request, ref, chargingReleaseOperation)
+	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "CHARGING_FAILED")
+	require.Contains(t, response.Body.String(), "no account")
+	_, err = collection.InsertOne(t.Context(), bson.M{
+		"ueId": request.SubscriberIdentifier, "ratingGroup": 10, "quota": "100",
+	})
+	require.NoError(t, err)
+
+	request.RetransmissionIndicator = true
+	for range 2 {
+		response = chargingAPIResponse(t, p, request, ref, chargingReleaseOperation)
+		require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
+	}
+	requireQuotaBalance(t, db, request.SubscriberIdentifier, 60)
+}
+
+func TestChargingReleaseRejectsMissingTariffWithoutDebit(t *testing.T) {
+	p, request, ref := chargingRequestSession(t)
+	calls := countAccountCalls(p)
+	p.serviceUsage = func(
+		*chf_context.ChfUe, *charging_datatype.ServiceUsageRequest,
+	) (*charging_datatype.ServiceUsageResponse, error) {
+		return nil, charging.ErrChargingDataNotFound
+	}
+	response := chargingAPIResponse(t, p, request, ref, chargingReleaseOperation)
+	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "CHARGING_FAILED")
+	require.Zero(t, calls.Load())
 }
