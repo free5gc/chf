@@ -39,7 +39,7 @@ func TestMongoChargingUPFFinalDoesNotChangeOtherReservation(t *testing.T) {
 				response, problem := p.ChargingDataUpdate(request, ref)
 				require.Nil(t, problem)
 				for _, info := range response.MultipleUnitInformation {
-					require.Equal(t, int32(100), info.GrantedUnit.TotalVolume)
+					require.Equal(t, uint64(100), info.GrantedUnit.TotalVolume)
 				}
 				requireQuotaBalance(t, db, request.SubscriberIdentifier, 800)
 				entries := []models.Chf_ConvCharging_MultipleUnitUsage{
@@ -85,7 +85,7 @@ func TestMongoChargingUPFFinalDoesNotChangeOtherReservation(t *testing.T) {
 				request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-b", 100, true)}
 				response, problem = p.ChargingDataUpdate(request, ref)
 				require.Nil(t, problem)
-				require.Equal(t, int32(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+				require.Equal(t, uint64(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 				require.Equal(t, int64(100), ue.Quotas[b].Reserved)
 				requireQuotaBalance(t, db, request.SubscriberIdentifier, 800-int64(used))
 				// A's old final request must replay without refunding or changing B again.
@@ -125,10 +125,10 @@ func TestMongoChargingPartialGrantsAreBackedByEachUPFReservation(t *testing.T) {
 			require.Equal(t, int64(150), totalReserved)
 			requireQuotaBalance(t, db, request.SubscriberIdentifier, 0)
 			if cost == 1 {
-				require.Equal(t, int32(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
-				require.Equal(t, int32(50), response.MultipleUnitInformation[1].GrantedUnit.TotalVolume)
+				require.Equal(t, uint64(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+				require.Equal(t, uint64(50), response.MultipleUnitInformation[1].GrantedUnit.TotalVolume)
 			} else {
-				require.Equal(t, int32(75), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+				require.Equal(t, uint64(75), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 				require.Zero(t, response.MultipleUnitInformation[1].GrantedUnit.TotalVolume)
 			}
 		})
@@ -190,7 +190,7 @@ func TestChargingExhaustionRechargeAndNewQuotaCycle(t *testing.T) {
 	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 0, true)}
 	response, problem := p.ChargingDataUpdate(request, ref)
 	require.Nil(t, problem)
-	require.Equal(t, int32(50), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+	require.Equal(t, uint64(50), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 	ue, ok := chf_context.GetSelf().ChfUeFindBySupi(request.SubscriberIdentifier)
 	require.True(t, ok)
 	key := charging.QuotaKey{ChargingDataRef: ref, RatingGroup: 10, UPFID: "upf-a"}
@@ -220,7 +220,7 @@ func TestChargingExhaustionRechargeAndNewQuotaCycle(t *testing.T) {
 	request.InvocationSequenceNumber++
 	response, problem = p.ChargingDataUpdate(request, ref)
 	require.Nil(t, problem)
-	require.Equal(t, int32(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+	require.Equal(t, uint64(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 	request.InvocationSequenceNumber++
 	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 100, false)}
 	_, problem = p.ChargingDataUpdate(request, ref)
@@ -233,7 +233,7 @@ func TestChargingExhaustionRechargeAndNewQuotaCycle(t *testing.T) {
 	request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 0, true)}
 	response, problem = p.ChargingDataUpdate(request, ref)
 	require.Nil(t, problem)
-	require.Equal(t, int32(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+	require.Equal(t, uint64(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 	require.False(t, ue.Quotas[key].Closed)
 	require.Equal(t, charging_datatype.REQ_SUBTYPE_RESERVE, ue.Quotas[key].RatingType)
 }
@@ -248,7 +248,7 @@ func TestChargingLegacyUPFIDMustRemainUnambiguous(t *testing.T) {
 			if existing {
 				response, problem := p.ChargingDataUpdate(request, ref)
 				require.Nil(t, problem)
-				require.Equal(t, int32(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+				require.Equal(t, uint64(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 				request.InvocationSequenceNumber++
 				request.MultipleUnitUsage = []models.Chf_ConvCharging_MultipleUnitUsage{onlineQuotaUsage("upf-a", 0, true)}
 			} else {
@@ -305,7 +305,7 @@ func TestChargingReservationFreezesAllRatingResultsBeforeDebit(t *testing.T) {
 	response, problem := p.ChargingDataUpdate(request, ref)
 	require.Nil(t, problem)
 	// RF allowed 80, but 100 reserved account units at the next cost of 2 fund only 50.
-	require.Equal(t, int32(50), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+	require.Equal(t, uint64(50), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 	require.Equal(t, int64(100), ue.Quotas[key].Reserved)
 	require.Equal(t, uint32(2), ue.Quotas[key].UnitCost)
 }
@@ -381,5 +381,5 @@ func TestChargingRepeatedQuotaOwnerUsesPreviousActualGrant(t *testing.T) {
 	require.NotEqual(t, sessions[0], sessions[1])
 	require.Equal(t, models.Chf_ConvCharging_FinalUnitAction_TERMINATE,
 		response.MultipleUnitInformation[0].FinalUnitIndication.FinalUnitAction)
-	require.Equal(t, int32(30000000), response.MultipleUnitInformation[0].VolumeQuotaThreshold)
+	require.Equal(t, uint64(30000000), response.MultipleUnitInformation[0].VolumeQuotaThreshold)
 }

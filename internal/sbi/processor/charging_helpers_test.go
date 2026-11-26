@@ -62,11 +62,7 @@ func chargingRequestSession(t *testing.T) (*Processor, models.Chf_ConvCharging_C
 	require.NoError(t, err)
 	ue.Cdr[ref] = cdr
 	ue.Records = []*cdrType.CHFRecord{cdr}
-	p.serviceUsage = func(_ *chf_context.ChfUe, _ *charging_datatype.ServiceUsageRequest) (
-		*charging_datatype.ServiceUsageResponse, error,
-	) {
-		return &charging_datatype.ServiceUsageResponse{ServiceRating: &charging_datatype.ServiceRating{Price: 40}}, nil
-	}
+	p.serviceUsage = fixedQuotaRating(1)
 	p.accountDebit = func(_ *chf_context.ChfUe, request *charging_datatype.AccountDebitRequest) (
 		*charging_datatype.AccountDebitResponse, error,
 	) {
@@ -112,7 +108,7 @@ func onlineQuotaUsage(upf string, used int32, requestCredit bool) models.Chf_Con
 	usage := models.Chf_ConvCharging_MultipleUnitUsage{
 		RatingGroup: 10, UPFID: upf,
 		UsedUnitContainer: []models.Chf_ConvCharging_UsedUnitContainer{{
-			TotalVolume:              used,
+			TotalVolume:              uint64(used),
 			QuotaManagementIndicator: models.Chf_ConvCharging_QuotaManagementIndicator_ONLINE_CHARGING,
 		}},
 	}

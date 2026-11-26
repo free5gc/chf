@@ -13,6 +13,7 @@ import (
 	"github.com/free5gc/chf/pkg/factory"
 	"github.com/free5gc/openapi/models"
 	"github.com/free5gc/util/idgenerator"
+	"github.com/free5gc/util/serviceuri"
 )
 
 // Init CHF Context from config file
@@ -94,6 +95,7 @@ func AddNfServices(
 	serviceMap *map[models.Nrf_NFMgmt_ServiceName]models.Nrf_NFMgmt_NFService, config *factory.Config, context *CHFContext,
 ) {
 	services := *serviceMap
+	addr := serviceuri.NewAddressing(context.RegisterIPv4)
 
 	serviceVersions := map[models.Nrf_NFMgmt_ServiceName]string{
 		models.Nrf_NFMgmt_ServiceName_NCHF_CONVERGEDCHARGING: factory.ConvergedChargingApiVersion,
@@ -108,16 +110,10 @@ func AddNfServices(
 		services[serviceName] = models.Nrf_NFMgmt_NFService{
 			ServiceInstanceId: context.NfId,
 			ServiceName:       serviceName,
-			ApiPrefix:         context.Url,
 			Scheme:            context.UriScheme,
 			NfServiceStatus:   models.Nrf_NFMgmt_NFServiceStatus_REGISTERED,
-			IpEndPoints: []models.Nrf_NFMgmt_IpEndPoint{
-				{
-					Ipv4Address: context.RegisterIPv4,
-					Port:        int32(context.SBIPort),
-					Transport:   models.Nrf_NFMgmt_TransportProtocol_TCP,
-				},
-			},
+			Fqdn:              addr.FQDN,
+			IpEndPoints:       addr.IpEndPoints(int32(context.SBIPort)),
 			Versions: []models.Nrf_NFMgmt_NFServiceVersion{
 				{
 					ApiFullVersion:  config.Info.Version,

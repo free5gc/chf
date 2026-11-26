@@ -46,10 +46,10 @@ func (p *Processor) executeSettlementStep(ue *chf_context.ChfUe, step *charging.
 		funded := uint64(max(after.Reserved, 0)) / uint64(after.UnitCost)
 		volume := min(uint64(info.GrantedUnit.TotalVolume), funded)
 		info.GrantedUnit = &models.Chf_ConvCharging_GrantedUnit{
-			TotalVolume: int32(volume), DownlinkVolume: int32(volume), UplinkVolume: int32(volume),
+			TotalVolume: volume, DownlinkVolume: volume, UplinkVolume: volume,
 		}
 		if !after.Exhausted && step.AdjustThreshold {
-			info.VolumeQuotaThreshold = int32(float32(volume) * step.ThresholdRate)
+			info.VolumeQuotaThreshold = uint64(float32(volume) * step.ThresholdRate)
 		}
 	}
 	return &charging.SettlementOutcome{

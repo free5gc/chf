@@ -139,7 +139,6 @@ func buildTaffif(unitCostStr string) *charging_datatype.MonetaryTariff {
 func handleSUR() diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
 		var sur charging_datatype.ServiceUsageRequest
-		var monetaryCost datatype.Unsigned32
 		var subscriberId string
 
 		if err := m.Unmarshal(&sur); err != nil {
@@ -203,9 +202,11 @@ func handleSUR() diam.HandlerFunc {
 		switch sr.RequestSubType {
 		// price for the consumed units
 		case charging_datatype.REQ_SUBTYPE_DEBIT:
-			monetaryCost = sr.ConsumedUnits * unitCost
+			// TS 32.296 types Price as Unsigned32. The CHF splits a debit so
+			// that its price fits; a price that still does not is capped.
 			sua.ServiceRating.AllowedUnits = datatype.Unsigned32(0)
-			sua.ServiceRating.Price = monetaryCost
+			sua.ServiceRating.Price = datatype.Unsigned32(
+				min(uint64(sr.ConsumedUnits)*uint64(unitCost), math.MaxUint32))
 		// price for the reserved units
 		case charging_datatype.REQ_SUBTYPE_RESERVE:
 			sua.ServiceRating.AllowedUnits = sr.MonetaryQuota / unitCost

@@ -228,13 +228,13 @@ func TestChargingRechargeWaitsForPendingInvocation(t *testing.T) {
 	p.cdrWriter = nil
 	response, problem := p.ChargingDataUpdate(request, ref)
 	require.Nil(t, problem)
-	require.Equal(t, int32(50), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+	require.Equal(t, uint64(50), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 	require.Equal(t, 1, grants)
 	request.InvocationSequenceNumber++
 	request.MultipleUnitUsage[0].UsedUnitContainer[0].TotalVolume = 50
 	response, problem = p.ChargingDataUpdate(request, ref)
 	require.Nil(t, problem)
-	require.Equal(t, int32(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
+	require.Equal(t, uint64(100), response.MultipleUnitInformation[0].GrantedUnit.TotalVolume)
 	require.Equal(t, 2, grants)
 }
 
